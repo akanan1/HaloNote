@@ -1,4 +1,8 @@
-import { sign as cryptoSign, type KeyObject } from "node:crypto";
+import {
+  createPrivateKey,
+  sign as cryptoSign,
+  type KeyObject,
+} from "node:crypto";
 import type { JwtSigner, JwtSigningAlgorithm } from "./types";
 
 interface AlgParams {
@@ -63,15 +67,18 @@ function signLocally(
 ): Buffer {
   const params = ALG_PARAMS[algorithm];
   const data = Buffer.from(signingInput);
+  // Normalize to KeyObject up front. crypto.sign's overloads split on
+  // input shape (SignPrivateKeyInput.key is string|Buffer, SignKeyObject-
+  // Input.key is KeyObject) and don't unify on a `string | KeyObject` —
+  // a single KeyObject keeps the downstream call sites unambiguous.
+  const key =
+    typeof privateKey === "string" ? createPrivateKey(privateKey) : privateKey;
 
-  // Two distinct call sites so TS picks the right crypto.sign overload —
-  // a conditional `key | { key, dsaEncoding }` union doesn't narrow cleanly
-  // against the four overload signatures.
   if (params.dsaEncoding) {
     return cryptoSign(params.hash, data, {
-      key: privateKey,
+      key,
       dsaEncoding: params.dsaEncoding,
     });
   }
-  return cryptoSign(params.hash, data, privateKey);
+  return cryptoSign(params.hash, data, key);
 }

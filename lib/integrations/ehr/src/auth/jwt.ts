@@ -62,9 +62,16 @@ function signLocally(
   algorithm: JwtSigningAlgorithm,
 ): Buffer {
   const params = ALG_PARAMS[algorithm];
-  const keyForSign = params.dsaEncoding
-    ? { key: privateKey, dsaEncoding: params.dsaEncoding }
-    : privateKey;
+  const data = Buffer.from(signingInput);
 
-  return cryptoSign(params.hash, Buffer.from(signingInput), keyForSign);
+  // Two distinct call sites so TS picks the right crypto.sign overload —
+  // a conditional `key | { key, dsaEncoding }` union doesn't narrow cleanly
+  // against the four overload signatures.
+  if (params.dsaEncoding) {
+    return cryptoSign(params.hash, data, {
+      key: privateKey,
+      dsaEncoding: params.dsaEncoding,
+    });
+  }
+  return cryptoSign(params.hash, data, privateKey);
 }

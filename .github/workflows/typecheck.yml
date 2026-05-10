@@ -24,9 +24,6 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # TODO: switch back to --frozen-lockfile once pnpm-lock.yaml has been
-      # regenerated on Linux (after the lib/integrations/ehr package was added
-      # the lockfile drifted; this machine can't run pnpm to refresh it).
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
       - run: pnpm run typecheck

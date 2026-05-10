@@ -119,3 +119,65 @@ function padToCoord(value: Buffer, size: number): Buffer {
   value.copy(padded, size - value.length);
   return padded;
 }
+
+/**
+ * Convert a JOSE / IEEE-P1363 ECDSA signature (`r || s`, each padded to
+ * the curve's coordinate size) back to ASN.1 DER. Useful when verifying
+ * a JOSE-encoded signature with a tool that expects DER (e.g. Node's
+ * `crypto.verify` without `dsaEncoding: "ieee-p1363"`, or OpenSSL).
+ *
+ * Throws if the input length doesn't match `2 * coordSize` for the
+ * given algorithm.
+ */
+export function joseToDer(
+  jose: Buffer | Uint8Array,
+  algorithm: EcdsaAlgorithm,
+): Buffer {
+  const buf = Buffer.isBuffer(jose) ? jose : Buffer.from(jose);
+  const coordSize = COORD_SIZE[algorithm];
+
+  if (buf.length !== coordSize * 2) {
+    throw new Error(
+      `Invalid JOSE signature: expected ${coordSize * 2} bytes for ${algorithm}, got ${buf.length}.`,
+    );
+  }
+
+  const rTlv = encodeInteger(buf.subarray(0, coordSize));
+  const sTlv = encodeInteger(buf.subarray(coordSize));
+  const seqContent = Buffer.concat([rTlv, sTlv]);
+
+  return Buffer.concat([
+    Buffer.from([0x30]),
+    encodeLength(seqContent.length),
+    seqContent,
+  ]);
+}
+
+function encodeInteger(magnitude: Buffer): Buffer {
+  // DER requires minimum encoding — strip leading zeros, but keep at
+  // least one byte so a literal 0 still encodes as `02 01 00`.
+  let start = 0;
+  while (start < magnitude.length - 1 && magnitude[start] === 0x00) {
+    start++;
+  }
+  let bytes = magnitude.subarray(start);
+  // If the high bit is set, prepend 0x00 so DER reads the integer as
+  // positive instead of two's-complement negative.
+  if ((bytes[0] & 0x80) !== 0) {
+    bytes = Buffer.concat([Buffer.from([0x00]), bytes]);
+  }
+  return Buffer.concat([
+    Buffer.from([0x02]),
+    encodeLength(bytes.length),
+    bytes,
+  ]);
+}
+
+function encodeLength(len: number): Buffer {
+  if (len < 0x80) return Buffer.from([len]);
+  if (len < 0x100) return Buffer.from([0x81, len]);
+  if (len < 0x10000) {
+    return Buffer.from([0x82, (len >> 8) & 0xff, len & 0xff]);
+  }
+  throw new Error(`Length too large for DER encoding: ${len}.`);
+}

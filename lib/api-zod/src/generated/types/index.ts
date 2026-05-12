@@ -6,11 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./auditLogEntry";
+export * from "./auditLogEntryMetadata";
 export * from "./authUser";
 export * from "./createNoteRequest";
 export * from "./createPatientRequest";
 export * from "./ehrPushResult";
 export * from "./healthStatus";
+export * from "./listAuditLog200";
+export * from "./listAuditLogParams";
 export * from "./listNotes200";
 export * from "./listNotesParams";
 export * from "./listPatients200";

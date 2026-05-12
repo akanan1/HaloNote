@@ -4,6 +4,10 @@ import { closeDb } from "@workspace/db";
 import { seedPatientsIfEmpty } from "./lib/patients";
 import { seedUsersIfEmpty } from "./lib/seed-users";
 import { getInflightCount, waitForDrain } from "./lib/inflight";
+import {
+  scheduleAuditLogCleanup,
+  stopAuditLogCleanup,
+} from "./lib/audit-cleanup";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +34,10 @@ try {
 const server = app.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
+
+// Daily delete of audit-log rows older than the retention window.
+// .unref()-ed so it doesn't keep the event loop alive on SIGTERM.
+scheduleAuditLogCleanup();
 
 server.on("error", (err) => {
   logger.error({ err }, "Server failed to start");
@@ -62,6 +70,8 @@ async function shutdown(signal: string): Promise<void> {
       "Drain timeout — closing pool with requests still in flight",
     );
   }
+
+  stopAuditLogCleanup();
 
   try {
     await closeDb();

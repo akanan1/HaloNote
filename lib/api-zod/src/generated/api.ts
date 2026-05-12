@@ -83,6 +83,41 @@ export const GetCurrentUserResponse = zod.object({
 });
 
 /**
+ * Returns audit log entries, newest first. Cursor-pagination via `before` + `limit`. Optional filters on userId, resourceType, and action.
+ * @summary List audit log entries
+ */
+export const listAuditLogQueryLimitMax = 200;
+
+export const ListAuditLogQueryParams = zod.object({
+  before: zod.date().optional(),
+  limit: zod.coerce.number().min(1).max(listAuditLogQueryLimitMax).optional(),
+  userId: zod.coerce.string().optional(),
+  resourceType: zod.coerce.string().optional(),
+  action: zod.coerce.string().optional(),
+});
+
+export const ListAuditLogResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      userId: zod.string().nullable(),
+      userDisplayName: zod
+        .string()
+        .nullable()
+        .describe(
+          "Joined from the users table at read time; null for entries whose user has since been deleted, or system-originated events.",
+        ),
+      action: zod.string(),
+      resourceType: zod.string(),
+      resourceId: zod.string().nullable(),
+      metadata: zod.record(zod.string(), zod.unknown()).nullable(),
+      at: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.coerce.date().nullable(),
+});
+
+/**
  * Returns the patients accessible to the signed-in provider.
  * @summary List patients
  */

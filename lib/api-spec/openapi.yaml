@@ -16,6 +16,8 @@ tags:
     description: Patient data
   - name: notes
     description: Clinical notes
+  - name: audit
+    description: Compliance + access logs
 paths:
   /healthz:
     get:
@@ -131,6 +133,60 @@ paths:
                 $ref: "#/components/schemas/AuthUser"
         "401":
           description: Not signed in
+  /audit-log:
+    get:
+      operationId: listAuditLog
+      tags: [audit]
+      summary: List audit log entries
+      description: >-
+        Returns audit log entries, newest first. Cursor-pagination via
+        `before` + `limit`. Optional filters on userId, resourceType,
+        and action.
+      parameters:
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resourceType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, nextCursor]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLogEntry"
+                  nextCursor:
+                    type: ["string", "null"]
+                    format: date-time
   /patients:
     get:
       operationId: listPatients
@@ -465,6 +521,39 @@ components:
           type: string
           minLength: 8
           maxLength: 200
+    AuditLogEntry:
+      type: object
+      required:
+        - id
+        - userId
+        - userDisplayName
+        - action
+        - resourceType
+        - resourceId
+        - metadata
+        - at
+      properties:
+        id:
+          type: string
+        userId:
+          type: ["string", "null"]
+        userDisplayName:
+          type: ["string", "null"]
+          description: >-
+            Joined from the users table at read time; null for entries
+            whose user has since been deleted, or system-originated events.
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: ["string", "null"]
+        metadata:
+          type: ["object", "null"]
+          additionalProperties: true
+        at:
+          type: string
+          format: date-time
     NoteAuthor:
       type: object
       required: [id, displayName]

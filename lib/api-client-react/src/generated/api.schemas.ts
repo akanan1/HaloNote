@@ -118,6 +118,29 @@ export interface PasswordResetConfirm {
   password: string;
 }
 
+/**
+ * @nullable
+ */
+export type AuditLogEntryMetadata = { [key: string]: unknown } | null;
+
+export interface AuditLogEntry {
+  id: string;
+  /** @nullable */
+  userId: string | null;
+  /**
+   * Joined from the users table at read time; null for entries whose user has since been deleted, or system-originated events.
+   * @nullable
+   */
+  userDisplayName: string | null;
+  action: string;
+  resourceType: string;
+  /** @nullable */
+  resourceId: string | null;
+  /** @nullable */
+  metadata: AuditLogEntryMetadata;
+  at: string;
+}
+
 export interface EhrPushResult {
   /** EHR provider name, e.g. "athenahealth", "epic", or "mock". */
   provider: string;
@@ -127,6 +150,24 @@ export interface EhrPushResult {
   /** True when the push was synthesized locally because no EHR is configured. */
   mock: boolean;
 }
+
+export type ListAuditLogParams = {
+  before?: string;
+  /**
+   * @minimum 1
+   * @maximum 200
+   */
+  limit?: number;
+  userId?: string;
+  resourceType?: string;
+  action?: string;
+};
+
+export type ListAuditLog200 = {
+  data: AuditLogEntry[];
+  /** @nullable */
+  nextCursor: string | null;
+};
 
 export type ListPatients200 = {
   data: Patient[];

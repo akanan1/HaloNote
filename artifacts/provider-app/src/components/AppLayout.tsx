@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LogOut } from "lucide-react";
+import { LogOut, ScrollText } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -27,8 +27,14 @@ export function AppLayout({ children }: AppLayoutProps) {
             HaloNote
           </Link>
           {user ? (
-            <div className="flex items-center gap-4 text-sm">
-              <span className="text-(--color-muted-foreground)">
+            <div className="flex items-center gap-2 text-sm">
+              <Link href="/audit-log">
+                <Button variant="ghost" size="sm">
+                  <ScrollText className="h-4 w-4" />
+                  Audit log
+                </Button>
+              </Link>
+              <span className="hidden text-(--color-muted-foreground) sm:inline">
                 {user.displayName}
               </span>
               <Button

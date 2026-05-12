@@ -22,6 +22,8 @@ import type {
   CreatePatientRequest,
   EhrPushResult,
   HealthStatus,
+  ListAuditLog200,
+  ListAuditLogParams,
   ListNotes200,
   ListNotesParams,
   ListPatients200,
@@ -610,6 +612,101 @@ export function useGetCurrentUser<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetCurrentUserQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns audit log entries, newest first. Cursor-pagination via `before` + `limit`. Optional filters on userId, resourceType, and action.
+ * @summary List audit log entries
+ */
+export const getListAuditLogUrl = (params?: ListAuditLogParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/audit-log?${stringifiedParams}`
+    : `/api/audit-log`;
+};
+
+export const listAuditLog = async (
+  params?: ListAuditLogParams,
+  options?: RequestInit,
+): Promise<ListAuditLog200> => {
+  return customFetch<ListAuditLog200>(getListAuditLogUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAuditLogQueryKey = (params?: ListAuditLogParams) => {
+  return [`/api/audit-log`, ...(params ? [params] : [])] as const;
+};
+
+export const getListAuditLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAuditLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAuditLogQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listAuditLog>>> = ({
+    signal,
+  }) => listAuditLog(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAuditLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAuditLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAuditLog>>
+>;
+export type ListAuditLogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List audit log entries
+ */
+
+export function useListAuditLog<
+  TData = Awaited<ReturnType<typeof listAuditLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAuditLogQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

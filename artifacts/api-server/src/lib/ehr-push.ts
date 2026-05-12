@@ -1,5 +1,6 @@
 import { FhirError } from "@workspace/ehr";
 import { getAthenahealthClient } from "./athena";
+import { getEpicClient } from "./epic";
 import { logger } from "./logger";
 import type { Patient } from "./patients";
 
@@ -29,7 +30,7 @@ export class EhrPushError extends Error {
 }
 
 // Opt-in: only hit a real EHR when EHR_MODE is set to a provider name.
-// Otherwise mock — keeps dev safe from stale Replit creds + accidental
+// Otherwise mock — keeps dev safe from stale credentials + accidental
 // PHI leaks into vendor sandboxes.
 function resolveProvider(): "athenahealth" | "epic" | "mock" {
   const mode = process.env["EHR_MODE"]?.trim().toLowerCase();
@@ -67,21 +68,15 @@ export async function pushNoteToEhr(
     };
   }
 
-  if (provider === "epic") {
-    // Epic SMART-backend-services client isn't wired in the api-server yet;
-    // surface explicitly rather than silently misrouting.
-    throw new EhrPushError(
-      "EHR_MODE=epic is not yet implemented in the api-server.",
-      501,
-    );
-  }
-
   try {
-    const client = getAthenahealthClient();
+    const client =
+      provider === "athenahealth"
+        ? getAthenahealthClient()
+        : getEpicClient();
     const created = await client.documentReference.push(baseInput);
     const id = created.id ?? "unknown";
     return {
-      provider: "athenahealth",
+      provider,
       ehrDocumentRef: `DocumentReference/${id}`,
       pushedAt: new Date(),
       mock: false,

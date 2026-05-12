@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   ApiError,
   createPatient,
@@ -37,6 +38,7 @@ export function NewPatientPage() {
       void queryClient.invalidateQueries({
         queryKey: getListPatientsQueryKey(),
       });
+      toast.success(`${patient.lastName}, ${patient.firstName} added`);
       navigate(`/patients/${patient.id}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, Loader2, Pencil, Send } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   getGetNoteQueryKey,
   getListNotesQueryKey,
@@ -64,9 +65,14 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
   async function handleSend() {
     if (!note) return;
     try {
-      await sendNote.mutateAsync({ id: note.id });
-    } catch {
-      // error surfaces via mutation state below
+      const outcome = await sendNote.mutateAsync({ id: note.id });
+      toast.success(
+        outcome.mock ? "Sent to EHR (mock)" : `Sent to ${outcome.provider}`,
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "EHR send failed",
+      );
     }
     invalidateAllNoteQueries();
   }
@@ -82,6 +88,7 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
       await updateNote.mutateAsync({ id: note.id, data: { body: draftBody } });
       invalidateAllNoteQueries();
       setEditing(false);
+      toast.success("Note updated");
     } catch (err) {
       setEditError(err instanceof Error ? err.message : "Couldn't save edit.");
     }

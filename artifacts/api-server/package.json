@@ -23,7 +23,8 @@
     "express-rate-limit": "^8.5.1",
     "helmet": "^8.1.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "resend": "^6.12.3"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

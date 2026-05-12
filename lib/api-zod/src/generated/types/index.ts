@@ -8,6 +8,7 @@
 
 export * from "./authUser";
 export * from "./createNoteRequest";
+export * from "./createPatientRequest";
 export * from "./ehrPushResult";
 export * from "./healthStatus";
 export * from "./listNotes200";
@@ -17,3 +18,4 @@ export * from "./loginRequest";
 export * from "./note";
 export * from "./noteAuthor";
 export * from "./patient";
+export * from "./updateNoteRequest";

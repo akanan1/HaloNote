@@ -12,6 +12,8 @@ export interface Note {
   patientId: string;
   body: string;
   createdAt: Date;
+  /** Most recent edit; equal to createdAt when the note has not been edited. */
+  updatedAt: Date;
   author: NoteAuthor | null;
   /**
    * Provider that received this note, e.g. "athenahealth", "epic", "mock". Null until pushed.

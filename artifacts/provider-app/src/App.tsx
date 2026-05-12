@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { LoginPage } from "@/pages/Login";
 import { PatientsPage } from "@/pages/Patients";
 import { PatientDetailPage } from "@/pages/PatientDetail";
+import { NewPatientPage } from "@/pages/NewPatient";
 import { NewNotePage } from "@/pages/NewNote";
 import { NotePage } from "@/pages/Note";
 
@@ -30,6 +31,11 @@ export default function App() {
         <Route path="/">
           <RequireAuth>
             <PatientsPage />
+          </RequireAuth>
+        </Route>
+        <Route path="/patients/new">
+          <RequireAuth>
+            <NewPatientPage />
           </RequireAuth>
         </Route>
         <Route path="/patients/:id/notes/new">

@@ -9,4 +9,9 @@ import type { Note } from "./note";
 
 export type ListNotes200 = {
   data: Note[];
+  /**
+   * Pass back as `before` to load the next page. Null when no more rows.
+   * @nullable
+   */
+  nextCursor: Date | null;
 };

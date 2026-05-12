@@ -17,6 +17,10 @@ export const notesTable = pgTable("notes", {
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Set on every PATCH; equal to createdAt for new rows.
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+    .notNull()
+    .defaultNow(),
 
   // EHR push tracking. Populated after a successful POST to the EHR.
   ehrProvider: text("ehr_provider"),

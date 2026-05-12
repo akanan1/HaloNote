@@ -19,6 +19,7 @@ import type {
 import type {
   AuthUser,
   CreateNoteRequest,
+  CreatePatientRequest,
   EhrPushResult,
   HealthStatus,
   ListNotes200,
@@ -26,6 +27,8 @@ import type {
   ListPatients200,
   LoginRequest,
   Note,
+  Patient,
+  UpdateNoteRequest,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -430,7 +433,93 @@ export function useListPatients<
 }
 
 /**
- * Returns notes the signed-in provider can see, newest first. When `patientId` is supplied, only notes for that patient are returned.
+ * @summary Onboard a new patient
+ */
+export const getCreatePatientUrl = () => {
+  return `/api/patients`;
+};
+
+export const createPatient = async (
+  createPatientRequest: CreatePatientRequest,
+  options?: RequestInit,
+): Promise<Patient> => {
+  return customFetch<Patient>(getCreatePatientUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createPatientRequest),
+  });
+};
+
+export const getCreatePatientMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createPatient>>,
+    TError,
+    { data: BodyType<CreatePatientRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createPatient>>,
+  TError,
+  { data: BodyType<CreatePatientRequest> },
+  TContext
+> => {
+  const mutationKey = ["createPatient"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createPatient>>,
+    { data: BodyType<CreatePatientRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createPatient(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreatePatientMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createPatient>>
+>;
+export type CreatePatientMutationBody = BodyType<CreatePatientRequest>;
+export type CreatePatientMutationError = ErrorType<void>;
+
+/**
+ * @summary Onboard a new patient
+ */
+export const useCreatePatient = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createPatient>>,
+    TError,
+    { data: BodyType<CreatePatientRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createPatient>>,
+  TError,
+  { data: BodyType<CreatePatientRequest> },
+  TContext
+> => {
+  return useMutation(getCreatePatientMutationOptions(options));
+};
+
+/**
+ * Returns notes the signed-in provider can see, newest first. When `patientId` is supplied, only notes for that patient are returned. Cursor-based pagination via `before` + `limit` — pass the previous response's `nextCursor` to fetch the next page.
  * @summary List clinical notes
  */
 export const getListNotesUrl = (params?: ListNotesParams) => {
@@ -687,6 +776,94 @@ export function useGetNote<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Update the free-text body of an existing note. The patient, author, and EHR status are immutable through this endpoint — re-send to the EHR via POST /notes/{id}/send-to-ehr if you want downstream to reflect the edit.
+ * @summary Edit a note's body
+ */
+export const getUpdateNoteUrl = (id: string) => {
+  return `/api/notes/${id}`;
+};
+
+export const updateNote = async (
+  id: string,
+  updateNoteRequest: UpdateNoteRequest,
+  options?: RequestInit,
+): Promise<Note> => {
+  return customFetch<Note>(getUpdateNoteUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateNoteRequest),
+  });
+};
+
+export const getUpdateNoteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateNote>>,
+    TError,
+    { id: string; data: BodyType<UpdateNoteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateNote>>,
+  TError,
+  { id: string; data: BodyType<UpdateNoteRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateNote>>,
+    { id: string; data: BodyType<UpdateNoteRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateNote(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateNote>>
+>;
+export type UpdateNoteMutationBody = BodyType<UpdateNoteRequest>;
+export type UpdateNoteMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a note's body
+ */
+export const useUpdateNote = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateNote>>,
+    TError,
+    { id: string; data: BodyType<UpdateNoteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateNote>>,
+  TError,
+  { id: string; data: BodyType<UpdateNoteRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateNoteMutationOptions(options));
+};
 
 /**
  * Build a FHIR DocumentReference from the stored note and push it to the configured EHR provider. When no provider is configured, runs in mock mode and returns a synthetic document reference.

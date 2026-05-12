@@ -1,6 +1,7 @@
 import { Link } from "wouter";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useListPatients } from "@workspace/api-client-react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 function formatDob(iso: string): string {
@@ -28,11 +29,19 @@ export function PatientsPage() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Patients</h1>
-        <p className="text-(--color-muted-foreground)">
-          Select a patient to see their notes.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight">Patients</h1>
+          <p className="text-(--color-muted-foreground)">
+            Select a patient to see their notes.
+          </p>
+        </div>
+        <Link href="/patients/new">
+          <Button size="lg" variant="outline">
+            <Plus className="h-4 w-4" />
+            Add patient
+          </Button>
+        </Link>
       </header>
 
       {isPending ? (

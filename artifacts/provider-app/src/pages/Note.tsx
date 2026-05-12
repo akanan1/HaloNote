@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Loader2, Send } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Send } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetNoteQueryKey,
@@ -7,10 +8,12 @@ import {
   useGetNote,
   useListPatients,
   useSendNoteToEhr,
+  useUpdateNote,
   type Note,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface NotePageProps {
@@ -35,9 +38,28 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
   const patientsQuery = useListPatients();
   const noteQuery = useGetNote(noteId);
   const sendNote = useSendNoteToEhr();
+  const updateNote = useUpdateNote();
 
   const patient = patientsQuery.data?.data.find((p) => p.id === patientId);
   const note = noteQuery.data;
+
+  const [editing, setEditing] = useState(false);
+  const [draftBody, setDraftBody] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Seed the draft buffer when entering edit mode.
+  useEffect(() => {
+    if (editing && note) setDraftBody(note.body);
+  }, [editing, note]);
+
+  function invalidateAllNoteQueries() {
+    if (!note) return;
+    void queryClient.invalidateQueries({ queryKey: getGetNoteQueryKey(note.id) });
+    void queryClient.invalidateQueries({
+      queryKey: getListNotesQueryKey({ patientId }),
+    });
+    void queryClient.invalidateQueries({ queryKey: getListNotesQueryKey() });
+  }
 
   async function handleSend() {
     if (!note) return;
@@ -46,11 +68,23 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
     } catch {
       // error surfaces via mutation state below
     }
-    void queryClient.invalidateQueries({ queryKey: getGetNoteQueryKey(note.id) });
-    void queryClient.invalidateQueries({
-      queryKey: getListNotesQueryKey({ patientId }),
-    });
-    void queryClient.invalidateQueries({ queryKey: getListNotesQueryKey() });
+    invalidateAllNoteQueries();
+  }
+
+  async function handleSaveEdit() {
+    if (!note) return;
+    if (!draftBody.trim()) {
+      setEditError("Note body can't be empty.");
+      return;
+    }
+    setEditError(null);
+    try {
+      await updateNote.mutateAsync({ id: note.id, data: { body: draftBody } });
+      invalidateAllNoteQueries();
+      setEditing(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Couldn't save edit.");
+    }
   }
 
   return (
@@ -74,21 +108,34 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
         </p>
       ) : (
         <>
-          <header className="space-y-1">
-            <h1 className="text-3xl font-semibold tracking-tight">Note</h1>
-            {patient ? (
-              <p className="text-(--color-muted-foreground)">
-                For{" "}
-                <span className="font-medium text-(--color-foreground)">
-                  {patient.lastName}, {patient.firstName}
-                </span>{" "}
-                · {formatFullTimestamp(note.createdAt)}
-              </p>
-            ) : (
-              <p className="text-(--color-muted-foreground)">
-                {formatFullTimestamp(note.createdAt)}
-              </p>
-            )}
+          <header className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-semibold tracking-tight">Note</h1>
+              {patient ? (
+                <p className="text-(--color-muted-foreground)">
+                  For{" "}
+                  <span className="font-medium text-(--color-foreground)">
+                    {patient.lastName}, {patient.firstName}
+                  </span>{" "}
+                  · {formatFullTimestamp(note.createdAt)}
+                </p>
+              ) : (
+                <p className="text-(--color-muted-foreground)">
+                  {formatFullTimestamp(note.createdAt)}
+                </p>
+              )}
+              {wasEdited(note) ? (
+                <p className="text-xs text-(--color-muted-foreground)">
+                  Edited {formatFullTimestamp(note.updatedAt)}
+                </p>
+              ) : null}
+            </div>
+            {!editing ? (
+              <Button variant="outline" onClick={() => setEditing(true)}>
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Button>
+            ) : null}
           </header>
 
           {note.author ? (
@@ -100,11 +147,45 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
             </p>
           ) : null}
 
-          <Card className="p-7">
-            <p className="whitespace-pre-wrap break-words text-base leading-relaxed">
-              {note.body}
-            </p>
-          </Card>
+          {editing ? (
+            <div className="space-y-3">
+              <Textarea
+                value={draftBody}
+                onChange={(e) => setDraftBody(e.target.value)}
+                rows={16}
+                className="min-h-[50vh] text-base"
+                disabled={updateNote.isPending}
+                autoFocus
+              />
+              {editError ? (
+                <p className="text-sm text-(--color-destructive)">{editError}</p>
+              ) : null}
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditing(false);
+                    setEditError(null);
+                  }}
+                  disabled={updateNote.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void handleSaveEdit()}
+                  disabled={updateNote.isPending || !draftBody.trim()}
+                >
+                  {updateNote.isPending ? "Saving…" : "Save edit"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Card className="p-7">
+              <p className="whitespace-pre-wrap break-words text-base leading-relaxed">
+                {note.body}
+              </p>
+            </Card>
+          )}
 
           <EhrSection
             note={note}
@@ -118,6 +199,17 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
       )}
     </div>
   );
+}
+
+// updatedAt equals createdAt on a freshly-created note. Compare millis
+// rather than strings — the server normalizes to ISO 8601 so the strings
+// match exactly when unmodified, but be defensive about clock skew.
+function wasEdited(note: Note): boolean {
+  const created = new Date(note.createdAt).getTime();
+  const updated = new Date(note.updatedAt).getTime();
+  return Number.isFinite(created) && Number.isFinite(updated)
+    ? updated - created > 1000
+    : false;
 }
 
 interface EhrSectionProps {

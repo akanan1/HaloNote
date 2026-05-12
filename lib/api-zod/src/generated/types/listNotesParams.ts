@@ -8,4 +8,14 @@
 
 export type ListNotesParams = {
   patientId?: string;
+  /**
+   * ISO 8601 timestamp; returns notes created strictly before this.
+   */
+  before?: Date;
+  /**
+   * Page size. Defaults to 50, max 200.
+   * @minimum 1
+   * @maximum 200
+   */
+  limit?: number;
 };

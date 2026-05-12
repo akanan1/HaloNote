@@ -91,6 +91,25 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Patient"
+    post:
+      operationId: createPatient
+      tags: [patients]
+      summary: Onboard a new patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePatientRequest"
+      responses:
+        "201":
+          description: Patient created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+        "409":
+          description: A patient with this MRN already exists
   /notes:
     get:
       operationId: listNotes
@@ -99,12 +118,29 @@ paths:
       description: >-
         Returns notes the signed-in provider can see, newest first. When
         `patientId` is supplied, only notes for that patient are returned.
+        Cursor-based pagination via `before` + `limit` — pass the previous
+        response's `nextCursor` to fetch the next page.
       parameters:
         - name: patientId
           in: query
           required: false
           schema:
             type: string
+        - name: before
+          in: query
+          required: false
+          description: ISO 8601 timestamp; returns notes created strictly before this.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, max 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
       responses:
         "200":
           description: A list of notes
@@ -112,12 +148,16 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [data, nextCursor]
                 properties:
                   data:
                     type: array
                     items:
                       $ref: "#/components/schemas/Note"
+                  nextCursor:
+                    type: ["string", "null"]
+                    format: date-time
+                    description: Pass back as `before` to load the next page. Null when no more rows.
     post:
       operationId: createNote
       tags: [notes]
@@ -150,6 +190,36 @@ paths:
       responses:
         "200":
           description: The note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "404":
+          description: Note not found
+    patch:
+      operationId: updateNote
+      tags: [notes]
+      summary: Edit a note's body
+      description: >-
+        Update the free-text body of an existing note. The patient,
+        author, and EHR status are immutable through this endpoint —
+        re-send to the EHR via POST /notes/{id}/send-to-ehr if you want
+        downstream to reflect the edit.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNoteRequest"
+      responses:
+        "200":
+          description: The updated note
           content:
             application/json:
               schema:
@@ -214,6 +284,7 @@ components:
         - patientId
         - body
         - createdAt
+        - updatedAt
         - author
         - ehrProvider
         - ehrDocumentRef
@@ -229,6 +300,10 @@ components:
         createdAt:
           type: string
           format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          description: Most recent edit; equal to createdAt when the note has not been edited.
         author:
           oneOf:
             - $ref: "#/components/schemas/NoteAuthor"
@@ -254,6 +329,31 @@ components:
         body:
           type: string
           minLength: 1
+    UpdateNoteRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+    CreatePatientRequest:
+      type: object
+      required: [firstName, lastName, dateOfBirth, mrn]
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+        lastName:
+          type: string
+          minLength: 1
+        dateOfBirth:
+          type: string
+          description: ISO 8601 date, e.g. "1985-04-12"
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        mrn:
+          type: string
+          minLength: 1
+          description: Medical record number. Must be unique.
     AuthUser:
       type: object
       required: [id, email, displayName]

@@ -56,11 +56,43 @@ export const ListPatientsResponse = zod.object({
 });
 
 /**
- * Returns notes the signed-in provider can see, newest first. When `patientId` is supplied, only notes for that patient are returned.
+ * @summary Onboard a new patient
+ */
+
+export const createPatientBodyDateOfBirthRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const CreatePatientBody = zod.object({
+  firstName: zod.string().min(1),
+  lastName: zod.string().min(1),
+  dateOfBirth: zod
+    .string()
+    .regex(createPatientBodyDateOfBirthRegExp)
+    .describe('ISO 8601 date, e.g. \"1985-04-12\"'),
+  mrn: zod.string().min(1).describe("Medical record number. Must be unique."),
+});
+
+/**
+ * Returns notes the signed-in provider can see, newest first. When `patientId` is supplied, only notes for that patient are returned. Cursor-based pagination via `before` + `limit` — pass the previous response's `nextCursor` to fetch the next page.
  * @summary List clinical notes
  */
+export const listNotesQueryLimitMax = 200;
+
 export const ListNotesQueryParams = zod.object({
   patientId: zod.coerce.string().optional(),
+  before: zod
+    .date()
+    .optional()
+    .describe(
+      "ISO 8601 timestamp; returns notes created strictly before this.",
+    ),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listNotesQueryLimitMax)
+    .optional()
+    .describe("Page size. Defaults to 50, max 200."),
 });
 
 export const ListNotesResponse = zod.object({
@@ -70,6 +102,11 @@ export const ListNotesResponse = zod.object({
       patientId: zod.string(),
       body: zod.string(),
       createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce
+        .date()
+        .describe(
+          "Most recent edit; equal to createdAt when the note has not been edited.",
+        ),
       author: zod.union([
         zod.object({
           id: zod.string(),
@@ -96,6 +133,12 @@ export const ListNotesResponse = zod.object({
         .describe("Last EHR push error message, if any."),
     }),
   ),
+  nextCursor: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "Pass back as `before` to load the next page. Null when no more rows.",
+    ),
 });
 
 /**
@@ -120,6 +163,57 @@ export const GetNoteResponse = zod.object({
   patientId: zod.string(),
   body: zod.string(),
   createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce
+    .date()
+    .describe(
+      "Most recent edit; equal to createdAt when the note has not been edited.",
+    ),
+  author: zod.union([
+    zod.object({
+      id: zod.string(),
+      displayName: zod.string(),
+    }),
+    zod.null(),
+  ]),
+  ehrProvider: zod
+    .string()
+    .nullable()
+    .describe(
+      'Provider that received this note, e.g. \"athenahealth\", \"epic\", \"mock\". Null until pushed.',
+    ),
+  ehrDocumentRef: zod
+    .string()
+    .nullable()
+    .describe("FHIR DocumentReference returned by the EHR. Null until pushed."),
+  ehrPushedAt: zod.coerce.date().nullable(),
+  ehrError: zod
+    .string()
+    .nullable()
+    .describe("Last EHR push error message, if any."),
+});
+
+/**
+ * Update the free-text body of an existing note. The patient, author, and EHR status are immutable through this endpoint — re-send to the EHR via POST /notes/{id}/send-to-ehr if you want downstream to reflect the edit.
+ * @summary Edit a note's body
+ */
+export const UpdateNoteParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateNoteBody = zod.object({
+  body: zod.string().min(1),
+});
+
+export const UpdateNoteResponse = zod.object({
+  id: zod.string(),
+  patientId: zod.string(),
+  body: zod.string(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce
+    .date()
+    .describe(
+      "Most recent edit; equal to createdAt when the note has not been edited.",
+    ),
   author: zod.union([
     zod.object({
       id: zod.string(),

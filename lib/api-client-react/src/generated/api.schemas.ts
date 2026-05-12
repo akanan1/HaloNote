@@ -28,6 +28,8 @@ export interface Note {
   patientId: string;
   body: string;
   createdAt: string;
+  /** Most recent edit; equal to createdAt when the note has not been edited. */
+  updatedAt: string;
   author: NoteAuthor | null;
   /**
    * Provider that received this note, e.g. "athenahealth", "epic", "mock". Null until pushed.
@@ -52,6 +54,28 @@ export interface CreateNoteRequest {
   patientId: string;
   /** @minLength 1 */
   body: string;
+}
+
+export interface UpdateNoteRequest {
+  /** @minLength 1 */
+  body: string;
+}
+
+export interface CreatePatientRequest {
+  /** @minLength 1 */
+  firstName: string;
+  /** @minLength 1 */
+  lastName: string;
+  /**
+   * ISO 8601 date, e.g. "1985-04-12"
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  dateOfBirth: string;
+  /**
+   * Medical record number. Must be unique.
+   * @minLength 1
+   */
+  mrn: string;
 }
 
 export interface AuthUser {
@@ -82,8 +106,23 @@ export type ListPatients200 = {
 
 export type ListNotesParams = {
   patientId?: string;
+  /**
+   * ISO 8601 timestamp; returns notes created strictly before this.
+   */
+  before?: string;
+  /**
+   * Page size. Defaults to 50, max 200.
+   * @minimum 1
+   * @maximum 200
+   */
+  limit?: number;
 };
 
 export type ListNotes200 = {
   data: Note[];
+  /**
+   * Pass back as `before` to load the next page. Null when no more rows.
+   * @nullable
+   */
+  nextCursor: string | null;
 };

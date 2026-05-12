@@ -57,3 +57,6 @@ playwright/.cache/
 .env
 .env.*
 !.env.example
+
+# Claude Code — local-only permission overrides
+.claude/settings.local.json

@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { captureError } from "@/lib/sentry";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -20,8 +21,7 @@ export class ErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Send to console for now — wire to a real error tracker (Sentry,
-    // Highlight, etc.) when one's chosen.
+    captureError(error, { componentStack: info.componentStack });
     // eslint-disable-next-line no-console
     console.error("[ErrorBoundary]", error, info.componentStack);
   }

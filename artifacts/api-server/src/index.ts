@@ -1,3 +1,8 @@
+import { initSentry } from "./lib/sentry";
+// Initialize Sentry before any other module imports — its instrumentation
+// monkey-patches http/express. Safe no-op when SENTRY_DSN is unset.
+initSentry();
+
 import app from "./app";
 import { logger } from "./lib/logger";
 import { closeDb } from "@workspace/db";

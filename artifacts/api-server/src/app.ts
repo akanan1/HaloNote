@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import express, { type Express, type Request, type Response } from "express";
+import express, {
+  type Express,
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import cookieParser from "cookie-parser";
 import cors, { type CorsOptions } from "cors";
 import helmet from "helmet";
@@ -8,6 +13,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { trackInflight } from "./lib/inflight";
+import { captureError } from "./lib/sentry";
 
 const app: Express = express();
 
@@ -130,5 +136,21 @@ if (spaDistPath && spaDistPath.length > 0) {
     });
   }
 }
+
+// Final error handler — captures anything an async route propagated.
+// Sentry first (so the alert lands even if logging is broken), then a
+// 500 to the client. Don't echo the error message back: it may carry
+// PHI from upstream FHIR errors.
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  captureError(err, {
+    method: req.method,
+    path: req.path,
+    requestId: (req as Request & { id?: string }).id,
+  });
+  if (res.headersSent) {
+    return;
+  }
+  res.status(500).json({ error: "internal_server_error" });
+});
 
 export default app;

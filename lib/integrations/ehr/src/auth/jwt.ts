@@ -8,21 +8,29 @@ import type { JwtSigner, JwtSigningAlgorithm } from "./types";
 interface AlgParams {
   hash: string;
   dsaEncoding?: "ieee-p1363";
+  keyType: "rsa" | "rsa-pss" | "ec";
+  // For ECDSA: expected size of `r || s` in bytes.
+  coordSize?: number;
 }
 
 const ALG_PARAMS: Record<JwtSigningAlgorithm, AlgParams> = {
-  RS256: { hash: "sha256" },
-  RS384: { hash: "sha384" },
-  RS512: { hash: "sha512" },
+  RS256: { hash: "sha256", keyType: "rsa" },
+  RS384: { hash: "sha384", keyType: "rsa" },
+  RS512: { hash: "sha512", keyType: "rsa" },
   // ECDSA needs `ieee-p1363` (a.k.a. JOSE) signature encoding — Node defaults
   // to DER, which IdPs will reject as malformed.
-  ES256: { hash: "sha256", dsaEncoding: "ieee-p1363" },
-  ES384: { hash: "sha384", dsaEncoding: "ieee-p1363" },
-  ES512: { hash: "sha512", dsaEncoding: "ieee-p1363" },
+  ES256: { hash: "sha256", dsaEncoding: "ieee-p1363", keyType: "ec", coordSize: 32 },
+  ES384: { hash: "sha384", dsaEncoding: "ieee-p1363", keyType: "ec", coordSize: 48 },
+  ES512: { hash: "sha512", dsaEncoding: "ieee-p1363", keyType: "ec", coordSize: 66 },
 };
 
-function base64url(input: Buffer | string): string {
-  const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
+function base64url(input: Buffer | Uint8Array | string): string {
+  const buf =
+    typeof input === "string"
+      ? Buffer.from(input, "utf8")
+      : Buffer.isBuffer(input)
+        ? input
+        : Buffer.from(input);
   return buf
     .toString("base64")
     .replace(/=+$/, "")
@@ -48,9 +56,23 @@ export async function signJwt(opts: SignJwtOptions): Promise<string> {
   const claimsJson = JSON.stringify(opts.claims);
   const signingInput = `${base64url(headerJson)}.${base64url(claimsJson)}`;
 
-  let signature: Buffer;
+  const params = ALG_PARAMS[opts.algorithm];
+
+  let signature: Buffer | Uint8Array;
   if (opts.signer) {
     signature = await opts.signer(Buffer.from(signingInput), opts.algorithm);
+    // Sanity-check ECDSA shape: a common footgun is forgetting to convert
+    // KMS-returned DER into JOSE / IEEE-P1363 (use `derToJose` for that).
+    if (params.coordSize !== undefined) {
+      const expected = params.coordSize * 2;
+      if (signature.length !== expected) {
+        throw new Error(
+          `Invalid signature length for ${opts.algorithm}: expected ${expected} bytes ` +
+            `(JOSE / IEEE-P1363 r || s), got ${signature.length}. ` +
+            `If your KMS returns DER, convert it with derToJose() first.`,
+        );
+      }
+    }
   } else if (opts.privateKey) {
     signature = signLocally(signingInput, opts.privateKey, opts.algorithm);
   } else {
@@ -73,6 +95,22 @@ function signLocally(
   // a single KeyObject keeps the downstream call sites unambiguous.
   const key =
     typeof privateKey === "string" ? createPrivateKey(privateKey) : privateKey;
+
+  // Reject mismatches like RSA key + ES256 alg up front rather than
+  // letting the IdP return an opaque 400.
+  const actualType = key.asymmetricKeyType;
+  if (actualType) {
+    const expected = params.keyType;
+    const compatible =
+      (expected === "ec" && actualType === "ec") ||
+      ((expected === "rsa" || expected === "rsa-pss") &&
+        (actualType === "rsa" || actualType === "rsa-pss"));
+    if (!compatible) {
+      throw new Error(
+        `Algorithm ${algorithm} requires a ${expected} key, got ${actualType}.`,
+      );
+    }
+  }
 
   if (params.dsaEncoding) {
     return cryptoSign(params.hash, data, {

@@ -10,6 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: patients
+    description: Patient data
+  - name: notes
+    description: Clinical notes
 paths:
   /healthz:
     get:
@@ -24,6 +30,158 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in with email + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in; sets the session cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Invalid credentials
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out the current session
+      responses:
+        "204":
+          description: Signed out
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get the signed-in user
+      responses:
+        "200":
+          description: The signed-in user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not signed in
+  /patients:
+    get:
+      operationId: listPatients
+      tags: [patients]
+      summary: List patients
+      description: Returns the patients accessible to the signed-in provider.
+      responses:
+        "200":
+          description: A list of patients
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Patient"
+  /notes:
+    get:
+      operationId: listNotes
+      tags: [notes]
+      summary: List clinical notes
+      description: >-
+        Returns notes the signed-in provider can see, newest first. When
+        `patientId` is supplied, only notes for that patient are returned.
+      parameters:
+        - name: patientId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A list of notes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Note"
+    post:
+      operationId: createNote
+      tags: [notes]
+      summary: Create a clinical note
+      description: Persist a free-text clinical note attached to a patient.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNoteRequest"
+      responses:
+        "201":
+          description: Note created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+  /notes/{id}:
+    get:
+      operationId: getNote
+      tags: [notes]
+      summary: Read a single note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "404":
+          description: Note not found
+  /notes/{id}/send-to-ehr:
+    post:
+      operationId: sendNoteToEhr
+      tags: [notes]
+      summary: Send a note to the configured EHR
+      description: >-
+        Build a FHIR DocumentReference from the stored note and push it to
+        the configured EHR provider. When no provider is configured, runs in
+        mock mode and returns a synthetic document reference.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pushed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EhrPushResult"
+        "404":
+          description: Note or patient not found
+        "502":
+          description: EHR rejected the document
 components:
   schemas:
     HealthStatus:
@@ -33,4 +191,109 @@ components:
           type: string
       required:
         - status
-
+    Patient:
+      type: object
+      required: [id, firstName, lastName, dateOfBirth, mrn]
+      properties:
+        id:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        # ISO 8601 date, e.g. "1985-04-12"
+        dateOfBirth:
+          type: string
+        mrn:
+          type: string
+          description: Medical record number
+    Note:
+      type: object
+      required:
+        - id
+        - patientId
+        - body
+        - createdAt
+        - author
+        - ehrProvider
+        - ehrDocumentRef
+        - ehrPushedAt
+        - ehrError
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        author:
+          oneOf:
+            - $ref: "#/components/schemas/NoteAuthor"
+            - type: "null"
+        ehrProvider:
+          type: ["string", "null"]
+          description: "Provider that received this note, e.g. \"athenahealth\", \"epic\", \"mock\". Null until pushed."
+        ehrDocumentRef:
+          type: ["string", "null"]
+          description: FHIR DocumentReference returned by the EHR. Null until pushed.
+        ehrPushedAt:
+          type: ["string", "null"]
+          format: date-time
+        ehrError:
+          type: ["string", "null"]
+          description: Last EHR push error message, if any.
+    CreateNoteRequest:
+      type: object
+      required: [patientId, body]
+      properties:
+        patientId:
+          type: string
+        body:
+          type: string
+          minLength: 1
+    AuthUser:
+      type: object
+      required: [id, email, displayName]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          minLength: 1
+    NoteAuthor:
+      type: object
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+    EhrPushResult:
+      type: object
+      required: [provider, ehrDocumentRef, pushedAt, mock]
+      properties:
+        provider:
+          type: string
+          description: "EHR provider name, e.g. \"athenahealth\", \"epic\", or \"mock\"."
+        ehrDocumentRef:
+          type: string
+          description: Fully-qualified FHIR reference returned by the EHR (e.g. "DocumentReference/abc123").
+        pushedAt:
+          type: string
+          format: date-time
+        mock:
+          type: boolean
+          description: True when the push was synthesized locally because no EHR is configured.

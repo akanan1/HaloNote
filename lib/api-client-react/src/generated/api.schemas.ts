@@ -8,3 +8,82 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface Patient {
+  id: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  /** Medical record number */
+  mrn: string;
+}
+
+export interface NoteAuthor {
+  id: string;
+  displayName: string;
+}
+
+export interface Note {
+  id: string;
+  patientId: string;
+  body: string;
+  createdAt: string;
+  author: NoteAuthor | null;
+  /**
+   * Provider that received this note, e.g. "athenahealth", "epic", "mock". Null until pushed.
+   * @nullable
+   */
+  ehrProvider: string | null;
+  /**
+   * FHIR DocumentReference returned by the EHR. Null until pushed.
+   * @nullable
+   */
+  ehrDocumentRef: string | null;
+  /** @nullable */
+  ehrPushedAt: string | null;
+  /**
+   * Last EHR push error message, if any.
+   * @nullable
+   */
+  ehrError: string | null;
+}
+
+export interface CreateNoteRequest {
+  patientId: string;
+  /** @minLength 1 */
+  body: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  /** @minLength 1 */
+  password: string;
+}
+
+export interface EhrPushResult {
+  /** EHR provider name, e.g. "athenahealth", "epic", or "mock". */
+  provider: string;
+  /** Fully-qualified FHIR reference returned by the EHR (e.g. "DocumentReference/abc123"). */
+  ehrDocumentRef: string;
+  pushedAt: string;
+  /** True when the push was synthesized locally because no EHR is configured. */
+  mock: boolean;
+}
+
+export type ListPatients200 = {
+  data: Patient[];
+};
+
+export type ListNotesParams = {
+  patientId?: string;
+};
+
+export type ListNotes200 = {
+  data: Note[];
+};

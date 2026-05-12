@@ -44,7 +44,7 @@ export type JwtSigningAlgorithm =
 export type JwtSigner = (
   signingInput: Buffer,
   algorithm: JwtSigningAlgorithm,
-) => Promise<Buffer> | Buffer;
+) => Promise<Buffer | Uint8Array> | Buffer | Uint8Array;
 
 export interface JwtBearerAuthConfig {
   tokenUrl: string;

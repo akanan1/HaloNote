@@ -5,18 +5,31 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  AuthUser,
+  CreateNoteRequest,
+  EhrPushResult,
+  HealthStatus,
+  ListNotes200,
+  ListNotesParams,
+  ListPatients200,
+  LoginRequest,
+  Note,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -99,3 +112,663 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Sign in with email + password
+ */
+export const getLoginUrl = () => {
+  return `/api/auth/login`;
+};
+
+export const login = async (
+  loginRequest: LoginRequest,
+  options?: RequestInit,
+): Promise<AuthUser> => {
+  return customFetch<AuthUser>(getLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(loginRequest),
+  });
+};
+
+export const getLoginMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof login>>,
+    TError,
+    { data: BodyType<LoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof login>>,
+  TError,
+  { data: BodyType<LoginRequest> },
+  TContext
+> => {
+  const mutationKey = ["login"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof login>>,
+    { data: BodyType<LoginRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return login(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof login>>
+>;
+export type LoginMutationBody = BodyType<LoginRequest>;
+export type LoginMutationError = ErrorType<void>;
+
+/**
+ * @summary Sign in with email + password
+ */
+export const useLogin = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof login>>,
+    TError,
+    { data: BodyType<LoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof login>>,
+  TError,
+  { data: BodyType<LoginRequest> },
+  TContext
+> => {
+  return useMutation(getLoginMutationOptions(options));
+};
+
+/**
+ * @summary Sign out the current session
+ */
+export const getLogoutUrl = () => {
+  return `/api/auth/logout`;
+};
+
+export const logout = async (options?: RequestInit): Promise<void> => {
+  return customFetch<void>(getLogoutUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getLogoutMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof logout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof logout>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["logout"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof logout>>,
+    void
+  > = () => {
+    return logout(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LogoutMutationResult = NonNullable<
+  Awaited<ReturnType<typeof logout>>
+>;
+
+export type LogoutMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Sign out the current session
+ */
+export const useLogout = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof logout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof logout>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getLogoutMutationOptions(options));
+};
+
+/**
+ * @summary Get the signed-in user
+ */
+export const getGetCurrentUserUrl = () => {
+  return `/api/auth/me`;
+};
+
+export const getCurrentUser = async (
+  options?: RequestInit,
+): Promise<AuthUser> => {
+  return customFetch<AuthUser>(getGetCurrentUserUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCurrentUserQueryKey = () => {
+  return [`/api/auth/me`] as const;
+};
+
+export const getGetCurrentUserQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCurrentUser>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCurrentUser>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetCurrentUserQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCurrentUser>>> = ({
+    signal,
+  }) => getCurrentUser({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCurrentUser>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCurrentUserQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCurrentUser>>
+>;
+export type GetCurrentUserQueryError = ErrorType<void>;
+
+/**
+ * @summary Get the signed-in user
+ */
+
+export function useGetCurrentUser<
+  TData = Awaited<ReturnType<typeof getCurrentUser>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCurrentUser>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCurrentUserQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the patients accessible to the signed-in provider.
+ * @summary List patients
+ */
+export const getListPatientsUrl = () => {
+  return `/api/patients`;
+};
+
+export const listPatients = async (
+  options?: RequestInit,
+): Promise<ListPatients200> => {
+  return customFetch<ListPatients200>(getListPatientsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPatientsQueryKey = () => {
+  return [`/api/patients`] as const;
+};
+
+export const getListPatientsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPatients>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPatients>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPatientsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPatients>>> = ({
+    signal,
+  }) => listPatients({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPatients>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPatientsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPatients>>
+>;
+export type ListPatientsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List patients
+ */
+
+export function useListPatients<
+  TData = Awaited<ReturnType<typeof listPatients>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPatients>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPatientsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns notes the signed-in provider can see, newest first. When `patientId` is supplied, only notes for that patient are returned.
+ * @summary List clinical notes
+ */
+export const getListNotesUrl = (params?: ListNotesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/notes?${stringifiedParams}`
+    : `/api/notes`;
+};
+
+export const listNotes = async (
+  params?: ListNotesParams,
+  options?: RequestInit,
+): Promise<ListNotes200> => {
+  return customFetch<ListNotes200>(getListNotesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListNotesQueryKey = (params?: ListNotesParams) => {
+  return [`/api/notes`, ...(params ? [params] : [])] as const;
+};
+
+export const getListNotesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListNotesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListNotesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listNotes>>> = ({
+    signal,
+  }) => listNotes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listNotes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListNotesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listNotes>>
+>;
+export type ListNotesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List clinical notes
+ */
+
+export function useListNotes<
+  TData = Awaited<ReturnType<typeof listNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListNotesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListNotesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Persist a free-text clinical note attached to a patient.
+ * @summary Create a clinical note
+ */
+export const getCreateNoteUrl = () => {
+  return `/api/notes`;
+};
+
+export const createNote = async (
+  createNoteRequest: CreateNoteRequest,
+  options?: RequestInit,
+): Promise<Note> => {
+  return customFetch<Note>(getCreateNoteUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createNoteRequest),
+  });
+};
+
+export const getCreateNoteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createNote>>,
+    TError,
+    { data: BodyType<CreateNoteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createNote>>,
+  TError,
+  { data: BodyType<CreateNoteRequest> },
+  TContext
+> => {
+  const mutationKey = ["createNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createNote>>,
+    { data: BodyType<CreateNoteRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createNote(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createNote>>
+>;
+export type CreateNoteMutationBody = BodyType<CreateNoteRequest>;
+export type CreateNoteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a clinical note
+ */
+export const useCreateNote = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createNote>>,
+    TError,
+    { data: BodyType<CreateNoteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createNote>>,
+  TError,
+  { data: BodyType<CreateNoteRequest> },
+  TContext
+> => {
+  return useMutation(getCreateNoteMutationOptions(options));
+};
+
+/**
+ * @summary Read a single note
+ */
+export const getGetNoteUrl = (id: string) => {
+  return `/api/notes/${id}`;
+};
+
+export const getNote = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Note> => {
+  return customFetch<Note>(getGetNoteUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNoteQueryKey = (id: string) => {
+  return [`/api/notes/${id}`] as const;
+};
+
+export const getGetNoteQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNote>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getNote>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetNoteQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getNote>>> = ({
+    signal,
+  }) => getNote(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getNote>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type GetNoteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNote>>
+>;
+export type GetNoteQueryError = ErrorType<void>;
+
+/**
+ * @summary Read a single note
+ */
+
+export function useGetNote<
+  TData = Awaited<ReturnType<typeof getNote>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getNote>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNoteQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Build a FHIR DocumentReference from the stored note and push it to the configured EHR provider. When no provider is configured, runs in mock mode and returns a synthetic document reference.
+ * @summary Send a note to the configured EHR
+ */
+export const getSendNoteToEhrUrl = (id: string) => {
+  return `/api/notes/${id}/send-to-ehr`;
+};
+
+export const sendNoteToEhr = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EhrPushResult> => {
+  return customFetch<EhrPushResult>(getSendNoteToEhrUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendNoteToEhrMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendNoteToEhr>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendNoteToEhr>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["sendNoteToEhr"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendNoteToEhr>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return sendNoteToEhr(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendNoteToEhrMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendNoteToEhr>>
+>;
+
+export type SendNoteToEhrMutationError = ErrorType<void>;
+
+/**
+ * @summary Send a note to the configured EHR
+ */
+export const useSendNoteToEhr = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendNoteToEhr>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendNoteToEhr>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getSendNoteToEhrMutationOptions(options));
+};

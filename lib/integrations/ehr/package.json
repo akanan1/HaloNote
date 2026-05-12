@@ -11,10 +11,15 @@
     "./athenahealth": "./src/providers/athenahealth/index.ts",
     "./epic": "./src/providers/epic/index.ts"
   },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "dependencies": {
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "catalog:"
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
   }
 }

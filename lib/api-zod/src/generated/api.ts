@@ -14,3 +14,159 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary Sign in with email + password
+ */
+
+export const LoginBody = zod.object({
+  email: zod.string(),
+  password: zod.string().min(1),
+});
+
+export const LoginResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+});
+
+/**
+ * @summary Get the signed-in user
+ */
+export const GetCurrentUserResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+});
+
+/**
+ * Returns the patients accessible to the signed-in provider.
+ * @summary List patients
+ */
+export const ListPatientsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      firstName: zod.string(),
+      lastName: zod.string(),
+      dateOfBirth: zod.string(),
+      mrn: zod.string().describe("Medical record number"),
+    }),
+  ),
+});
+
+/**
+ * Returns notes the signed-in provider can see, newest first. When `patientId` is supplied, only notes for that patient are returned.
+ * @summary List clinical notes
+ */
+export const ListNotesQueryParams = zod.object({
+  patientId: zod.coerce.string().optional(),
+});
+
+export const ListNotesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      patientId: zod.string(),
+      body: zod.string(),
+      createdAt: zod.coerce.date(),
+      author: zod.union([
+        zod.object({
+          id: zod.string(),
+          displayName: zod.string(),
+        }),
+        zod.null(),
+      ]),
+      ehrProvider: zod
+        .string()
+        .nullable()
+        .describe(
+          'Provider that received this note, e.g. \"athenahealth\", \"epic\", \"mock\". Null until pushed.',
+        ),
+      ehrDocumentRef: zod
+        .string()
+        .nullable()
+        .describe(
+          "FHIR DocumentReference returned by the EHR. Null until pushed.",
+        ),
+      ehrPushedAt: zod.coerce.date().nullable(),
+      ehrError: zod
+        .string()
+        .nullable()
+        .describe("Last EHR push error message, if any."),
+    }),
+  ),
+});
+
+/**
+ * Persist a free-text clinical note attached to a patient.
+ * @summary Create a clinical note
+ */
+
+export const CreateNoteBody = zod.object({
+  patientId: zod.string(),
+  body: zod.string().min(1),
+});
+
+/**
+ * @summary Read a single note
+ */
+export const GetNoteParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetNoteResponse = zod.object({
+  id: zod.string(),
+  patientId: zod.string(),
+  body: zod.string(),
+  createdAt: zod.coerce.date(),
+  author: zod.union([
+    zod.object({
+      id: zod.string(),
+      displayName: zod.string(),
+    }),
+    zod.null(),
+  ]),
+  ehrProvider: zod
+    .string()
+    .nullable()
+    .describe(
+      'Provider that received this note, e.g. \"athenahealth\", \"epic\", \"mock\". Null until pushed.',
+    ),
+  ehrDocumentRef: zod
+    .string()
+    .nullable()
+    .describe("FHIR DocumentReference returned by the EHR. Null until pushed."),
+  ehrPushedAt: zod.coerce.date().nullable(),
+  ehrError: zod
+    .string()
+    .nullable()
+    .describe("Last EHR push error message, if any."),
+});
+
+/**
+ * Build a FHIR DocumentReference from the stored note and push it to the configured EHR provider. When no provider is configured, runs in mock mode and returns a synthetic document reference.
+ * @summary Send a note to the configured EHR
+ */
+export const SendNoteToEhrParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SendNoteToEhrResponse = zod.object({
+  provider: zod
+    .string()
+    .describe(
+      'EHR provider name, e.g. \"athenahealth\", \"epic\", or \"mock\".',
+    ),
+  ehrDocumentRef: zod
+    .string()
+    .describe(
+      'Fully-qualified FHIR reference returned by the EHR (e.g. \"DocumentReference\/abc123\").',
+    ),
+  pushedAt: zod.coerce.date(),
+  mock: zod
+    .boolean()
+    .describe(
+      "True when the push was synthesized locally because no EHR is configured.",
+    ),
+});

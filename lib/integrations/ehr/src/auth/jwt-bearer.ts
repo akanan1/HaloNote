@@ -15,8 +15,51 @@ interface TokenResponse {
 
 const REFRESH_SKEW_MS = 30_000;
 const DEFAULT_ASSERTION_LIFETIME_SECONDS = 300;
+// Backdate `iat` to absorb minor clock drift between us and the IdP — Epic
+// has historically rejected assertions where `iat` is even ~1s in the future.
+const IAT_BACKDATE_SECONDS = 30;
 const CLIENT_ASSERTION_TYPE =
   "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+const DEFAULT_EXPIRES_IN_SECONDS = 300;
+const MAX_EXPIRES_IN_SECONDS = 86_400;
+
+function validateExpiresIn(value: unknown): number {
+  const n =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_EXPIRES_IN_SECONDS;
+  return Math.min(Math.floor(n), MAX_EXPIRES_IN_SECONDS);
+}
+
+async function readSanitizedTokenError(res: Response): Promise<string> {
+  try {
+    const text = await res.text();
+    try {
+      const json: unknown = JSON.parse(text);
+      if (json && typeof json === "object") {
+        const obj = json as Record<string, unknown>;
+        const err = typeof obj["error"] === "string" ? obj["error"] : null;
+        const desc =
+          typeof obj["error_description"] === "string"
+            ? obj["error_description"]
+            : null;
+        if (err && desc) return `${err}: ${desc}`;
+        if (err) return err;
+        if (desc) return desc;
+      }
+    } catch {
+      // Non-JSON body — discard. IdP error bodies can echo the
+      // client_assertion JWT (with its kid and jti), so we never log raw.
+    }
+  } catch {
+    // Failed to read body.
+  }
+  return "";
+}
 
 export class JwtBearerAuthProvider implements TokenProvider {
   private readonly config: JwtBearerAuthConfig;
@@ -57,6 +100,7 @@ export class JwtBearerAuthProvider implements TokenProvider {
 
   private async buildAssertion(): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
+    const iat = now - IAT_BACKDATE_SECONDS;
     const lifetime =
       this.config.assertionLifetimeSeconds ??
       DEFAULT_ASSERTION_LIFETIME_SECONDS;
@@ -69,7 +113,7 @@ export class JwtBearerAuthProvider implements TokenProvider {
       sub: this.config.clientId,
       aud: this.config.audience ?? this.config.tokenUrl,
       jti: randomUUID(),
-      iat: now,
+      iat,
       exp: now + lifetime,
     };
 
@@ -77,8 +121,12 @@ export class JwtBearerAuthProvider implements TokenProvider {
       header,
       claims,
       algorithm: this.config.algorithm,
-      privateKey: this.config.privateKey,
-      signer: this.config.signer,
+      ...(this.config.privateKey !== undefined
+        ? { privateKey: this.config.privateKey }
+        : {}),
+      ...(this.config.signer !== undefined
+        ? { signer: this.config.signer }
+        : {}),
     });
   }
 
@@ -99,7 +147,7 @@ export class JwtBearerAuthProvider implements TokenProvider {
     });
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      const detail = await readSanitizedTokenError(res);
       throw new Error(
         `JWT-bearer token request failed: ${res.status} ${res.statusText}` +
           (detail ? ` — ${detail}` : ""),
@@ -109,9 +157,9 @@ export class JwtBearerAuthProvider implements TokenProvider {
     const json = (await res.json()) as TokenResponse;
     const token: AccessToken = {
       token: json.access_token,
-      expiresAt: Date.now() + json.expires_in * 1000,
+      expiresAt: Date.now() + validateExpiresIn(json.expires_in) * 1000,
       tokenType: json.token_type,
-      scope: json.scope,
+      ...(json.scope !== undefined ? { scope: json.scope } : {}),
     };
     this.cached = token;
     return token;

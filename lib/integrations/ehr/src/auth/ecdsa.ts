@@ -68,11 +68,19 @@ export function derToJose(
   ]);
 }
 
+function readByte(buf: Buffer, offset: number): number {
+  const b = buf[offset];
+  if (b === undefined) {
+    throw new Error("Invalid DER signature: unexpected end of buffer.");
+  }
+  return b;
+}
+
 function readLength(
   buf: Buffer,
   offset: number,
 ): { value: number; next: number } {
-  let first = buf[offset++];
+  const first = readByte(buf, offset++);
   if ((first & 0x80) === 0) {
     return { value: first, next: offset };
   }
@@ -84,7 +92,7 @@ function readLength(
   }
   let value = 0;
   for (let i = 0; i < lenBytes; i++) {
-    value = (value << 8) | buf[offset++];
+    value = (value << 8) | readByte(buf, offset++);
   }
   return { value, next: offset };
 }
@@ -93,7 +101,7 @@ function readInteger(
   buf: Buffer,
   offset: number,
 ): { value: Buffer; next: number } {
-  if (buf[offset++] !== 0x02) {
+  if (readByte(buf, offset++) !== 0x02) {
     throw new Error("Invalid DER signature: expected INTEGER (0x02).");
   }
   const len = readLength(buf, offset);
@@ -163,7 +171,8 @@ function encodeInteger(magnitude: Buffer): Buffer {
   let bytes = magnitude.subarray(start);
   // If the high bit is set, prepend 0x00 so DER reads the integer as
   // positive instead of two's-complement negative.
-  if ((bytes[0] & 0x80) !== 0) {
+  const head = bytes[0];
+  if (head !== undefined && (head & 0x80) !== 0) {
     bytes = Buffer.concat([Buffer.from([0x00]), bytes]);
   }
   return Buffer.concat([

@@ -11,6 +11,62 @@ interface TokenResponse {
 // in-flight requests using a token that's about to die.
 const REFRESH_SKEW_MS = 30_000;
 
+// Fallback when the IdP omits or returns an invalid `expires_in`. Some
+// servers do that for opaque tokens; without this guard we'd compute
+// `Date.now() + NaN` and treat every token as already-expired, causing a
+// re-fetch on every call (self-DoS + IdP rate-limit risk).
+const DEFAULT_EXPIRES_IN_SECONDS = 300;
+const MAX_EXPIRES_IN_SECONDS = 86_400;
+
+function validateExpiresIn(value: unknown): number {
+  const n =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_EXPIRES_IN_SECONDS;
+  return Math.min(Math.floor(n), MAX_EXPIRES_IN_SECONDS);
+}
+
+// RFC 6749 §2.3.1 requires the client_id and client_secret to be
+// `application/x-www-form-urlencoded`-encoded before being concatenated
+// with `:` and base64'd. `encodeURIComponent` is *not* the same encoding —
+// it leaves `!*'()` unencoded and emits `%20` for spaces instead of `+`.
+// URLSearchParams uses the correct encoding.
+function formEncode(value: string): string {
+  const params = new URLSearchParams();
+  params.set("v", value);
+  return params.toString().slice(2);
+}
+
+async function readSanitizedTokenError(res: Response): Promise<string> {
+  try {
+    const text = await res.text();
+    try {
+      const json: unknown = JSON.parse(text);
+      if (json && typeof json === "object") {
+        const obj = json as Record<string, unknown>;
+        const err = typeof obj["error"] === "string" ? obj["error"] : null;
+        const desc =
+          typeof obj["error_description"] === "string"
+            ? obj["error_description"]
+            : null;
+        if (err && desc) return `${err}: ${desc}`;
+        if (err) return err;
+        if (desc) return desc;
+      }
+    } catch {
+      // Non-JSON body — fall through and discard. We deliberately do NOT
+      // echo the raw body: IdP error responses can contain echoed
+      // credentials, JWT assertions, and other sensitive material.
+    }
+  } catch {
+    // Failed to read body.
+  }
+  return "";
+}
+
 export class OAuth2TokenProvider implements TokenProvider {
   private readonly config: OAuth2Config;
   private readonly fetchImpl: typeof fetch;
@@ -49,7 +105,7 @@ export class OAuth2TokenProvider implements TokenProvider {
     if (this.config.scope) body.set("scope", this.config.scope);
 
     const basic = Buffer.from(
-      `${encodeURIComponent(this.config.clientId)}:${encodeURIComponent(this.config.clientSecret)}`,
+      `${formEncode(this.config.clientId)}:${formEncode(this.config.clientSecret)}`,
     ).toString("base64");
 
     const res = await this.fetchImpl(this.config.tokenUrl, {
@@ -63,7 +119,7 @@ export class OAuth2TokenProvider implements TokenProvider {
     });
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      const detail = await readSanitizedTokenError(res);
       throw new Error(
         `OAuth2 token request failed: ${res.status} ${res.statusText}` +
           (detail ? ` — ${detail}` : ""),
@@ -73,9 +129,9 @@ export class OAuth2TokenProvider implements TokenProvider {
     const json = (await res.json()) as TokenResponse;
     const token: AccessToken = {
       token: json.access_token,
-      expiresAt: Date.now() + json.expires_in * 1000,
+      expiresAt: Date.now() + validateExpiresIn(json.expires_in) * 1000,
       tokenType: json.token_type,
-      scope: json.scope,
+      ...(json.scope !== undefined ? { scope: json.scope } : {}),
     };
     this.cached = token;
     return token;

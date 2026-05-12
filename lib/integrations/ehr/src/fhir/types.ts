@@ -44,11 +44,49 @@ export interface Resource {
   };
 }
 
+// FHIR R4 IssueType valueset (http://hl7.org/fhir/ValueSet/issue-type).
+// Narrowed to a union so callers can write exhaustive switches when
+// surfacing actionable errors to clinicians. Falls back to `string` to
+// stay forward-compatible with servers that return unrecognized codes.
+export type IssueType =
+  | "invalid"
+  | "structure"
+  | "required"
+  | "value"
+  | "invariant"
+  | "security"
+  | "login"
+  | "unknown"
+  | "expired"
+  | "forbidden"
+  | "suppressed"
+  | "processing"
+  | "not-supported"
+  | "duplicate"
+  | "multiple-matches"
+  | "not-found"
+  | "deleted"
+  | "too-long"
+  | "code-invalid"
+  | "extension"
+  | "too-costly"
+  | "business-rule"
+  | "conflict"
+  | "transient"
+  | "lock-error"
+  | "no-store"
+  | "exception"
+  | "timeout"
+  | "incomplete"
+  | "throttled"
+  | "informational"
+  | (string & {});
+
 export interface OperationOutcome extends Resource {
   resourceType: "OperationOutcome";
   issue: Array<{
     severity: "fatal" | "error" | "warning" | "information";
-    code: string;
+    code: IssueType;
     diagnostics?: string;
     details?: CodeableConcept;
   }>;

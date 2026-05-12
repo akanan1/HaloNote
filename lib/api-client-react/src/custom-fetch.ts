@@ -10,6 +10,26 @@ export type AuthTokenGetter = () => Promise<string | null> | string | null;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
+const CSRF_COOKIE_NAME = "halonote_csrf";
+const CSRF_HEADER_NAME = "x-csrf-token";
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function readDocumentCookie(name: string): string | null {
+  // Skipped in non-browser runtimes (React Native, server-side rendering).
+  if (typeof document === "undefined") return null;
+  const cookies = document.cookie ? document.cookie.split("; ") : [];
+  const prefix = `${name}=`;
+  for (const c of cookies) {
+    if (c.startsWith(prefix)) {
+      try {
+        return decodeURIComponent(c.slice(prefix.length));
+      } catch {
+        return c.slice(prefix.length);
+      }
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Module-level configuration
@@ -93,7 +113,9 @@ function mergeHeaders(...sources: Array<HeadersInit | undefined>): Headers {
 
 function getMediaType(headers: Headers): string | null {
   const value = headers.get("content-type");
-  return value ? value.split(";", 1)[0].trim().toLowerCase() : null;
+  if (!value) return null;
+  const head = value.split(";", 1)[0] ?? value;
+  return head.trim().toLowerCase();
 }
 
 function isJsonMediaType(mediaType: string | null): boolean {
@@ -172,7 +194,7 @@ function buildErrorMessage(response: Response, data: unknown): string {
 }
 
 export class ApiError<T = unknown> extends Error {
-  readonly name = "ApiError";
+  override readonly name = "ApiError";
   readonly status: number;
   readonly statusText: string;
   readonly data: T | null;
@@ -200,7 +222,7 @@ export class ApiError<T = unknown> extends Error {
 }
 
 export class ResponseParseError extends Error {
-  readonly name = "ResponseParseError";
+  override readonly name = "ResponseParseError";
   readonly status: number;
   readonly statusText: string;
   readonly headers: Headers;
@@ -208,7 +230,7 @@ export class ResponseParseError extends Error {
   readonly method: string;
   readonly url: string;
   readonly rawBody: string;
-  readonly cause: unknown;
+  override readonly cause: unknown;
 
   constructor(
     response: Response,
@@ -358,9 +380,27 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  // Echo the CSRF cookie as a header on state-changing requests. The
+  // server compares the two — an attacker on another origin can't read
+  // the cookie, so they can't forge a matching header.
+  if (UNSAFE_METHODS.has(method) && !headers.has(CSRF_HEADER_NAME)) {
+    const csrfToken = readDocumentCookie(CSRF_COOKIE_NAME);
+    if (csrfToken) {
+      headers.set(CSRF_HEADER_NAME, csrfToken);
+    }
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // Send cookies on all requests by default. Web apps rely on session
+  // cookies set by the api-server; native bundles set `credentials` to
+  // "omit" in options if they don't want this.
+  const response = await fetch(input, {
+    credentials: "include",
+    ...init,
+    method,
+    headers,
+  });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

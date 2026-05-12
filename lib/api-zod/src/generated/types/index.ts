@@ -6,4 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./authUser";
+export * from "./createNoteRequest";
+export * from "./ehrPushResult";
 export * from "./healthStatus";
+export * from "./listNotes200";
+export * from "./listNotesParams";
+export * from "./listPatients200";
+export * from "./loginRequest";
+export * from "./note";
+export * from "./noteAuthor";
+export * from "./patient";

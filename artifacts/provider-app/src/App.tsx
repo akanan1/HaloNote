@@ -2,6 +2,9 @@ import { Route, Switch, Redirect } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { AppLayout } from "@/components/AppLayout";
 import { LoginPage } from "@/pages/Login";
+import { SignupPage } from "@/pages/Signup";
+import { ForgotPasswordPage } from "@/pages/ForgotPassword";
+import { ResetPasswordPage } from "@/pages/ResetPassword";
 import { PatientsPage } from "@/pages/Patients";
 import { PatientDetailPage } from "@/pages/PatientDetail";
 import { NewPatientPage } from "@/pages/NewPatient";
@@ -28,6 +31,9 @@ export default function App() {
     <AppLayout>
       <Switch>
         <Route path="/login" component={LoginPage} />
+        <Route path="/signup" component={SignupPage} />
+        <Route path="/forgot-password" component={ForgotPasswordPage} />
+        <Route path="/reset-password" component={ResetPasswordPage} />
         <Route path="/">
           <RequireAuth>
             <PatientsPage />

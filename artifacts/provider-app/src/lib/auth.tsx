@@ -19,6 +19,9 @@ interface AuthState {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Re-fetch /auth/me. Use after a flow that minted a fresh session
+   *  outside of signIn — signup, password-reset confirm, etc. */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -61,9 +64,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      const me = await getCurrentUser();
+      setUser(me);
+    } catch {
+      setUser(null);
+    }
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ user, loading, signIn, signOut }),
-    [user, loading, signIn, signOut],
+    () => ({ user, loading, signIn, signOut, refresh }),
+    [user, loading, signIn, signOut, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

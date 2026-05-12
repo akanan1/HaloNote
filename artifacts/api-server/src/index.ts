@@ -8,6 +8,7 @@ import {
   scheduleAuditLogCleanup,
   stopAuditLogCleanup,
 } from "./lib/audit-cleanup";
+import { runMigrations } from "./lib/run-migrations";
 
 const rawPort = process.env["PORT"];
 
@@ -24,10 +25,14 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 try {
+  // Run pending migrations first so the seed code below sees the
+  // schema it expects. A deploy that ships a schema change can't
+  // accept traffic until the schema matches the code.
+  await runMigrations();
   await seedUsersIfEmpty();
   await seedPatientsIfEmpty();
 } catch (err) {
-  logger.error({ err }, "Seed failed; refusing to start");
+  logger.error({ err }, "Startup failed; refusing to start");
   process.exit(1);
 }
 

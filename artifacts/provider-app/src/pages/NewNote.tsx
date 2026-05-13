@@ -1,6 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Check, Cloud, CloudOff, Loader2, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Cloud,
+  CloudOff,
+  Loader2,
+  Mic,
+  MicOff,
+  Send,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getListNotesQueryKey,
@@ -17,6 +26,13 @@ import {
   useNoteAutosave,
   type AutosaveStatus,
 } from "@/lib/use-note-autosave";
+import {
+  NOTE_TEMPLATES,
+  detectTemplateFromVoice,
+  stripCueFromTranscript,
+  type NoteTemplate,
+} from "@/lib/note-templates";
+import { useSpeechRecognition } from "@/lib/use-speech-recognition";
 
 interface NewNotePageProps {
   patientId: string;
@@ -80,6 +96,13 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   const [body, setBody] = useState("");
   const [bodyPrefilled, setBodyPrefilled] = useState(false);
   const [sendState, setSendState] = useState<SendState>({ phase: "idle" });
+  const [templateId, setTemplateId] = useState<string>("");
+  const [interimSpeech, setInterimSpeech] = useState("");
+  // Track whether the *next* finalized dictation chunk should be
+  // inspected for a template cue. Reset to true whenever the user
+  // restarts dictation against an empty / freshly-templated body.
+  const cueCheckRef = useRef(true);
+  const speech = useSpeechRecognition();
 
   const isBusyState =
     sendState.phase === "saving" || sendState.phase === "sending";
@@ -100,6 +123,58 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
     setBody(predecessor.body);
     setBodyPrefilled(true);
   }, [predecessor, bodyPrefilled]);
+
+  // Apply a template's skeleton to the textarea. Only fires when the
+  // body is empty — refuses to overwrite a note in progress.
+  const applyTemplate = useCallback(
+    (template: NoteTemplate | null) => {
+      setTemplateId(template?.id ?? "");
+      if (!template) return;
+      setBody((current) => (current.trim() === "" ? template.body : current));
+      cueCheckRef.current = true;
+    },
+    [],
+  );
+
+  // Voice dictation handler. First finalized chunk gets cue-checked
+  // for a template ("soap note", "history and physical", etc.).
+  // Subsequent chunks are appended verbatim.
+  const handleFinalSpeech = useCallback(
+    (text: string) => {
+      let chunk = text;
+      if (cueCheckRef.current) {
+        cueCheckRef.current = false;
+        const detected = detectTemplateFromVoice(chunk);
+        if (detected) {
+          chunk = stripCueFromTranscript(chunk, detected);
+          setTemplateId(detected.id);
+          // Drop the template skeleton in only if the textarea is
+          // empty — protects pre-typed content.
+          setBody((current) =>
+            current.trim() === "" ? detected.body + chunk : current + chunk,
+          );
+          setInterimSpeech("");
+          return;
+        }
+      }
+      setBody((current) => {
+        const sep = current.length === 0 || /\s$/.test(current) ? "" : " ";
+        return current + sep + chunk;
+      });
+      setInterimSpeech("");
+    },
+    [],
+  );
+
+  function toggleDictation() {
+    if (speech.listening) {
+      speech.stop();
+      setInterimSpeech("");
+      return;
+    }
+    cueCheckRef.current = body.trim() === "" && !templateId;
+    speech.start(handleFinalSpeech, (interim) => setInterimSpeech(interim));
+  }
 
   const patient = patientsQuery.data?.data.find((p) => p.id === patientId);
 
@@ -217,7 +292,7 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
       ) : null}
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <Label htmlFor="note-body" className="text-base">
             Note
           </Label>
@@ -227,16 +302,91 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
             error={autosave.error}
           />
         </div>
+
+        {/* Template selector + dictation button — sit above the textarea
+            so a provider can decide structure before typing. Native
+            <select> here on purpose: the OS picker on phones is faster
+            and more accessible than a custom dropdown. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={templateId}
+            onChange={(e) => {
+              const next = NOTE_TEMPLATES.find((t) => t.id === e.target.value) ?? null;
+              applyTemplate(next);
+            }}
+            disabled={isBusy}
+            aria-label="Note template"
+            className="h-11 min-w-[10rem] rounded-md border border-(--color-border) bg-(--color-card) px-3 text-sm sm:h-9"
+          >
+            <option value="">Template…</option>
+            {NOTE_TEMPLATES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+
+          {speech.supported ? (
+            <Button
+              type="button"
+              variant={speech.listening ? "default" : "outline"}
+              size="sm"
+              onClick={toggleDictation}
+              disabled={isBusy}
+              aria-pressed={speech.listening}
+              aria-label={speech.listening ? "Stop dictation" : "Start dictation"}
+            >
+              {speech.listening ? (
+                <>
+                  <MicOff className="h-4 w-4" aria-hidden="true" />
+                  Stop
+                </>
+              ) : (
+                <>
+                  <Mic className="h-4 w-4" aria-hidden="true" />
+                  Dictate
+                </>
+              )}
+            </Button>
+          ) : null}
+
+          {speech.supported ? (
+            <span className="text-xs text-(--color-muted-foreground)">
+              Experimental — uses browser speech API (not HIPAA-grade).
+            </span>
+          ) : null}
+        </div>
+
         <Textarea
           id="note-body"
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="Subjective, objective, assessment, plan…"
+          placeholder="Type, dictate, or pick a template above."
           rows={16}
           className="min-h-[50vh] text-base"
           autoFocus
           disabled={isBusy}
         />
+
+        {speech.listening && interimSpeech ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="text-sm italic text-(--color-muted-foreground)"
+          >
+            …{interimSpeech}
+          </p>
+        ) : null}
+
+        {speech.error && speech.error !== "no-speech" ? (
+          <p role="alert" className="text-sm text-(--color-destructive)">
+            {speech.error === "not-allowed"
+              ? "Microphone permission denied. Enable it in your browser settings."
+              : speech.error === "unsupported"
+                ? "Your browser doesn't support dictation."
+                : `Dictation error: ${speech.error}`}
+          </p>
+        ) : null}
       </div>
 
       <SendStatus state={sendState} draftSavedId={autosave.draftId} />

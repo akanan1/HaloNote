@@ -1,5 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { LogOut, ScrollText, Settings as SettingsIcon, Users } from "lucide-react";
+import {
+  Calendar,
+  ContactRound,
+  LogOut,
+  ScrollText,
+  Settings as SettingsIcon,
+  Users,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -42,18 +49,30 @@ export function AppLayout({ children }: AppLayoutProps) {
               className="flex items-center gap-2 text-sm"
               aria-label="Primary"
             >
+              <Link href="/">
+                <Button variant="ghost" size="sm">
+                  <Calendar className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Today</span>
+                </Button>
+              </Link>
+              <Link href="/patients">
+                <Button variant="ghost" size="sm">
+                  <ContactRound className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Patients</span>
+                </Button>
+              </Link>
               {user.role === "admin" ? (
                 <>
                   <Link href="/admin/users">
                     <Button variant="ghost" size="sm">
                       <Users className="h-4 w-4" aria-hidden="true" />
-                      Users
+                      <span className="hidden sm:inline">Users</span>
                     </Button>
                   </Link>
                   <Link href="/audit-log">
                     <Button variant="ghost" size="sm">
                       <ScrollText className="h-4 w-4" aria-hidden="true" />
-                      Audit log
+                      <span className="hidden sm:inline">Audit log</span>
                     </Button>
                   </Link>
                 </>

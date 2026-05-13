@@ -5,6 +5,7 @@ import patientsRouter from "./patients";
 import notesRouter from "./notes";
 import auditLogRouter from "./audit-log";
 import usersRouter from "./users";
+import scheduleRouter from "./schedule";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCsrf } from "../middlewares/require-csrf";
 import { auditLog } from "../middlewares/audit";
@@ -27,5 +28,6 @@ router.use(patientsRouter);
 router.use(notesRouter);
 router.use(auditLogRouter);
 router.use(usersRouter);
+router.use(scheduleRouter);
 
 export default router;

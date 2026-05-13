@@ -12,5 +12,10 @@ export interface AdminUser {
   email: string;
   displayName: string;
   role: AdminUserRole;
+  /**
+   * Provider's Practitioner.id in the connected EHR; used to scope schedule queries.
+   * @nullable
+   */
+  ehrPractitionerId?: string | null;
   createdAt: Date;
 }

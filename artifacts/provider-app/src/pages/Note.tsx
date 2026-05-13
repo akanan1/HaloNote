@@ -4,7 +4,11 @@ import {
   ArrowLeft,
   FilePlus2,
   Loader2,
+  Mic,
+  MicOff,
+  Pause,
   Pencil,
+  Play,
   Printer,
   Send,
   Trash2,
@@ -24,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { useSpeechRecognition } from "@/lib/use-speech-recognition";
 import { cn } from "@/lib/utils";
 
 interface NotePageProps {
@@ -58,11 +63,50 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
+  const [interimSpeech, setInterimSpeech] = useState("");
+  const speech = useSpeechRecognition();
 
   // Seed the draft buffer when entering edit mode.
   useEffect(() => {
     if (editing && note) setDraftBody(note.body);
   }, [editing, note]);
+
+  // Stop any in-flight dictation when leaving edit mode so the mic icon
+  // doesn't stay open in the background.
+  useEffect(() => {
+    if (!editing && speech.active) {
+      speech.stop();
+      setInterimSpeech("");
+    }
+  }, [editing, speech]);
+
+  function appendDictation(chunk: string) {
+    setDraftBody((current) => {
+      const sep = current.length === 0 || /\s$/.test(current) ? "" : " ";
+      return current + sep + chunk;
+    });
+    setInterimSpeech("");
+  }
+
+  function toggleDictation() {
+    if (speech.active) {
+      speech.stop();
+      setInterimSpeech("");
+      return;
+    }
+    speech.start(appendDictation, (interim) => setInterimSpeech(interim));
+  }
+
+  function togglePause() {
+    if (speech.paused) {
+      speech.resume();
+      return;
+    }
+    if (speech.listening) {
+      speech.pause();
+      setInterimSpeech("");
+    }
+  }
 
   function invalidateAllNoteQueries() {
     if (!note) return;
@@ -229,6 +273,64 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
 
           {editing ? (
             <div className="space-y-3">
+              {speech.supported ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={speech.active ? "default" : "outline"}
+                    size="sm"
+                    onClick={toggleDictation}
+                    disabled={updateNote.isPending}
+                    aria-pressed={speech.active}
+                    aria-label={
+                      speech.active ? "Stop dictation" : "Start dictation"
+                    }
+                  >
+                    {speech.active ? (
+                      <>
+                        <MicOff className="h-4 w-4" aria-hidden="true" />
+                        Stop
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="h-4 w-4" aria-hidden="true" />
+                        Dictate
+                      </>
+                    )}
+                  </Button>
+
+                  {speech.active ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={togglePause}
+                      disabled={updateNote.isPending}
+                      aria-pressed={speech.paused}
+                      aria-label={
+                        speech.paused ? "Resume dictation" : "Pause dictation"
+                      }
+                    >
+                      {speech.paused ? (
+                        <>
+                          <Play className="h-4 w-4" aria-hidden="true" />
+                          Resume
+                        </>
+                      ) : (
+                        <>
+                          <Pause className="h-4 w-4" aria-hidden="true" />
+                          Pause
+                        </>
+                      )}
+                    </Button>
+                  ) : null}
+
+                  <span className="text-xs text-(--color-muted-foreground)">
+                    Experimental — uses browser speech API (not HIPAA-grade).
+                  </span>
+                </div>
+              ) : null}
+
               <Textarea
                 value={draftBody}
                 onChange={(e) => setDraftBody(e.target.value)}
@@ -237,6 +339,27 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
                 disabled={updateNote.isPending}
                 autoFocus
               />
+
+              {speech.listening && interimSpeech ? (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="text-sm italic text-(--color-muted-foreground)"
+                >
+                  …{interimSpeech}
+                </p>
+              ) : null}
+
+              {speech.error && speech.error !== "no-speech" ? (
+                <p role="alert" className="text-sm text-(--color-destructive)">
+                  {speech.error === "not-allowed"
+                    ? "Microphone permission denied. Enable it in your browser settings."
+                    : speech.error === "unsupported"
+                      ? "Your browser doesn't support dictation."
+                      : `Dictation error: ${speech.error}`}
+                </p>
+              ) : null}
+
               {editError ? (
                 <p className="text-sm text-(--color-destructive)">{editError}</p>
               ) : null}

@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -26,8 +27,16 @@ if (rawPort && (Number.isNaN(port) || port <= 0)) {
 const apiProxyTarget =
   process.env["API_PROXY_TARGET"] ?? "http://localhost:8080";
 
+// HTTPS dev server when DEV_HTTPS is truthy. Speech Recognition (and
+// other powerful browser APIs) refuse to expose themselves over plain
+// HTTP except on localhost — without HTTPS the dictation button stays
+// hidden when a phone connects via LAN IP. Plugin emits a self-signed
+// cert; users dismiss the one-time browser warning.
+const devHttps =
+  process.env["DEV_HTTPS"] === "1" || process.env["DEV_HTTPS"] === "true";
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), ...(devHttps ? [basicSsl()] : [])],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

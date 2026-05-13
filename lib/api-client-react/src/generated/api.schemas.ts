@@ -191,6 +191,11 @@ export interface AdminUser {
   email: string;
   displayName: string;
   role: AdminUserRole;
+  /**
+   * Provider's Practitioner.id in the connected EHR; used to scope schedule queries.
+   * @nullable
+   */
+  ehrPractitionerId?: string | null;
   createdAt: string;
 }
 
@@ -204,6 +209,11 @@ export const UpdateUserRequestRole = {
 
 export interface UpdateUserRequest {
   role?: UpdateUserRequestRole;
+  /**
+   * Set or clear the user's EHR Practitioner.id. Pass null to unlink.
+   * @nullable
+   */
+  ehrPractitionerId?: string | null;
 }
 
 /**
@@ -237,6 +247,50 @@ export interface EhrPushResult {
   pushedAt: string;
   /** True when the push was synthesized locally because no EHR is configured. */
   mock: boolean;
+}
+
+export type ScheduledAppointmentPatient = null | {
+  ehrId: string;
+  display: string;
+};
+
+export interface ScheduledAppointment {
+  appointmentId: string;
+  start: string;
+  /** @nullable */
+  end: string | null;
+  status: string;
+  /** @nullable */
+  reason: string | null;
+  patient: ScheduledAppointmentPatient;
+}
+
+export type PatientHistoryProblemsItem = {
+  id: string;
+  text: string;
+  /** @nullable */
+  onsetDate: string | null;
+};
+
+export type PatientHistoryMedicationsItem = {
+  id: string;
+  text: string;
+  /** @nullable */
+  dosage: string | null;
+};
+
+export type PatientHistoryAllergiesItem = {
+  id: string;
+  text: string;
+  /** @nullable */
+  severity: string | null;
+  reactions: string[];
+};
+
+export interface PatientHistory {
+  problems: PatientHistoryProblemsItem[];
+  medications: PatientHistoryMedicationsItem[];
+  allergies: PatientHistoryAllergiesItem[];
 }
 
 export type ListUsers200 = {
@@ -286,4 +340,16 @@ export type ListNotes200 = {
    * @nullable
    */
   nextCursor: string | null;
+};
+
+export type GetTodayScheduleParams = {
+  /**
+   * Local-date in YYYY-MM-DD. If omitted, today's date is used.
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  date?: string;
+};
+
+export type GetTodaySchedule200 = {
+  data: ScheduledAppointment[];
 };

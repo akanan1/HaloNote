@@ -154,6 +154,95 @@ export interface Patient extends Resource {
   >;
 }
 
+// Period — used by Appointment, Encounter, etc. Both ends are ISO 8601
+// timestamps; both optional per FHIR (start-only = "from then on").
+export interface Period {
+  start?: string;
+  end?: string;
+}
+
+// FHIR R4 Appointment — minimal subset we actually read. Schedule
+// queries pull these for "what's on this provider's calendar today".
+export interface Appointment extends Resource {
+  resourceType: "Appointment";
+  status:
+    | "proposed"
+    | "pending"
+    | "booked"
+    | "arrived"
+    | "fulfilled"
+    | "cancelled"
+    | "noshow"
+    | "entered-in-error"
+    | "checked-in"
+    | "waitlist"
+    | (string & {});
+  /** ISO 8601 datetime. */
+  start?: string;
+  /** ISO 8601 datetime. */
+  end?: string;
+  description?: string;
+  comment?: string;
+  reasonCode?: CodeableConcept[];
+  serviceType?: CodeableConcept[];
+  participant: Array<{
+    actor?: Reference;
+    type?: CodeableConcept[];
+    required?: "required" | "optional" | "information-only";
+    status: "accepted" | "declined" | "tentative" | "needs-action";
+  }>;
+}
+
+// FHIR R4 Condition — patient's diagnoses / problem list.
+export interface Condition extends Resource {
+  resourceType: "Condition";
+  clinicalStatus?: CodeableConcept;
+  verificationStatus?: CodeableConcept;
+  category?: CodeableConcept[];
+  code?: CodeableConcept;
+  subject?: Reference;
+  onsetDateTime?: string;
+  recordedDate?: string;
+}
+
+// FHIR R4 MedicationRequest — prescriptions / orders.
+export interface MedicationRequest extends Resource {
+  resourceType: "MedicationRequest";
+  status?:
+    | "active"
+    | "on-hold"
+    | "cancelled"
+    | "completed"
+    | "entered-in-error"
+    | "stopped"
+    | "draft"
+    | "unknown"
+    | (string & {});
+  intent?: string;
+  medicationCodeableConcept?: CodeableConcept;
+  medicationReference?: Reference;
+  subject?: Reference;
+  authoredOn?: string;
+  dosageInstruction?: Array<{ text?: string }>;
+}
+
+// FHIR R4 AllergyIntolerance.
+export interface AllergyIntolerance extends Resource {
+  resourceType: "AllergyIntolerance";
+  clinicalStatus?: CodeableConcept;
+  verificationStatus?: CodeableConcept;
+  type?: "allergy" | "intolerance";
+  category?: Array<"food" | "medication" | "environment" | "biologic">;
+  criticality?: "low" | "high" | "unable-to-assess";
+  code?: CodeableConcept;
+  patient?: Reference;
+  reaction?: Array<{
+    manifestation?: CodeableConcept[];
+    severity?: "mild" | "moderate" | "severe";
+    description?: string;
+  }>;
+}
+
 export interface Bundle<T extends Resource = Resource> extends Resource {
   resourceType: "Bundle";
   type: string;

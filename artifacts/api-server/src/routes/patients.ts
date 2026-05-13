@@ -5,6 +5,7 @@ import { CreatePatientBody, ListPatientsResponse } from "@workspace/api-zod";
 import { getDb, patientsTable } from "@workspace/db";
 import { listPatients } from "../lib/patients";
 import { PatientSyncError, syncPatientFromEhr } from "../lib/patient-sync";
+import { getPatientHistory, HistoryError } from "../lib/ehr-history";
 import { PatientMappingError } from "@workspace/ehr";
 
 const router: IRouter = Router();
@@ -150,6 +151,32 @@ router.post("/patients/sync", async (req, res) => {
   } catch (err) {
     req.log.error({ err, externalId }, "Failed to upsert synced patient");
     res.status(500).json({ error: "persistence_failed" });
+  }
+});
+
+// History endpoint — fetches a patient's active problems, meds, and
+// allergies from the configured EHR. The :id here is the EHR Patient.id
+// (same shape as /patients/sync's externalId), NOT the local pt_*.
+router.get("/patients/:id/history", async (req, res) => {
+  const ehrPatientId = req.params.id;
+  if (!ehrPatientId) {
+    res.status(400).json({ error: "missing_patient_id" });
+    return;
+  }
+  try {
+    const history = await getPatientHistory(ehrPatientId);
+    res.json(history);
+  } catch (err) {
+    if (err instanceof HistoryError) {
+      req.log.warn(
+        { err, ehrPatientId, status: err.status },
+        "patient history fetch failed",
+      );
+      res.status(err.status).json({ error: "ehr_unavailable" });
+      return;
+    }
+    req.log.error({ err, ehrPatientId }, "patient history fetch failed");
+    res.status(500).json({ error: "internal_server_error" });
   }
 });
 

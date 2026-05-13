@@ -22,6 +22,8 @@ import type {
   CreateNoteRequest,
   CreatePatientRequest,
   EhrPushResult,
+  GetTodaySchedule200,
+  GetTodayScheduleParams,
   HealthStatus,
   ListAuditLog200,
   ListAuditLogParams,
@@ -34,6 +36,7 @@ import type {
   PasswordResetConfirm,
   PasswordResetRequest,
   Patient,
+  PatientHistory,
   SignupRequest,
   SyncPatientRequest,
   SyncedPatient,
@@ -1640,3 +1643,189 @@ export const useSendNoteToEhr = <
 > => {
   return useMutation(getSendNoteToEhrMutationOptions(options));
 };
+
+/**
+ * Returns appointments from the configured EHR for the requested local-date (defaults to today), scoped to the calling user's `ehrPractitionerId`. Returns 409 if the user is not linked to an EHR practitioner yet. Mock mode returns a synthetic roster when EHR_MODE is unset.
+ * @summary Appointments for the signed-in provider on a given day
+ */
+export const getGetTodayScheduleUrl = (params?: GetTodayScheduleParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/schedule/today?${stringifiedParams}`
+    : `/api/schedule/today`;
+};
+
+export const getTodaySchedule = async (
+  params?: GetTodayScheduleParams,
+  options?: RequestInit,
+): Promise<GetTodaySchedule200> => {
+  return customFetch<GetTodaySchedule200>(getGetTodayScheduleUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTodayScheduleQueryKey = (
+  params?: GetTodayScheduleParams,
+) => {
+  return [`/api/schedule/today`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetTodayScheduleQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTodaySchedule>>,
+  TError = ErrorType<void>,
+>(
+  params?: GetTodayScheduleParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTodaySchedule>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetTodayScheduleQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTodaySchedule>>
+  > = ({ signal }) => getTodaySchedule(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTodaySchedule>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTodayScheduleQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTodaySchedule>>
+>;
+export type GetTodayScheduleQueryError = ErrorType<void>;
+
+/**
+ * @summary Appointments for the signed-in provider on a given day
+ */
+
+export function useGetTodaySchedule<
+  TData = Awaited<ReturnType<typeof getTodaySchedule>>,
+  TError = ErrorType<void>,
+>(
+  params?: GetTodayScheduleParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTodaySchedule>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTodayScheduleQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Pulls Condition (active), MedicationRequest (active), and AllergyIntolerance resources from the configured EHR in parallel and shapes them for a note-prep panel. The patient id parameter is the EHR Patient.id (same value used for /patients/sync).
+ * @summary Active problems, medications, and allergies for a patient
+ */
+export const getGetPatientHistoryUrl = (id: string) => {
+  return `/api/patients/${id}/history`;
+};
+
+export const getPatientHistory = async (
+  id: string,
+  options?: RequestInit,
+): Promise<PatientHistory> => {
+  return customFetch<PatientHistory>(getGetPatientHistoryUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPatientHistoryQueryKey = (id: string) => {
+  return [`/api/patients/${id}/history`] as const;
+};
+
+export const getGetPatientHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPatientHistory>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPatientHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPatientHistoryQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPatientHistory>>
+  > = ({ signal }) => getPatientHistory(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPatientHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPatientHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPatientHistory>>
+>;
+export type GetPatientHistoryQueryError = ErrorType<void>;
+
+/**
+ * @summary Active problems, medications, and allergies for a patient
+ */
+
+export function useGetPatientHistory<
+  TData = Awaited<ReturnType<typeof getPatientHistory>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPatientHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPatientHistoryQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

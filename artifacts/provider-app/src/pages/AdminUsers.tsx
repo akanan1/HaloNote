@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -61,6 +63,27 @@ export function AdminUsersPage() {
     }
   }
 
+  async function setPractitionerId(user: AdminUser, raw: string) {
+    const next = raw.trim();
+    const current = user.ehrPractitionerId ?? "";
+    if (next === current) return;
+    try {
+      await updateUser.mutateAsync({
+        id: user.id,
+        // Empty string → null on the server (clears the link).
+        data: { ehrPractitionerId: next },
+      });
+      invalidate();
+      toast.success(
+        next
+          ? `Linked ${user.displayName} to practitioner ${next}`
+          : `Unlinked ${user.displayName}`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -98,6 +121,7 @@ export function AdminUsersPage() {
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Joined</th>
                 <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">EHR Practitioner ID</th>
               </tr>
             </thead>
             <tbody>
@@ -158,6 +182,13 @@ export function AdminUsersPage() {
                         </Button>
                       </div>
                     </td>
+                    <td className="px-4 py-3">
+                      <PractitionerIdInput
+                        user={user}
+                        onSave={(v) => setPractitionerId(user, v)}
+                        disabled={updateUser.isPending}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -166,6 +197,40 @@ export function AdminUsersPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+// Tiny controlled input that commits on blur or Enter — keeps the
+// admin form usable while the user is typing without firing a save
+// on every keystroke.
+function PractitionerIdInput({
+  user,
+  onSave,
+  disabled,
+}: {
+  user: AdminUser;
+  onSave: (next: string) => Promise<void> | void;
+  disabled: boolean;
+}) {
+  const [value, setValue] = useState(user.ehrPractitionerId ?? "");
+  const initial = user.ehrPractitionerId ?? "";
+  return (
+    <Input
+      type="text"
+      inputMode="text"
+      autoComplete="off"
+      placeholder="—"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        if (value.trim() !== initial.trim()) void onSave(value);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+      disabled={disabled}
+      className="h-9 max-w-[18rem]"
+    />
   );
 }
 

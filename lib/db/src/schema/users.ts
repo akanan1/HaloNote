@@ -26,6 +26,11 @@ export const usersTable = pgTable("users", {
     mode: "date",
     withTimezone: true,
   }),
+  // Provider's identity in the EHR (e.g. Athena Practitioner.id). Used
+  // to scope schedule queries to "this user's appointments today".
+  // Manually provisioned in Phase 1; will be set automatically when
+  // the OAuth-on-web flow ships (Phase 3).
+  ehrPractitionerId: text("ehr_practitioner_id"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),

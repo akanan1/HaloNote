@@ -57,6 +57,13 @@
       "when": 1778607436022,
       "tag": "0007_add_totp_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778642307528,
+      "tag": "0008_add_ehr_practitioner_id",
+      "breakpoints": true
     }
   ]
 }

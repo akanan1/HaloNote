@@ -107,6 +107,12 @@ export const ListUsersResponse = zod.object({
       email: zod.string(),
       displayName: zod.string(),
       role: zod.enum(["admin", "member"]),
+      ehrPractitionerId: zod
+        .string()
+        .nullish()
+        .describe(
+          "Provider's Practitioner.id in the connected EHR; used to scope schedule queries.",
+        ),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -122,6 +128,12 @@ export const UpdateUserParams = zod.object({
 
 export const UpdateUserBody = zod.object({
   role: zod.enum(["admin", "member"]).optional(),
+  ehrPractitionerId: zod
+    .string()
+    .nullish()
+    .describe(
+      "Set or clear the user's EHR Practitioner.id. Pass null to unlink.",
+    ),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -129,6 +141,12 @@ export const UpdateUserResponse = zod.object({
   email: zod.string(),
   displayName: zod.string(),
   role: zod.enum(["admin", "member"]),
+  ehrPractitionerId: zod
+    .string()
+    .nullish()
+    .describe(
+      "Provider's Practitioner.id in the connected EHR; used to scope schedule queries.",
+    ),
   createdAt: zod.coerce.date(),
 });
 
@@ -466,4 +484,72 @@ export const SendNoteToEhrResponse = zod.object({
     .describe(
       "True when the push was synthesized locally because no EHR is configured.",
     ),
+});
+
+/**
+ * Returns appointments from the configured EHR for the requested local-date (defaults to today), scoped to the calling user's `ehrPractitionerId`. Returns 409 if the user is not linked to an EHR practitioner yet. Mock mode returns a synthetic roster when EHR_MODE is unset.
+ * @summary Appointments for the signed-in provider on a given day
+ */
+export const getTodayScheduleQueryDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetTodayScheduleQueryParams = zod.object({
+  date: zod.coerce
+    .string()
+    .regex(getTodayScheduleQueryDateRegExp)
+    .optional()
+    .describe("Local-date in YYYY-MM-DD. If omitted, today's date is used."),
+});
+
+export const GetTodayScheduleResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      appointmentId: zod.string(),
+      start: zod.coerce.date(),
+      end: zod.coerce.date().nullable(),
+      status: zod.string(),
+      reason: zod.string().nullable(),
+      patient: zod.union([
+        zod.null(),
+        zod.object({
+          ehrId: zod.string(),
+          display: zod.string(),
+        }),
+      ]),
+    }),
+  ),
+});
+
+/**
+ * Pulls Condition (active), MedicationRequest (active), and AllergyIntolerance resources from the configured EHR in parallel and shapes them for a note-prep panel. The patient id parameter is the EHR Patient.id (same value used for /patients/sync).
+ * @summary Active problems, medications, and allergies for a patient
+ */
+export const GetPatientHistoryParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetPatientHistoryResponse = zod.object({
+  problems: zod.array(
+    zod.object({
+      id: zod.string(),
+      text: zod.string(),
+      onsetDate: zod.string().nullable(),
+    }),
+  ),
+  medications: zod.array(
+    zod.object({
+      id: zod.string(),
+      text: zod.string(),
+      dosage: zod.string().nullable(),
+    }),
+  ),
+  allergies: zod.array(
+    zod.object({
+      id: zod.string(),
+      text: zod.string(),
+      severity: zod.string().nullable(),
+      reactions: zod.array(zod.string()),
+    }),
+  ),
 });

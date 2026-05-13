@@ -8,6 +8,8 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Pause,
+  Play,
   Send,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PatientContextPanel } from "@/components/PatientContextPanel";
 import {
   useNoteAutosave,
   type AutosaveStatus,
@@ -51,6 +54,12 @@ function getReplacesQueryParam(): string | undefined {
   return id?.trim() || undefined;
 }
 
+function getEhrIdQueryParam(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const id = new URLSearchParams(window.location.search).get("ehrId");
+  return id?.trim() || undefined;
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -71,6 +80,9 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   // Snapshot the ?replaces= id on mount so subsequent URL changes don't
   // jump the page out of amend mode.
   const replacesNoteId = useMemo(() => getReplacesQueryParam(), []);
+  // EHR patient id forwarded from the Today page — when present we can
+  // fetch the chart-context panel (active problems / meds / allergies).
+  const ehrPatientId = useMemo(() => getEhrIdQueryParam(), []);
 
   // When amending, fetch the predecessor via the bare client (not the
   // generated hook — its option types require a queryKey that we'd have
@@ -167,13 +179,24 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   );
 
   function toggleDictation() {
-    if (speech.listening) {
+    if (speech.active) {
       speech.stop();
       setInterimSpeech("");
       return;
     }
     cueCheckRef.current = body.trim() === "" && !templateId;
     speech.start(handleFinalSpeech, (interim) => setInterimSpeech(interim));
+  }
+
+  function togglePause() {
+    if (speech.paused) {
+      speech.resume();
+      return;
+    }
+    if (speech.listening) {
+      speech.pause();
+      setInterimSpeech("");
+    }
   }
 
   const patient = patientsQuery.data?.data.find((p) => p.id === patientId);
@@ -270,6 +293,10 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
         )}
       </header>
 
+      {ehrPatientId ? (
+        <PatientContextPanel ehrPatientId={ehrPatientId} />
+      ) : null}
+
       {amending ? (
         <Card className="border-amber-300 bg-amber-50 p-5 text-sm text-amber-900">
           <p>
@@ -329,14 +356,14 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
           {speech.supported ? (
             <Button
               type="button"
-              variant={speech.listening ? "default" : "outline"}
+              variant={speech.active ? "default" : "outline"}
               size="sm"
               onClick={toggleDictation}
               disabled={isBusy}
-              aria-pressed={speech.listening}
-              aria-label={speech.listening ? "Stop dictation" : "Start dictation"}
+              aria-pressed={speech.active}
+              aria-label={speech.active ? "Stop dictation" : "Start dictation"}
             >
-              {speech.listening ? (
+              {speech.active ? (
                 <>
                   <MicOff className="h-4 w-4" aria-hidden="true" />
                   Stop
@@ -345,6 +372,30 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
                 <>
                   <Mic className="h-4 w-4" aria-hidden="true" />
                   Dictate
+                </>
+              )}
+            </Button>
+          ) : null}
+
+          {speech.supported && speech.active ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={togglePause}
+              disabled={isBusy}
+              aria-pressed={speech.paused}
+              aria-label={speech.paused ? "Resume dictation" : "Pause dictation"}
+            >
+              {speech.paused ? (
+                <>
+                  <Play className="h-4 w-4" aria-hidden="true" />
+                  Resume
+                </>
+              ) : (
+                <>
+                  <Pause className="h-4 w-4" aria-hidden="true" />
+                  Pause
                 </>
               )}
             </Button>

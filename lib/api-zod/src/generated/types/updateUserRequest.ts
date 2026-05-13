@@ -9,4 +9,9 @@ import type { UpdateUserRequestRole } from "./updateUserRequestRole";
 
 export interface UpdateUserRequest {
   role?: UpdateUserRequestRole;
+  /**
+   * Set or clear the user's EHR Practitioner.id. Pass null to unlink.
+   * @nullable
+   */
+  ehrPractitionerId?: string | null;
 }

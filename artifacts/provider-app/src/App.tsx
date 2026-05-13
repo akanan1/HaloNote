@@ -47,6 +47,9 @@ const AdminUsersPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("@/pages/Settings").then((m) => ({ default: m.SettingsPage })),
 );
+const TodayPage = lazy(() =>
+  import("@/pages/Today").then((m) => ({ default: m.TodayPage })),
+);
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -73,6 +76,11 @@ export default function App() {
           <Route path="/forgot-password" component={ForgotPasswordPage} />
           <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/">
+            <RequireAuth>
+              <TodayPage />
+            </RequireAuth>
+          </Route>
+          <Route path="/patients">
             <RequireAuth>
               <PatientsPage />
             </RequireAuth>

@@ -14,6 +14,7 @@ const userSelect = {
   email: usersTable.email,
   displayName: usersTable.displayName,
   role: usersTable.role,
+  ehrPractitionerId: usersTable.ehrPractitionerId,
   createdAt: usersTable.createdAt,
 } as const;
 
@@ -57,10 +58,19 @@ router.patch("/users/:id", async (req, res) => {
     return;
   }
 
-  // Patch only the fields actually present in the request. Currently
-  // role is the only mutable field; expand here when more land.
-  const updates: { role?: "admin" | "member" } = {};
+  // Patch only the fields actually present in the request.
+  const updates: {
+    role?: "admin" | "member";
+    ehrPractitionerId?: string | null;
+  } = {};
   if (parsed.data.role !== undefined) updates.role = parsed.data.role;
+  if (parsed.data.ehrPractitionerId !== undefined) {
+    // Treat empty string the same as null — admin clearing the field.
+    updates.ehrPractitionerId =
+      parsed.data.ehrPractitionerId === ""
+        ? null
+        : parsed.data.ehrPractitionerId;
+  }
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "no_fields_to_update" });
     return;

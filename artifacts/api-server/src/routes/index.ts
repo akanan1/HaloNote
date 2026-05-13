@@ -12,6 +12,7 @@ import devSandboxRouter from "./dev-sandbox";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCsrf } from "../middlewares/require-csrf";
 import { auditLog } from "../middlewares/audit";
+import { devRoutesEnabled } from "../lib/dev-routes";
 
 const router: IRouter = Router();
 
@@ -19,10 +20,12 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(authRouter);
 
-// Dev-only mounts (NODE_ENV-gated). These bypass auth and CSRF so they
-// can be opened directly in the browser via the tunnel to demo the
-// live Athena sandbox integration.
-if (process.env["NODE_ENV"] !== "production") {
+// Dev-only mounts. Double-gated by devRoutesEnabled() — both
+// NODE_ENV != "production" AND ALLOW_DEV_ROUTES=1 must hold. These
+// bypass auth and CSRF so they can be opened directly in the browser
+// to demo the live Athena sandbox integration; the second gate makes
+// it much harder to ship them accidentally.
+if (devRoutesEnabled()) {
   router.use(devSandboxRouter);
 }
 

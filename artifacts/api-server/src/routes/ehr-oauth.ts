@@ -8,6 +8,7 @@ import {
   startOauthFlow,
   type EhrProvider,
 } from "../lib/ehr-oauth";
+import { devRoutesEnabled } from "../lib/dev-routes";
 
 const router: IRouter = Router();
 
@@ -62,8 +63,9 @@ router.post("/auth/ehr/:provider/start", async (req, res) => {
 // sometimes can't reliably synthesize the click that triggers the
 // React-driven POST, so this lets an E2E driver navigate directly to
 // the authorize URL. Same auth (session cookie + state row) as the
-// POST path; hard-gated on NODE_ENV.
-if (process.env["NODE_ENV"] !== "production") {
+// POST path; double-gated (NODE_ENV + ALLOW_DEV_ROUTES) via
+// devRoutesEnabled().
+if (devRoutesEnabled()) {
   router.get("/auth/ehr/:provider/dev-start", async (req, res) => {
     const user = req.user;
     if (!user) {

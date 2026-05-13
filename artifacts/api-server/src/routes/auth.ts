@@ -40,6 +40,7 @@ import {
   signupIpRateLimit,
 } from "../middlewares/password-reset-rate-limit";
 import { requireAuth } from "../middlewares/require-auth";
+import { devRoutesEnabled } from "../lib/dev-routes";
 
 const router: IRouter = Router();
 
@@ -64,10 +65,11 @@ async function startSession(
 }
 
 // Dev-only sign-in via URL — used by browser-driven E2E flows where
-// typing into a React-controlled <input> is unreliable. Hard-gated on
-// NODE_ENV so it can never mount in production. The browser hits this
-// directly, the response sets the session cookies, and we 303 back.
-if (process.env["NODE_ENV"] !== "production") {
+// typing into a React-controlled <input> is unreliable. Double-gated:
+// NODE_ENV != "production" AND ALLOW_DEV_ROUTES=1 (see lib/dev-routes).
+// The browser hits this directly, the response sets the session
+// cookies, and we 303 back.
+if (devRoutesEnabled()) {
   router.get("/auth/dev-login", async (req, res) => {
     const emailRaw = req.query["email"];
     const email =

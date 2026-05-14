@@ -341,80 +341,84 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
         {/* Template selector + dictation button — sit above the textarea
             so a provider can decide structure before typing. Native
             <select> here on purpose: the OS picker on phones is faster
-            and more accessible than a custom dropdown. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={templateId}
-            onChange={(e) => {
-              const next = templates.find((t) => t.id === e.target.value) ?? null;
-              applyTemplate(next);
-            }}
-            disabled={isBusy || templatesQuery.isPending}
-            aria-label="Note template"
-            className="h-11 min-w-[10rem] rounded-md border border-(--color-border) bg-(--color-card) px-3 text-sm sm:h-9"
-          >
-            <option value="">
-              {templatesQuery.isPending ? "Loading…" : "Template…"}
-            </option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+            and more accessible than a custom dropdown. The
+            "Experimental" caption lives on its own line so it doesn't
+            wrap awkwardly between the buttons on narrow viewports. */}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={templateId}
+              onChange={(e) => {
+                const next = templates.find((t) => t.id === e.target.value) ?? null;
+                applyTemplate(next);
+              }}
+              disabled={isBusy || templatesQuery.isPending}
+              aria-label="Note template"
+              className="h-11 min-w-[10rem] flex-1 rounded-md border border-(--color-border) bg-(--color-card) px-3 text-base sm:h-9 sm:flex-none sm:text-sm"
+            >
+              <option value="">
+                {templatesQuery.isPending ? "Loading…" : "Template…"}
               </option>
-            ))}
-          </select>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+
+            {speech.supported ? (
+              <Button
+                type="button"
+                variant={speech.active ? "default" : "outline"}
+                size="sm"
+                onClick={toggleDictation}
+                disabled={isBusy}
+                aria-pressed={speech.active}
+                aria-label={speech.active ? "Stop dictation" : "Start dictation"}
+              >
+                {speech.active ? (
+                  <>
+                    <MicOff className="h-4 w-4" aria-hidden="true" />
+                    Stop
+                  </>
+                ) : (
+                  <>
+                    <Mic className="h-4 w-4" aria-hidden="true" />
+                    Dictate
+                  </>
+                )}
+              </Button>
+            ) : null}
+
+            {speech.supported && speech.active ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={togglePause}
+                disabled={isBusy}
+                aria-pressed={speech.paused}
+                aria-label={speech.paused ? "Resume dictation" : "Pause dictation"}
+              >
+                {speech.paused ? (
+                  <>
+                    <Play className="h-4 w-4" aria-hidden="true" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="h-4 w-4" aria-hidden="true" />
+                    Pause
+                  </>
+                )}
+              </Button>
+            ) : null}
+          </div>
 
           {speech.supported ? (
-            <Button
-              type="button"
-              variant={speech.active ? "default" : "outline"}
-              size="sm"
-              onClick={toggleDictation}
-              disabled={isBusy}
-              aria-pressed={speech.active}
-              aria-label={speech.active ? "Stop dictation" : "Start dictation"}
-            >
-              {speech.active ? (
-                <>
-                  <MicOff className="h-4 w-4" aria-hidden="true" />
-                  Stop
-                </>
-              ) : (
-                <>
-                  <Mic className="h-4 w-4" aria-hidden="true" />
-                  Dictate
-                </>
-              )}
-            </Button>
-          ) : null}
-
-          {speech.supported && speech.active ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={togglePause}
-              disabled={isBusy}
-              aria-pressed={speech.paused}
-              aria-label={speech.paused ? "Resume dictation" : "Pause dictation"}
-            >
-              {speech.paused ? (
-                <>
-                  <Play className="h-4 w-4" aria-hidden="true" />
-                  Resume
-                </>
-              ) : (
-                <>
-                  <Pause className="h-4 w-4" aria-hidden="true" />
-                  Pause
-                </>
-              )}
-            </Button>
-          ) : null}
-
-          {speech.supported ? (
-            <span className="text-xs text-(--color-muted-foreground)">
+            <p className="text-xs text-(--color-muted-foreground)">
               Experimental — uses browser speech API (not HIPAA-grade).
-            </span>
+            </p>
           ) : null}
         </div>
 

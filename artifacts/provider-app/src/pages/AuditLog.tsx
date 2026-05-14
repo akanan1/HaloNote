@@ -94,7 +94,46 @@ export function AuditLogPage() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          <table className="w-full text-sm">
+          {/* Mobile: card-per-entry list. A 5-column table clipped to the
+              viewport edge hides "Resource" and "Status" entirely on a
+              phone — the two most important fields for an audit log. */}
+          <ul
+            className="divide-y divide-(--color-border) md:hidden"
+            aria-label="Audit entries"
+          >
+            {query.data.data.map((entry) => {
+              const status = (entry.metadata as { status?: unknown } | null)
+                ?.status;
+              const method = (entry.metadata as { method?: unknown } | null)
+                ?.method;
+              return (
+                <li key={entry.id} className="space-y-1.5 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-xs text-(--color-muted-foreground)">
+                      {formatTimestamp(entry.at)}
+                    </span>
+                    <StatusBadge
+                      tone={statusTone(status)}
+                      method={typeof method === "string" ? method : ""}
+                      status={typeof status === "number" ? status : undefined}
+                    />
+                  </div>
+                  <div className="font-mono text-xs">{entry.action}</div>
+                  <div className="text-sm text-(--color-muted-foreground)">
+                    {entry.userDisplayName ?? "(system)"} · {entry.resourceType}
+                    {entry.resourceId ? (
+                      <span className="ml-1 font-mono text-xs text-(--color-foreground)">
+                        / {entry.resourceId}
+                      </span>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Desktop: original table */}
+          <table className="hidden w-full text-sm md:table">
             <thead className="bg-(--color-muted) text-left text-(--color-muted-foreground)">
               <tr>
                 <th className="px-4 py-3 font-medium">When</th>

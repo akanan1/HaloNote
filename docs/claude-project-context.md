@@ -12,6 +12,57 @@ Drizzle/Postgres), provider SPA (Vite + React 19), EHR integration library
 "Abdullah" with Claude as co-author — pair-coding with Claude Code is the
 norm.
 
+## What HaloNote is
+
+AI-powered clinical documentation for providers (doctors / PAs / NPs).
+Voice-first, mobile-optimized, EHR-bound. Sits alongside the native
+charting UI and replaces the slow, click-heavy note-taking flow with
+something faster: voice dictation, voice-cue-triggered templates
+(SOAP / H&P / Progress / Consult / Discharge), AI-assisted structuring,
+finished notes pushed back to the EHR as FHIR `DocumentReference` so
+the documentation lands in the chart and counts for billing/compliance.
+
+Wedge vs. the EHR's native UI: speed and mobility. Wedge vs. generic AI
+scribes (Abridge, Suki, Ambience): integrated *with* the EHR rather than
+alongside it — no copy-paste; notes ship directly to the chart.
+
+## EHR integration scope
+
+The product is "all major EHRs", with athenahealth as the first
+integration. The integration library (`lib/integrations/ehr`) is
+deliberately vendor-agnostic so adding a new EHR is mostly a new
+provider adapter, not a rewrite.
+
+Common across vendors (lives in `lib/integrations/ehr/src/`):
+- `FhirClient` — generic FHIR R4 + US Core read/search/create/update,
+  vendor-agnostic
+- Auth strategies — `OAuth2TokenProvider` (client_credentials + Basic
+  auth, athena pattern) and `JwtBearerAuthProvider` (private_key_jwt
+  with KMS signer callback for ECDSA, Epic pattern)
+- `DocumentReferencePusher` — builds + POSTs a FHIR DocumentReference
+  from a higher-level note input
+
+Vendor-specific (lives in `providers/<vendor>/`):
+- Token + FHIR base URLs
+- Auth flavor — Epic = JwtBearer/SMART backend services; athena = secret
+  + Basic; Cerner has its own quirks; eClinicalWorks varies by tenant
+- Scope syntax + the actual scopes a tenant approved
+- DocumentReference write semantics (this is where vendors diverge
+  most — note pushback is the hardest to portably implement)
+- Practice/tenant context parameter (athena uses `ah-practice` query
+  param; others use headers or path segments)
+
+Realistic order of attack:
+1. **athenahealth / athenaOne** — in progress (this is what most of the
+   current code targets)
+2. **Epic** — already stubbed under `providers/epic/`; uses
+   `JwtBearerAuthProvider`. Needs app registration in Epic Vendor
+   Services + SMART backend services config
+3. **Oracle Health / Cerner** — SMART on FHIR, similar shape to Epic;
+   needs Oracle Health Developer Portal access
+4. **eClinicalWorks** — SMART on FHIR US Core 2.0; eclinicalworks.com/developers
+5. **Long tail** — Veradigm/Allscripts, NextGen, Practice Fusion, etc.
+
 ## Repository
 
 Path: `C:\Users\Abdul\Documents\HaloNoteApp` (Windows). pnpm workspaces.

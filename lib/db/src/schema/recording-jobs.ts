@@ -1,0 +1,81 @@
+import { randomUUID } from "node:crypto";
+import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { usersTable } from "./users";
+import { patientsTable } from "./patients";
+import { notesTable } from "./notes";
+
+// Lifecycle of an ambient-scribe capture. Each provider tap of the mic
+// → set of audio segments → eventual transcribed-and-structured note
+// produces one row here. The terminal states (`done`, `failed`,
+// `cancelled`) freeze the row; the rest are step-wise progress through
+// the AI pipeline added in a later slice.
+export type RecordingStatus =
+  | "capturing"
+  | "queued"
+  | "transcribing"
+  | "structuring"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export const recordingJobsTable = pgTable(
+  "recording_jobs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => `rec_${randomUUID()}`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    // The patient the recording is for. Nullable for now to make
+    // unattached test captures possible — typical product flow always
+    // sets it (provider taps an appointment → opens NewNote → records).
+    patientId: text("patient_id").references(() => patientsTable.id, {
+      onDelete: "set null",
+    }),
+    // The note draft this recording feeds. Nullable: the job exists
+    // before any note row does, and gets linked when the worker
+    // produces a structured body and we materialize a draft note.
+    noteId: text("note_id").references(() => notesTable.id, {
+      onDelete: "set null",
+    }),
+    status: text("status")
+      .$type<RecordingStatus>()
+      .notNull()
+      .default("capturing"),
+    // Raw transcript from the ASR step. Populated when status passes
+    // through "transcribing" → "structuring".
+    transcript: text("transcript"),
+    // Structured clinical-note body produced by the LLM step. This is
+    // what eventually lands in the NewNote textarea.
+    structuredBody: text("structured_body"),
+    // Surfaced verbatim to the UI on failure. Don't put secrets here.
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+  },
+  (t) => [
+    // Polling-friendly: "what's still in flight for this user".
+    index("recording_jobs_user_status_idx").on(t.userId, t.status),
+    // Looking up by patient (history of recordings for a chart) is
+    // less hot but cheap to support.
+    index("recording_jobs_patient_idx").on(t.patientId),
+  ],
+);
+
+export type RecordingJob = typeof recordingJobsTable.$inferSelect;
+export type NewRecordingJob = typeof recordingJobsTable.$inferInsert;

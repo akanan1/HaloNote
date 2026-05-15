@@ -21,6 +21,7 @@ import type {
   AuthUser,
   CreateNoteRequest,
   CreatePatientRequest,
+  CreateRecordingRequest,
   CreateTemplateRequest,
   EhrConnectionStatus,
   EhrPushResult,
@@ -41,6 +42,9 @@ import type {
   PasswordResetRequest,
   Patient,
   PatientHistory,
+  RecordingJob,
+  RecordingJobDetail,
+  RecordingSegment,
   ReorderTemplates200,
   ReorderTemplatesRequest,
   ResetTemplates200,
@@ -2341,6 +2345,357 @@ export const useResetTemplates = <
 > => {
   return useMutation(getResetTemplatesMutationOptions(options));
 };
+
+/**
+ * Creates a `recording_jobs` row in the `capturing` state. Returns the id the browser uses to upload audio segments to, and to later finalize / poll. Calling this without a patientId is allowed (unattached test captures); the typical product flow always supplies one.
+ * @summary Open a new ambient-scribe capture session
+ */
+export const getCreateRecordingUrl = () => {
+  return `/api/recordings`;
+};
+
+export const createRecording = async (
+  createRecordingRequest: CreateRecordingRequest,
+  options?: RequestInit,
+): Promise<RecordingJob> => {
+  return customFetch<RecordingJob>(getCreateRecordingUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createRecordingRequest),
+  });
+};
+
+export const getCreateRecordingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createRecording>>,
+    TError,
+    { data: BodyType<CreateRecordingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createRecording>>,
+  TError,
+  { data: BodyType<CreateRecordingRequest> },
+  TContext
+> => {
+  const mutationKey = ["createRecording"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createRecording>>,
+    { data: BodyType<CreateRecordingRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createRecording(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateRecordingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createRecording>>
+>;
+export type CreateRecordingMutationBody = BodyType<CreateRecordingRequest>;
+export type CreateRecordingMutationError = ErrorType<void>;
+
+/**
+ * @summary Open a new ambient-scribe capture session
+ */
+export const useCreateRecording = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createRecording>>,
+    TError,
+    { data: BodyType<CreateRecordingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createRecording>>,
+  TError,
+  { data: BodyType<CreateRecordingRequest> },
+  TContext
+> => {
+  return useMutation(getCreateRecordingMutationOptions(options));
+};
+
+/**
+ * Raw audio bytes in the request body. The server appends to the ordered list of segments for the job (ordinal is server-assigned from the current segment count), reads the MIME from `Content-Type`, and the browser-reported duration from `X-Recording-Duration-Ms`. One MediaRecorder Stop = one segment = one POST. We don't use query params here because orval's codegen collides path-param and query-param type names when a single operation has both.
+ * @summary Upload one audio segment for a recording
+ */
+export const getUploadRecordingSegmentUrl = (id: string) => {
+  return `/api/recordings/${id}/segments`;
+};
+
+export const uploadRecordingSegment = async (
+  id: string,
+  uploadRecordingSegmentBody: Blob,
+  options?: RequestInit,
+): Promise<RecordingSegment> => {
+  return customFetch<RecordingSegment>(getUploadRecordingSegmentUrl(id), {
+    ...options,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      ...options?.headers,
+    },
+    body: JSON.stringify(uploadRecordingSegmentBody),
+  });
+};
+
+export const getUploadRecordingSegmentMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadRecordingSegment>>,
+    TError,
+    { id: string; data: BodyType<Blob> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof uploadRecordingSegment>>,
+  TError,
+  { id: string; data: BodyType<Blob> },
+  TContext
+> => {
+  const mutationKey = ["uploadRecordingSegment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof uploadRecordingSegment>>,
+    { id: string; data: BodyType<Blob> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return uploadRecordingSegment(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UploadRecordingSegmentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof uploadRecordingSegment>>
+>;
+export type UploadRecordingSegmentMutationBody = BodyType<Blob>;
+export type UploadRecordingSegmentMutationError = ErrorType<void>;
+
+/**
+ * @summary Upload one audio segment for a recording
+ */
+export const useUploadRecordingSegment = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadRecordingSegment>>,
+    TError,
+    { id: string; data: BodyType<Blob> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof uploadRecordingSegment>>,
+  TError,
+  { id: string; data: BodyType<Blob> },
+  TContext
+> => {
+  return useMutation(getUploadRecordingSegmentMutationOptions(options));
+};
+
+/**
+ * Transitions the job from `capturing` → `queued`. A background worker picks it up, runs the transcription + structuring pipeline, and stores the result. Poll GET /recordings/{id} for progress.
+ * @summary Close the capture session and queue the AI pipeline
+ */
+export const getFinalizeRecordingUrl = (id: string) => {
+  return `/api/recordings/${id}/finalize`;
+};
+
+export const finalizeRecording = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RecordingJob> => {
+  return customFetch<RecordingJob>(getFinalizeRecordingUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getFinalizeRecordingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof finalizeRecording>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof finalizeRecording>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["finalizeRecording"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof finalizeRecording>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return finalizeRecording(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FinalizeRecordingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof finalizeRecording>>
+>;
+
+export type FinalizeRecordingMutationError = ErrorType<void>;
+
+/**
+ * @summary Close the capture session and queue the AI pipeline
+ */
+export const useFinalizeRecording = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof finalizeRecording>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof finalizeRecording>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getFinalizeRecordingMutationOptions(options));
+};
+
+/**
+ * Read the latest status, transcript (if available), and structured note draft (if available). Polled by the SPA after finalize while the worker runs.
+ * @summary Current state of a recording job
+ */
+export const getGetRecordingUrl = (id: string) => {
+  return `/api/recordings/${id}`;
+};
+
+export const getRecording = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RecordingJobDetail> => {
+  return customFetch<RecordingJobDetail>(getGetRecordingUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRecordingQueryKey = (id: string) => {
+  return [`/api/recordings/${id}`] as const;
+};
+
+export const getGetRecordingQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRecording>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRecording>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRecordingQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRecording>>> = ({
+    signal,
+  }) => getRecording(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRecording>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRecordingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRecording>>
+>;
+export type GetRecordingQueryError = ErrorType<void>;
+
+/**
+ * @summary Current state of a recording job
+ */
+
+export function useGetRecording<
+  TData = Awaited<ReturnType<typeof getRecording>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRecording>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRecordingQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * Returns whether the caller has an active SMART OAuth connection to each supported provider, plus the practitioner id we resolved from the OAuth context and when the access token expires.

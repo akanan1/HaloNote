@@ -7,3 +7,5 @@ export * from "./ehr-connections";
 export * from "./audit-log";
 export * from "./password-reset-tokens";
 export * from "./rate-limit-buckets";
+export * from "./recording-jobs";
+export * from "./recording-segments";

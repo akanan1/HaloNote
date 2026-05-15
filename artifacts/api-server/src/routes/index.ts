@@ -7,6 +7,7 @@ import auditLogRouter from "./audit-log";
 import usersRouter from "./users";
 import scheduleRouter from "./schedule";
 import templatesRouter from "./templates";
+import recordingsRouter from "./recordings";
 import ehrOauthRouter from "./ehr-oauth";
 import devSandboxRouter from "./dev-sandbox";
 import { requireAuth } from "../middlewares/require-auth";
@@ -43,6 +44,7 @@ router.use(auditLogRouter);
 router.use(usersRouter);
 router.use(scheduleRouter);
 router.use(templatesRouter);
+router.use(recordingsRouter);
 router.use(ehrOauthRouter);
 
 export default router;

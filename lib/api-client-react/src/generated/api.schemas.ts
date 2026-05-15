@@ -373,6 +373,66 @@ export interface StartEhrOauthRequest {
   returnPath?: string;
 }
 
+export interface CreateRecordingRequest {
+  /**
+   * Optional. Set when the recording is associated with a patient (the usual flow); null for unattached test captures.
+   * @nullable
+   */
+  patientId?: string | null;
+}
+
+export type RecordingJobStatus =
+  (typeof RecordingJobStatus)[keyof typeof RecordingJobStatus];
+
+export const RecordingJobStatus = {
+  capturing: "capturing",
+  queued: "queued",
+  transcribing: "transcribing",
+  structuring: "structuring",
+  done: "done",
+  failed: "failed",
+  cancelled: "cancelled",
+} as const;
+
+export interface RecordingJob {
+  id: string;
+  /** @nullable */
+  patientId?: string | null;
+  /**
+   * Set when a draft note has been materialized from the structured body
+   * @nullable
+   */
+  noteId?: string | null;
+  status: RecordingJobStatus;
+  /** @nullable */
+  transcript?: string | null;
+  /**
+   * AI-generated clinical note body; populated when status == done
+   * @nullable
+   */
+  structuredBody?: string | null;
+  /** @nullable */
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+}
+
+export interface RecordingSegment {
+  id: string;
+  recordingJobId: string;
+  ordinal: number;
+  mimeType: string;
+  sizeBytes: number;
+  durationMs: number;
+  uploadedAt: string;
+}
+
+export type RecordingJobDetail = RecordingJob & {
+  segments: RecordingSegment[];
+};
+
 export type ListUsers200 = {
   data: AdminUser[];
 };

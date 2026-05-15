@@ -713,6 +713,128 @@ export const ResetTemplatesResponse = zod.object({
 });
 
 /**
+ * Creates a `recording_jobs` row in the `capturing` state. Returns the id the browser uses to upload audio segments to, and to later finalize / poll. Calling this without a patientId is allowed (unattached test captures); the typical product flow always supplies one.
+ * @summary Open a new ambient-scribe capture session
+ */
+export const CreateRecordingBody = zod.object({
+  patientId: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional. Set when the recording is associated with a patient (the usual flow); null for unattached test captures.",
+    ),
+});
+
+/**
+ * Raw audio bytes in the request body. The server appends to the ordered list of segments for the job (ordinal is server-assigned from the current segment count), reads the MIME from `Content-Type`, and the browser-reported duration from `X-Recording-Duration-Ms`. One MediaRecorder Stop = one segment = one POST. We don't use query params here because orval's codegen collides path-param and query-param type names when a single operation has both.
+ * @summary Upload one audio segment for a recording
+ */
+export const UploadRecordingSegmentParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const uploadRecordingSegmentHeaderXRecordingDurationMsMin = 0;
+
+export const UploadRecordingSegmentHeader = zod.object({
+  "X-Recording-Duration-Ms": zod
+    .number()
+    .min(uploadRecordingSegmentHeaderXRecordingDurationMsMin)
+    .describe("Browser-reported segment duration in milliseconds"),
+});
+
+/**
+ * Transitions the job from `capturing` → `queued`. A background worker picks it up, runs the transcription + structuring pipeline, and stores the result. Poll GET /recordings/{id} for progress.
+ * @summary Close the capture session and queue the AI pipeline
+ */
+export const FinalizeRecordingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const FinalizeRecordingResponse = zod.object({
+  id: zod.string(),
+  patientId: zod.string().nullish(),
+  noteId: zod
+    .string()
+    .nullish()
+    .describe(
+      "Set when a draft note has been materialized from the structured body",
+    ),
+  status: zod.enum([
+    "capturing",
+    "queued",
+    "transcribing",
+    "structuring",
+    "done",
+    "failed",
+    "cancelled",
+  ]),
+  transcript: zod.string().nullish(),
+  structuredBody: zod
+    .string()
+    .nullish()
+    .describe("AI-generated clinical note body; populated when status == done"),
+  errorMessage: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  completedAt: zod.coerce.date().nullish(),
+});
+
+/**
+ * Read the latest status, transcript (if available), and structured note draft (if available). Polled by the SPA after finalize while the worker runs.
+ * @summary Current state of a recording job
+ */
+export const GetRecordingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetRecordingResponse = zod
+  .object({
+    id: zod.string(),
+    patientId: zod.string().nullish(),
+    noteId: zod
+      .string()
+      .nullish()
+      .describe(
+        "Set when a draft note has been materialized from the structured body",
+      ),
+    status: zod.enum([
+      "capturing",
+      "queued",
+      "transcribing",
+      "structuring",
+      "done",
+      "failed",
+      "cancelled",
+    ]),
+    transcript: zod.string().nullish(),
+    structuredBody: zod
+      .string()
+      .nullish()
+      .describe(
+        "AI-generated clinical note body; populated when status == done",
+      ),
+    errorMessage: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+    completedAt: zod.coerce.date().nullish(),
+  })
+  .and(
+    zod.object({
+      segments: zod.array(
+        zod.object({
+          id: zod.string(),
+          recordingJobId: zod.string(),
+          ordinal: zod.number(),
+          mimeType: zod.string(),
+          sizeBytes: zod.number(),
+          durationMs: zod.number(),
+          uploadedAt: zod.coerce.date(),
+        }),
+      ),
+    }),
+  );
+
+/**
  * Returns whether the caller has an active SMART OAuth connection to each supported provider, plus the practitioner id we resolved from the OAuth context and when the access token expires.
  * @summary Current EHR connection status for the signed-in provider
  */

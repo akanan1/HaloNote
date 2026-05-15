@@ -11,6 +11,8 @@ import {
   Pause,
   Play,
   Send,
+  Sparkles,
+  XCircle,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,6 +33,10 @@ import {
   RecordingPanel,
   type AudioSegment,
 } from "@/components/RecordingPanel";
+import {
+  useRecordingToNote,
+  type RecordingProcessingState,
+} from "@/lib/use-recording-to-note";
 import {
   useNoteAutosave,
   type AutosaveStatus,
@@ -123,9 +129,10 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   const [templateId, setTemplateId] = useState<string>("");
   const [interimSpeech, setInterimSpeech] = useState("");
   // Audio segments captured by the ambient-recording panel above the
-  // note body. Held in component state for now; the AI transcription /
-  // structuring backend will consume them in a later commit.
-  const [, setAudioSegments] = useState<AudioSegment[]>([]);
+  // note body. `useRecordingToNote` runs the upload → finalize → poll
+  // pipeline when the provider taps "Generate note".
+  const [audioSegments, setAudioSegments] = useState<AudioSegment[]>([]);
+  const recording = useRecordingToNote({ patientId, segments: audioSegments });
   // Track whether the *next* finalized dictation chunk should be
   // inspected for a template cue. Reset to true whenever the user
   // restarts dictation against an empty / freshly-templated body.
@@ -151,6 +158,16 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
     setBody(predecessor.body);
     setBodyPrefilled(true);
   }, [predecessor, bodyPrefilled]);
+
+  // When the recording pipeline lands, drop the structured body into
+  // the textarea — but only if the textarea is empty. A provider who's
+  // already typed something keeps their work; they can manually paste
+  // from the recorded transcript instead.
+  useEffect(() => {
+    if (recording.state.phase !== "done") return;
+    const generated = recording.state.structuredBody;
+    setBody((current) => (current.trim() === "" ? generated : current));
+  }, [recording.state]);
 
   // Apply a template's skeleton to the textarea. Only fires when the
   // body is empty — refuses to overwrite a note in progress.
@@ -312,6 +329,14 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
       <RecordingPanel
         disabled={isBusy}
         onSegmentsChange={setAudioSegments}
+      />
+
+      <RecordingPipelineStatus
+        state={recording.state}
+        segmentCount={audioSegments.length}
+        onGenerate={() => void recording.generate()}
+        onReset={recording.reset}
+        disabled={isBusy}
       />
 
       {ehrPatientId ? (
@@ -612,4 +637,128 @@ function SendStatus({
     );
   }
   return null;
+}
+
+function processingStatusCopy(status: string): string {
+  switch (status) {
+    case "queued":
+      return "Queued for processing…";
+    case "transcribing":
+      return "Transcribing the conversation…";
+    case "structuring":
+      return "Structuring the clinical note…";
+    default:
+      return "Processing…";
+  }
+}
+
+function RecordingPipelineStatus({
+  state,
+  segmentCount,
+  onGenerate,
+  onReset,
+  disabled,
+}: {
+  state: RecordingProcessingState;
+  segmentCount: number;
+  onGenerate: () => void;
+  onReset: () => void;
+  disabled: boolean;
+}) {
+  if (state.phase === "idle" && segmentCount === 0) return null;
+
+  if (state.phase === "idle") {
+    return (
+      <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5">
+        <div className="text-sm">
+          <span className="font-medium">{segmentCount}</span>{" "}
+          {segmentCount === 1 ? "segment" : "segments"} ready
+          <span className="text-(--color-muted-foreground)">
+            {" "}
+            · tap to turn into a draft note
+          </span>
+        </div>
+        <Button
+          size="lg"
+          onClick={onGenerate}
+          disabled={disabled}
+          aria-label="Generate note from recording"
+        >
+          <Sparkles className="h-5 w-5" aria-hidden="true" />
+          Generate note
+        </Button>
+      </Card>
+    );
+  }
+
+  if (state.phase === "uploading") {
+    const pct = state.total > 0 ? Math.round((state.done / state.total) * 100) : 0;
+    return (
+      <Card className="space-y-2 px-4 py-3 md:px-5">
+        <div className="flex items-center gap-2 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          Uploading segment {Math.min(state.done + 1, state.total)} of{" "}
+          {state.total}…
+        </div>
+        <div
+          className="h-2 w-full overflow-hidden rounded-full bg-(--color-muted)"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div
+            className="h-full bg-(--color-primary) transition-[width] duration-200"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </Card>
+    );
+  }
+
+  if (state.phase === "finalizing" || state.phase === "processing") {
+    const label =
+      state.phase === "finalizing"
+        ? "Finalizing recording…"
+        : processingStatusCopy(state.status);
+    return (
+      <Card className="flex items-center gap-2 px-4 py-3 text-sm md:px-5">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        {label}
+      </Card>
+    );
+  }
+
+  if (state.phase === "done") {
+    return (
+      <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5">
+        <div className="inline-flex items-center gap-2 text-sm">
+          <Check className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+          Draft note generated below — review and edit before sending.
+        </div>
+        <Button variant="ghost" size="sm" onClick={onReset} disabled={disabled}>
+          Discard recording
+        </Button>
+      </Card>
+    );
+  }
+
+  // phase === "failed"
+  return (
+    <Card className="space-y-2 px-4 py-3 md:px-5">
+      <div className="inline-flex items-center gap-2 text-sm text-(--color-destructive)">
+        <XCircle className="h-4 w-4" aria-hidden="true" />
+        Couldn't generate the note.
+      </div>
+      <p className="text-sm text-(--color-muted-foreground)">{state.message}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={onGenerate} disabled={disabled}>
+          Try again
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onReset} disabled={disabled}>
+          Discard
+        </Button>
+      </div>
+    </Card>
+  );
 }

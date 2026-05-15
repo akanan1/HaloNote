@@ -20,6 +20,8 @@ tags:
     description: Compliance + access logs
   - name: admin
     description: Administrative operations (role-gated)
+  - name: recordings
+    description: Ambient-scribe audio capture + AI structuring pipeline
 paths:
   /healthz:
     get:
@@ -681,6 +683,136 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/NoteTemplate"
+  /recordings:
+    post:
+      operationId: createRecording
+      tags: [recordings]
+      summary: Open a new ambient-scribe capture session
+      description: >-
+        Creates a `recording_jobs` row in the `capturing` state. Returns
+        the id the browser uses to upload audio segments to, and to
+        later finalize / poll. Calling this without a patientId is
+        allowed (unattached test captures); the typical product flow
+        always supplies one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecordingRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingJob"
+        "400":
+          description: Validation failed
+        "404":
+          description: patientId references a patient that doesn't exist
+  /recordings/{id}/segments:
+    post:
+      operationId: uploadRecordingSegment
+      tags: [recordings]
+      summary: Upload one audio segment for a recording
+      description: >-
+        Raw audio bytes in the request body. The server appends to the
+        ordered list of segments for the job (ordinal is server-assigned
+        from the current segment count), reads the MIME from
+        `Content-Type`, and the browser-reported duration from
+        `X-Recording-Duration-Ms`. One MediaRecorder Stop = one segment
+        = one POST. We don't use query params here because orval's
+        codegen collides path-param and query-param type names when a
+        single operation has both.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Recording-Duration-Ms
+          in: header
+          required: true
+          description: Browser-reported segment duration in milliseconds
+          schema:
+            type: integer
+            minimum: 0
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Segment stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingSegment"
+        "400":
+          description: Missing duration header or invalid mime type
+        "404":
+          description: Recording not found (or not owned by the caller)
+        "409":
+          description: Recording is no longer in a state that accepts segments
+        "413":
+          description: Segment exceeds the configured max upload size
+  /recordings/{id}/finalize:
+    post:
+      operationId: finalizeRecording
+      tags: [recordings]
+      summary: Close the capture session and queue the AI pipeline
+      description: >-
+        Transitions the job from `capturing` → `queued`. A background
+        worker picks it up, runs the transcription + structuring
+        pipeline, and stores the result. Poll GET /recordings/{id} for
+        progress.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Queued for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingJob"
+        "404":
+          description: Recording not found (or not owned by the caller)
+        "409":
+          description: Recording is already past the `capturing` state
+        "422":
+          description: No segments have been uploaded yet
+  /recordings/{id}:
+    get:
+      operationId: getRecording
+      tags: [recordings]
+      summary: Current state of a recording job
+      description: >-
+        Read the latest status, transcript (if available), and
+        structured note draft (if available). Polled by the SPA after
+        finalize while the worker runs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingJobDetail"
+        "404":
+          description: Recording not found (or not owned by the caller)
   /auth/ehr/status:
     get:
       operationId: getEhrConnectionStatus
@@ -1211,3 +1343,84 @@ components:
         returnPath:
           type: string
           description: Same-origin path to navigate to after the callback completes (e.g. "/settings").
+    CreateRecordingRequest:
+      type: object
+      properties:
+        patientId:
+          type: ["string", "null"]
+          description: >-
+            Optional. Set when the recording is associated with a
+            patient (the usual flow); null for unattached test captures.
+    RecordingJob:
+      type: object
+      required: [id, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        patientId:
+          type: ["string", "null"]
+        noteId:
+          type: ["string", "null"]
+          description: Set when a draft note has been materialized from the structured body
+        status:
+          type: string
+          enum:
+            - capturing
+            - queued
+            - transcribing
+            - structuring
+            - done
+            - failed
+            - cancelled
+        transcript:
+          type: ["string", "null"]
+        structuredBody:
+          type: ["string", "null"]
+          description: AI-generated clinical note body; populated when status == done
+        errorMessage:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+    RecordingSegment:
+      type: object
+      required:
+        - id
+        - recordingJobId
+        - ordinal
+        - mimeType
+        - sizeBytes
+        - durationMs
+        - uploadedAt
+      properties:
+        id:
+          type: string
+        recordingJobId:
+          type: string
+        ordinal:
+          type: integer
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        durationMs:
+          type: integer
+        uploadedAt:
+          type: string
+          format: date-time
+    RecordingJobDetail:
+      allOf:
+        - $ref: "#/components/schemas/RecordingJob"
+        - type: object
+          required: [segments]
+          properties:
+            segments:
+              type: array
+              items:
+                $ref: "#/components/schemas/RecordingSegment"

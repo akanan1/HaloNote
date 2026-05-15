@@ -28,6 +28,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PatientContextPanel } from "@/components/PatientContextPanel";
 import {
+  RecordingPanel,
+  type AudioSegment,
+} from "@/components/RecordingPanel";
+import {
   useNoteAutosave,
   type AutosaveStatus,
 } from "@/lib/use-note-autosave";
@@ -118,6 +122,10 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   const [sendState, setSendState] = useState<SendState>({ phase: "idle" });
   const [templateId, setTemplateId] = useState<string>("");
   const [interimSpeech, setInterimSpeech] = useState("");
+  // Audio segments captured by the ambient-recording panel above the
+  // note body. Held in component state for now; the AI transcription /
+  // structuring backend will consume them in a later commit.
+  const [, setAudioSegments] = useState<AudioSegment[]>([]);
   // Track whether the *next* finalized dictation chunk should be
   // inspected for a template cue. Reset to true whenever the user
   // restarts dictation against an empty / freshly-templated body.
@@ -300,6 +308,11 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
           </p>
         )}
       </header>
+
+      <RecordingPanel
+        disabled={isBusy}
+        onSegmentsChange={setAudioSegments}
+      />
 
       {ehrPatientId ? (
         <PatientContextPanel ehrPatientId={ehrPatientId} />

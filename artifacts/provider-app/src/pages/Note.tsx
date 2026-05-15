@@ -232,31 +232,40 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
               ) : null}
             </div>
             {!editing && !withdrawn ? (
-              <div className="flex items-center gap-2 print:hidden">
-                <Button variant="outline" onClick={() => window.print()}>
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
+                <Button
+                  variant="outline"
+                  onClick={() => window.print()}
+                  aria-label="Print"
+                >
                   <Printer className="h-4 w-4" aria-hidden="true" />
-                  Print
+                  <span className="hidden sm:inline">Print</span>
                 </Button>
                 <Link
                   href={`/patients/${patientId}/notes/new?replaces=${note.id}`}
                 >
-                  <Button variant="outline">
+                  <Button variant="outline" aria-label="Amend">
                     <FilePlus2 className="h-4 w-4" aria-hidden="true" />
-                    Amend
+                    <span className="hidden sm:inline">Amend</span>
                   </Button>
                 </Link>
-                <Button variant="outline" onClick={() => setEditing(true)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditing(true)}
+                  aria-label="Edit"
+                >
                   <Pencil className="h-4 w-4" aria-hidden="true" />
-                  Edit
+                  <span className="hidden sm:inline">Edit</span>
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => void handleDelete()}
                   disabled={deleteNote.isPending}
+                  aria-label="Delete"
                   className="text-(--color-destructive)"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  Delete
+                  <span className="hidden sm:inline">Delete</span>
                 </Button>
               </div>
             ) : null}
@@ -274,60 +283,61 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
           {editing ? (
             <div className="space-y-3">
               {speech.supported ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant={speech.active ? "default" : "outline"}
-                    size="sm"
-                    onClick={toggleDictation}
-                    disabled={updateNote.isPending}
-                    aria-pressed={speech.active}
-                    aria-label={
-                      speech.active ? "Stop dictation" : "Start dictation"
-                    }
-                  >
-                    {speech.active ? (
-                      <>
-                        <MicOff className="h-4 w-4" aria-hidden="true" />
-                        Stop
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="h-4 w-4" aria-hidden="true" />
-                        Dictate
-                      </>
-                    )}
-                  </Button>
-
-                  {speech.active ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
-                      variant="outline"
+                      variant={speech.active ? "default" : "outline"}
                       size="sm"
-                      onClick={togglePause}
+                      onClick={toggleDictation}
                       disabled={updateNote.isPending}
-                      aria-pressed={speech.paused}
+                      aria-pressed={speech.active}
                       aria-label={
-                        speech.paused ? "Resume dictation" : "Pause dictation"
+                        speech.active ? "Stop dictation" : "Start dictation"
                       }
                     >
-                      {speech.paused ? (
+                      {speech.active ? (
                         <>
-                          <Play className="h-4 w-4" aria-hidden="true" />
-                          Resume
+                          <MicOff className="h-4 w-4" aria-hidden="true" />
+                          Stop
                         </>
                       ) : (
                         <>
-                          <Pause className="h-4 w-4" aria-hidden="true" />
-                          Pause
+                          <Mic className="h-4 w-4" aria-hidden="true" />
+                          Dictate
                         </>
                       )}
                     </Button>
-                  ) : null}
 
-                  <span className="text-xs text-(--color-muted-foreground)">
+                    {speech.active ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={togglePause}
+                        disabled={updateNote.isPending}
+                        aria-pressed={speech.paused}
+                        aria-label={
+                          speech.paused ? "Resume dictation" : "Pause dictation"
+                        }
+                      >
+                        {speech.paused ? (
+                          <>
+                            <Play className="h-4 w-4" aria-hidden="true" />
+                            Resume
+                          </>
+                        ) : (
+                          <>
+                            <Pause className="h-4 w-4" aria-hidden="true" />
+                            Pause
+                          </>
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-(--color-muted-foreground)">
                     Experimental — uses browser speech API (not HIPAA-grade).
-                  </span>
+                  </p>
                 </div>
               ) : null}
 
@@ -363,9 +373,23 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
               {editError ? (
                 <p className="text-sm text-(--color-destructive)">{editError}</p>
               ) : null}
-              <div className="flex justify-end gap-3">
+              {/* Sticky action bar — mirrors NewNote so Save/Cancel stay
+                  reachable on a long note with the mobile keyboard open.
+                  Mobile offset clears the AppLayout tab bar
+                  (min-h-[3.5rem] + safe-area-inset). The tab bar already
+                  pads the iOS home indicator, so flat pb-4 on mobile and
+                  fall back to the safe-area inset only at md+ where no
+                  tab bar sits below. */}
+              <div
+                className="sticky bottom-[calc(env(safe-area-inset-bottom)+3.5rem)] md:bottom-0
+                           -mx-4 flex items-center justify-end gap-3 md:-mx-6
+                           border-t border-(--color-border) bg-(--color-background)/95
+                           px-4 py-4 backdrop-blur md:px-6 supports-[backdrop-filter]:bg-(--color-background)/80
+                           pb-4 md:pb-[max(1rem,env(safe-area-inset-bottom))] print:hidden"
+              >
                 <Button
                   variant="outline"
+                  size="lg"
                   onClick={() => {
                     setEditing(false);
                     setEditError(null);
@@ -375,6 +399,7 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
                   Cancel
                 </Button>
                 <Button
+                  size="lg"
                   onClick={() => void handleSaveEdit()}
                   disabled={updateNote.isPending || !draftBody.trim()}
                 >

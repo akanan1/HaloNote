@@ -49,12 +49,16 @@ function SyncFromEhrButton() {
       </Button>
     );
   }
+  // Mobile: stack the label/input above a Pull+Cancel button row so the
+  // ID field gets the full width (these IDs are long, e.g.
+  // erXuFYUfucBZaryVksYEcMg3) and the buttons stay reachable. Desktop:
+  // original inline `flex items-end` layout.
   return (
     <form
       onSubmit={(e) => void handleSubmit(e)}
-      className="flex items-end gap-2"
+      className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end"
     >
-      <div className="space-y-1">
+      <div className="space-y-1 sm:flex-1">
         <Label htmlFor="ehr-external-id" className="text-xs">
           EHR Patient id
         </Label>
@@ -67,21 +71,29 @@ function SyncFromEhrButton() {
           disabled={sync.isPending}
         />
       </div>
-      <Button type="submit" size="lg" disabled={sync.isPending || !externalId.trim()}>
-        {sync.isPending ? "Syncing…" : "Pull"}
-      </Button>
-      <Button
-        type="button"
-        size="lg"
-        variant="ghost"
-        onClick={() => {
-          setOpen(false);
-          setExternalId("");
-        }}
-        disabled={sync.isPending}
-      >
-        Cancel
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          size="lg"
+          disabled={sync.isPending || !externalId.trim()}
+          className="flex-1 sm:flex-none"
+        >
+          {sync.isPending ? "Syncing…" : "Pull"}
+        </Button>
+        <Button
+          type="button"
+          size="lg"
+          variant="ghost"
+          onClick={() => {
+            setOpen(false);
+            setExternalId("");
+          }}
+          disabled={sync.isPending}
+          className="flex-1 sm:flex-none"
+        >
+          Cancel
+        </Button>
+      </div>
     </form>
   );
 }
@@ -133,7 +145,7 @@ export function PatientsPage() {
             Select a patient to see their notes.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-1 items-center gap-2 sm:w-auto sm:flex-initial">
           <SyncFromEhrButton />
           {/* Desktop "Add patient" — hidden on mobile (< md) because the
               FAB at the bottom of the viewport carries the same action

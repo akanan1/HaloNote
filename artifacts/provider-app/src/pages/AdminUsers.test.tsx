@@ -97,11 +97,19 @@ describe("AdminUsersPage", () => {
     renderWithProviders(<AdminUsersPage />, { initialPath: "/admin/users" });
 
     expect(screen.getByRole("heading", { name: /users/i })).toBeInTheDocument();
-    expect(screen.getByText("Dr. Alice")).toBeInTheDocument();
-    expect(screen.getByText("Dr. Bob")).toBeInTheDocument();
-    expect(screen.getByText(/\(you\)/i)).toBeInTheDocument();
-    expect(screen.getByText("alice@halonote.app")).toBeInTheDocument();
-    expect(screen.getByText("bob@halonote.app")).toBeInTheDocument();
+    // Each user is rendered twice in the DOM — once in the mobile card
+    // list (md:hidden) and once in the desktop table (hidden md:table) —
+    // so the same name/email appears twice. jsdom doesn't apply CSS so
+    // both branches are present.
+    expect(screen.getAllByText("Dr. Alice").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("Dr. Bob").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/\(you\)/i).length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getAllByText("alice@halonote.app").length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getAllByText("bob@halonote.app").length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("disables the Member button on the caller's own admin row to block self-demotion", () => {
@@ -113,9 +121,11 @@ describe("AdminUsersPage", () => {
 
     renderWithProviders(<AdminUsersPage />, { initialPath: "/admin/users" });
 
-    // Two role buttons in the table: Admin (active) and Member (disabled).
-    const memberBtn = screen.getByRole("button", { name: "Member" });
-    expect(memberBtn).toBeDisabled();
+    // Two role buttons each in mobile + desktop renders → 2 Member buttons.
+    // Both must be disabled in the self-demotion case.
+    const memberBtns = screen.getAllByRole("button", { name: "Member" });
+    expect(memberBtns.length).toBeGreaterThanOrEqual(2);
+    for (const btn of memberBtns) expect(btn).toBeDisabled();
   });
 
   it("calls updateUser when promoting a member to admin and shows success toast", async () => {
@@ -129,7 +139,9 @@ describe("AdminUsersPage", () => {
 
     renderWithProviders(<AdminUsersPage />, { initialPath: "/admin/users" });
 
-    await user.click(screen.getByRole("button", { name: "Admin" }));
+    // Clicking either copy fires the same handler — both branches render
+    // in jsdom regardless of viewport.
+    await user.click(screen.getAllByRole("button", { name: "Admin" })[0]!);
 
     await waitFor(() => {
       expect(updateUserMutateMock).toHaveBeenCalledWith({
@@ -156,7 +168,7 @@ describe("AdminUsersPage", () => {
 
     renderWithProviders(<AdminUsersPage />, { initialPath: "/admin/users" });
 
-    await user.click(screen.getByRole("button", { name: "Member" }));
+    await user.click(screen.getAllByRole("button", { name: "Member" })[0]!);
 
     await waitFor(() => {
       expect(toastErrorMock).toHaveBeenCalledWith(

@@ -59,19 +59,21 @@ describe("AuditLogPage", () => {
     renderWithProviders(<AuditLogPage />, { initialPath: "/audit-log" });
 
     expect(screen.getByRole("heading", { name: /audit log/i })).toBeInTheDocument();
-    // Each action label appears at least twice — once as a filter chip
-    // and once in a table cell. The presence of the cell is what we care
-    // about, so use getAllByText.
+    // Each row renders twice in the DOM — once in the mobile card list
+    // (md:hidden) and once in the desktop table (hidden md:table) — and
+    // action labels also appear as filter chips. jsdom doesn't apply CSS,
+    // so all branches are present. Use getAllByText for anything that
+    // appears in both branches.
     expect(screen.getAllByText("list_patients").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("create_note").length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getAllByText("send_note_to_ehr").length,
     ).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/note_xyz/)).toBeInTheDocument();
+    expect(screen.getAllByText(/note_xyz/).length).toBeGreaterThanOrEqual(2);
     // Status badges rendered from metadata
-    expect(screen.getByText(/GET 200/)).toBeInTheDocument();
-    expect(screen.getByText(/POST 201/)).toBeInTheDocument();
-    expect(screen.getByText(/POST 502/)).toBeInTheDocument();
+    expect(screen.getAllByText(/GET 200/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/POST 201/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/POST 502/).length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows the empty-state card when no entries match the filters", () => {
@@ -127,6 +129,6 @@ describe("AuditLogPage", () => {
     });
 
     renderWithProviders(<AuditLogPage />, { initialPath: "/audit-log" });
-    expect(screen.getByText(/\(system\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/\(system\)/i).length).toBeGreaterThanOrEqual(2);
   });
 });

@@ -114,7 +114,79 @@ export function AdminUsersPage() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          <table className="w-full text-sm">
+          {/* Mobile: card-per-user list. A 5-column table clipped to the
+              viewport edge hides Role + EHR Practitioner ID on a phone —
+              the only two actionable columns. */}
+          <ul
+            className="divide-y divide-(--color-border) md:hidden"
+            aria-label="Users"
+          >
+            {query.data.data.map((user) => {
+              const isSelf = user.id === currentUser?.id;
+              return (
+                <li key={user.id} className="space-y-3 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="font-medium">
+                        {user.displayName}
+                        {isSelf ? (
+                          <span className="ml-1 text-xs text-(--color-muted-foreground)">
+                            (you)
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="truncate text-sm text-(--color-muted-foreground)">
+                        {user.email}
+                      </div>
+                    </div>
+                    <div className="shrink-0 whitespace-nowrap text-xs text-(--color-muted-foreground)">
+                      {formatDate(user.createdAt)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={user.role === "admin" ? "default" : "outline"}
+                      onClick={() => void setRole(user, "admin")}
+                      disabled={updateUser.isPending || user.role === "admin"}
+                    >
+                      Admin
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={user.role === "member" ? "default" : "outline"}
+                      onClick={() => void setRole(user, "member")}
+                      disabled={
+                        updateUser.isPending ||
+                        user.role === "member" ||
+                        (isSelf && user.role === "admin")
+                      }
+                      title={
+                        isSelf && user.role === "admin"
+                          ? "You can't demote your own admin role"
+                          : undefined
+                      }
+                    >
+                      Member
+                    </Button>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-(--color-muted-foreground)">
+                      EHR Practitioner ID
+                    </div>
+                    <PractitionerIdInput
+                      user={user}
+                      onSave={(v) => setPractitionerId(user, v)}
+                      disabled={updateUser.isPending}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Desktop: original table */}
+          <table className="hidden w-full text-sm md:table">
             <thead className="bg-(--color-muted) text-left text-(--color-muted-foreground)">
               <tr>
                 <th className="px-4 py-3 font-medium">User</th>

@@ -60,3 +60,9 @@ playwright/.cache/
 
 # Claude Code — local-only permission overrides
 .claude/settings.local.json
+
+# Local Python cache + cookie jar artifacts (from run_agents.py and curl probes)
+__pycache__/
+*.pyc
+halo-cookies.txt
+*-cookies.txt

@@ -174,6 +174,14 @@ router.get("/auth/ehr/callback", async (req, res) => {
   }
 });
 
+// Ownership invariant: the row to delete is scoped by (req.user.id,
+// provider). The user id is NEVER taken from query/path/body — adding
+// a `?userId=` or similar caller-controlled identifier here would
+// silently let one physician disconnect another's EHR. The 404 on
+// "no row matched" intentionally does not distinguish between
+// "no such connection in the system" and "exists but not yours" —
+// both produce {"error":"not_connected"} so we don't reveal whether
+// another user is connected.
 router.delete("/auth/ehr/:provider", async (req, res) => {
   const user = req.user;
   if (!user) {
@@ -193,6 +201,13 @@ router.delete("/auth/ehr/:provider", async (req, res) => {
   res.status(204).end();
 });
 
+// Ownership invariant: the lookup is scoped by req.user.id. The
+// response only ever describes the caller's own connection — never
+// accept a userId from the caller. The "connected: false" branch
+// intentionally returns the same shape whether the caller has no row
+// OR the row belongs to someone else (latter cannot happen given the
+// scoping, but the shape stays uniform so the existence of others'
+// connections is not observable through this endpoint).
 router.get("/auth/ehr/status", async (req, res) => {
   const user = req.user;
   if (!user) {

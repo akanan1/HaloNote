@@ -65,7 +65,11 @@ describe("logger redaction", () => {
       session: { token: string; tokenHash: string };
     };
     expect(e.user.password).toBe("[redacted]");
-    expect(e.user.email).toBe("x@y");
+    // Email used to be preserved here as a non-sensitive example.
+    // Tightened: email is a HIPAA direct identifier (45 CFR 164.514)
+    // and is now redacted everywhere; operational signal should use
+    // userId instead. See dedicated test below for the full coverage.
+    expect(e.user.email).toBe("[redacted]");
     expect(e.session.token).toBe("[redacted]");
     expect(e.session.tokenHash).toBe("[redacted]");
   });
@@ -187,5 +191,127 @@ describe("logger redaction", () => {
     const e = entries()[0] as { req: { body: unknown; method: string } };
     expect(e.req.body).toBe("[redacted]");
     expect(e.req.method).toBe("POST");
+  });
+
+  it("redacts HIPAA direct identifiers (email, phone, ssn) wherever they appear", () => {
+    const { log, entries } = captureLogger();
+    log.info({
+      patient: {
+        id: "pt_001",
+        email: "marisol@example.com",
+        phone: "+1-555-0100",
+        phoneNumber: "+15550101",
+        ssn: "123-45-6789",
+      },
+      // Top-level forms too — exercises both `*.email` and bare `email`.
+      email: "admin@halonote.example",
+    });
+    const e = entries()[0] as {
+      patient: Record<string, unknown>;
+      email: string;
+    };
+    expect(e.patient["id"]).toBe("pt_001"); // opaque id preserved
+    expect(e.patient["email"]).toBe("[redacted]");
+    expect(e.patient["phone"]).toBe("[redacted]");
+    expect(e.patient["phoneNumber"]).toBe("[redacted]");
+    expect(e.patient["ssn"]).toBe("[redacted]");
+    expect(e.email).toBe("[redacted]");
+  });
+
+  it("redacts FHIR Patient response shape (given/family/birthDate/identifier)", () => {
+    const { log, entries } = captureLogger();
+    log.info({
+      // Shape modeled after what FhirClient.read<Patient>() would yield.
+      patient: {
+        resourceType: "Patient",
+        id: "pt_001",
+        name: [{ given: ["Marisol"], family: "Aguirre" }],
+        birthDate: "1958-07-22",
+        identifier: [
+          { system: "MR", value: "MRN-10458" },
+          { system: "SSN", value: "123-45-6789" },
+        ],
+      },
+    });
+    const e = entries()[0] as {
+      patient: {
+        resourceType: string;
+        id: string;
+        name: Array<Record<string, unknown>>;
+        birthDate: string;
+        identifier: unknown;
+      };
+    };
+    expect(e.patient.resourceType).toBe("Patient"); // operational, preserved
+    expect(e.patient.id).toBe("pt_001"); // opaque id preserved
+    expect(e.patient.birthDate).toBe("[redacted]");
+    expect(e.patient.identifier).toBe("[redacted]");
+    // fast-redact reaches given/family inside HumanName via the `*.given`
+    // / `*.family` wildcard rules (one level of nesting from `name[0]`).
+    const name0 = e.patient.name[0]!;
+    expect(name0["given"]).toBe("[redacted]");
+    expect(name0["family"]).toBe("[redacted]");
+  });
+
+  it("redacts OAuth state-machine secrets (code_verifier, id_token, assertion)", () => {
+    const { log, entries } = captureLogger();
+    // Shape modeled after an OAuth state row + token-endpoint response
+    // intermediate that a debug log might accidentally drop.
+    log.warn({
+      state: {
+        state: "sTaTe-OpAqUe",  // CSRF-ish nonce, not redacted
+        code_verifier: "long-pkce-verifier",
+        provider: "athenahealth",
+      },
+      tokenResponse: {
+        access_token: "leaked-AT",
+        refresh_token: "leaked-RT",
+        id_token: "eyJ-jwt-header.eyJ-jwt-claims.signature-bytes",
+      },
+      jwtBearer: {
+        assertion: "eyJ-jwt-header.eyJ-jwt-claims.signature-bytes",
+      },
+    });
+    const e = entries()[0] as {
+      state: Record<string, unknown>;
+      tokenResponse: Record<string, unknown>;
+      jwtBearer: Record<string, unknown>;
+    };
+    expect(e.state["code_verifier"]).toBe("[redacted]");
+    expect(e.state["state"]).toBe("sTaTe-OpAqUe"); // identifier kept
+    expect(e.state["provider"]).toBe("athenahealth"); // operational
+    expect(e.tokenResponse["access_token"]).toBe("[redacted]");
+    expect(e.tokenResponse["refresh_token"]).toBe("[redacted]");
+    expect(e.tokenResponse["id_token"]).toBe("[redacted]");
+    expect(e.jwtBearer["assertion"]).toBe("[redacted]");
+  });
+
+  it("redacts clinical content channels (transcript, noteBody, noteText, soap)", () => {
+    const { log, entries } = captureLogger();
+    log.debug({
+      pipeline: {
+        stage: "structuring",
+        transcript: "Patient reports chest pain radiating to left arm...",
+        noteBody: "S: 58yo F with hx of HTN presents with CP.",
+        noteText: "Subjective: chest pain since 0600...",
+        soap: {
+          subjective: "CP since 0600",
+          objective: "BP 156/94",
+          assessment: "rule out ACS",
+          plan: "ECG, trop x3, ASA 325",
+        },
+      },
+      noteId: "note_xyz", // opaque, preserved
+    });
+    const e = entries()[0] as {
+      pipeline: Record<string, unknown>;
+      noteId: string;
+    };
+    expect(e.pipeline["stage"]).toBe("structuring"); // operational
+    expect(e.pipeline["transcript"]).toBe("[redacted]");
+    expect(e.pipeline["noteBody"]).toBe("[redacted]");
+    expect(e.pipeline["noteText"]).toBe("[redacted]");
+    expect(e.pipeline["soap"]).toBe("[redacted]");
+    expect(e.noteId).toBe("note_xyz");
   });
 });

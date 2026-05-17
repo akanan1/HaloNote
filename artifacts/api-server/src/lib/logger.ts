@@ -78,6 +78,67 @@ const REDACT_PATHS: ReadonlyArray<string> = [
   "*.firstName",
   "*.lastName",
   "*.dateOfBirth",
+
+  // ----- additional HIPAA direct identifiers (45 CFR 164.514) -----
+  // Email is a HIPAA direct identifier when paired with health
+  // information — log a userId for operational signal instead.
+  "*.email",
+  "email",
+  "*.phone",
+  "phone",
+  "*.phoneNumber",
+  "phoneNumber",
+  "*.ssn",
+  "ssn",
+
+  // ----- additional FHIR Patient PHI shapes -----
+  // Existing rules cover Halo's internal patient shape
+  // (firstName / lastName / dateOfBirth / mrn). FHIR responses from
+  // Athena / Epic use HumanName (given / family), Patient.birthDate,
+  // and Patient.identifier[*] — so a stray `{ patient }` log of a
+  // parsed FHIR resource would otherwise leak.
+  "*.birthDate",
+  "birthDate",
+  "*.given",
+  "given",
+  "*.family",
+  "family",
+  "*.identifier",
+  "identifier",
+  // FHIR HumanName lives at patient.name[i].given / .family — the
+  // simpler `*.given` rule above only catches one level of nesting.
+  // Add explicit array-aware paths so a parsed FHIR Patient logged
+  // as `{ patient }` has its names redacted too.
+  "*.name.*.given",
+  "name.*.given",
+  "*.name.*.family",
+  "name.*.family",
+
+  // ----- additional OAuth state-machine secrets -----
+  // code_verifier is the PKCE pre-image; logging it alongside a
+  // leaked `code` from a callback would let an attacker complete the
+  // token exchange. id_token + assertion are JWTs carrying identity
+  // and signing material that must never leave the process.
+  "*.code_verifier",
+  "code_verifier",
+  "*.id_token",
+  "id_token",
+  "*.assertion",
+  "assertion",
+
+  // ----- additional clinical content channels -----
+  // The Deepgram → Anthropic pipeline carries the raw transcript and
+  // structured SOAP shapes through several intermediate objects.
+  // Catch the common field names so a debug log of any pipeline
+  // intermediate doesn't drop a full encounter into the log stream.
+  "*.transcript",
+  "transcript",
+  "*.noteBody",
+  "noteBody",
+  "*.noteText",
+  "noteText",
+  "*.soap",
+  "soap",
 ];
 
 export const logger = pino({

@@ -12,10 +12,11 @@ import { usersTable } from "./users";
 // recent access token; the AuthCodeTokenProvider refreshes the access
 // token when it gets close to expiry.
 //
-// Tokens are stored as plaintext in dev. In production these should be
-// AES-GCM encrypted at rest with a key from KMS — wire that in before
-// going live; for now the only consumer is the EHR client on the same
-// process and the threat model is "row exfiltration from Supabase".
+// accessToken / refreshToken are stored as AES-256-GCM ciphertext
+// (see artifacts/api-server/src/lib/token-crypto.ts for the format).
+// The key comes from the EHR_TOKEN_ENC_KEY env var. The column type
+// stays `text` because ciphertext is an opaque ASCII string; we never
+// query against the token values, only fetch + decrypt them.
 export const ehrConnectionsTable = pgTable(
   "ehr_connections",
   {

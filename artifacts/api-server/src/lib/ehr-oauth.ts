@@ -6,6 +6,7 @@ import {
   getDb,
   type EhrConnection,
 } from "@workspace/db";
+import { decryptToken, encryptToken } from "./token-crypto";
 
 export type EhrProvider = "athenahealth" | "epic";
 
@@ -344,7 +345,9 @@ function clampExpiresIn(value: unknown): number {
   return Math.min(Math.floor(n), 86_400);
 }
 
-async function upsertConnection(input: {
+// Exported for tests that assert the at-rest encryption boundary.
+// Production callers should still go through `completeOauthFlow`.
+export async function upsertConnection(input: {
   userId: string;
   provider: EhrProvider;
   accessToken: string;
@@ -354,6 +357,11 @@ async function upsertConnection(input: {
   scope: string | null;
 }): Promise<void> {
   const db = getDb();
+  // Encrypt at the boundary — the DB only ever sees ciphertext for
+  // access/refresh tokens.
+  const encryptedAccess = encryptToken(input.accessToken);
+  const encryptedRefresh =
+    input.refreshToken !== null ? encryptToken(input.refreshToken) : null;
   await db.transaction(async (tx) => {
     // Onconflict-update so reconnect refreshes the row instead of
     // erroring on the unique index.
@@ -362,8 +370,8 @@ async function upsertConnection(input: {
       .values({
         userId: input.userId,
         provider: input.provider,
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
+        accessToken: encryptedAccess,
+        refreshToken: encryptedRefresh,
         expiresAt: input.expiresAt,
         practitionerId: input.practitionerId,
         scope: input.scope,
@@ -371,8 +379,8 @@ async function upsertConnection(input: {
       .onConflictDoUpdate({
         target: [ehrConnectionsTable.userId, ehrConnectionsTable.provider],
         set: {
-          accessToken: input.accessToken,
-          refreshToken: input.refreshToken,
+          accessToken: encryptedAccess,
+          refreshToken: encryptedRefresh,
           expiresAt: input.expiresAt,
           practitionerId: input.practitionerId,
           scope: input.scope,
@@ -442,15 +450,18 @@ export async function getValidAccessToken(
     throw new OauthExchangeError("no_connection", 404);
   }
   if (conn.expiresAt.getTime() - REFRESH_SKEW_MS > Date.now()) {
-    return conn.accessToken;
+    // expiresAt is in plaintext on the row; the access token itself is
+    // ciphertext and must be decrypted before being handed to callers.
+    return decryptToken(conn.accessToken);
   }
   if (!conn.refreshToken) {
     throw new OauthExchangeError("no_refresh_token", 401);
   }
   const cfg = providerConfig(provider);
+  const plaintextRefresh = decryptToken(conn.refreshToken);
   const body = new URLSearchParams();
   body.set("grant_type", "refresh_token");
-  body.set("refresh_token", conn.refreshToken);
+  body.set("refresh_token", plaintextRefresh);
   body.set("client_id", cfg.clientId);
 
   const json = await postTokenEndpoint(cfg, body);
@@ -459,14 +470,17 @@ export async function getValidAccessToken(
   );
 
   // Some IdPs rotate the refresh token; if a new one came back, store it.
-  // Otherwise keep the existing one.
-  const newRefresh = json.refresh_token ?? conn.refreshToken;
+  // Otherwise keep the existing (still-encrypted) value on the row.
+  const newRefreshCiphertext =
+    json.refresh_token !== undefined
+      ? encryptToken(json.refresh_token)
+      : conn.refreshToken;
 
   await getDb()
     .update(ehrConnectionsTable)
     .set({
-      accessToken: json.access_token,
-      refreshToken: newRefresh,
+      accessToken: encryptToken(json.access_token),
+      refreshToken: newRefreshCiphertext,
       expiresAt: newExpiresAt,
       scope: json.scope ?? conn.scope,
       updatedAt: new Date(),

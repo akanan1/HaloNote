@@ -36,6 +36,16 @@ const REDACT_PATHS: ReadonlyArray<string> = [
   "*.client_assertion",
   "*.access_token",
   "*.refresh_token",
+  // Token-at-rest crypto material (defense in depth — current code paths
+  // don't log these, but a future regression that dumps an encryption
+  // context object would be caught by the redactor).
+  "*.iv",
+  "iv",
+  "*.ciphertext",
+  "ciphertext",
+  "*.authTag",
+  "authTag",
+  "EHR_TOKEN_ENC_KEY",
 
   // ----- request / response bodies (never log them) -----
   "req.body",

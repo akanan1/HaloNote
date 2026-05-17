@@ -7,6 +7,10 @@ const router: IRouter = Router();
 
 // Gate every route in this file behind admin. requireAuth has already
 // run by the time we get here (mounted from the parent router).
+// This `router.use` is path-agnostic, so the parent MUST mount this
+// sub-router under a path prefix ("/audit-log") — otherwise the 403
+// fires on every request that reaches this router and breaks unrelated
+// non-admin routes mounted after it.
 router.use(requireAdmin);
 
 const DEFAULT_PAGE_LIMIT = 50;
@@ -70,7 +74,7 @@ function readStringParam(value: unknown): string | undefined {
     : undefined;
 }
 
-router.get("/audit-log", async (req, res) => {
+router.get("/", async (req, res) => {
   const before = parseIsoDate(req.query["before"]);
   const limit = clampLimit(req.query["limit"]);
   const userIdFilter = readStringParam(req.query["userId"]);

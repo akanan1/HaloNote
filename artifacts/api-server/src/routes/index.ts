@@ -40,8 +40,14 @@ router.use(requireCsrf);
 router.use(auditLog);
 router.use(patientsRouter);
 router.use(notesRouter);
-router.use(auditLogRouter);
-router.use(usersRouter);
+// Admin sub-routers are mounted under explicit path prefixes. Without
+// the prefix, their top-level `router.use(requireAdmin)` runs path-
+// agnostically and 403s every non-admin request that reaches them,
+// blocking everything mounted after them (notably ehrOauthRouter, used
+// by physicians to connect their own EHR). With a path prefix, the
+// admin gate only fires for requests under that prefix.
+router.use("/audit-log", auditLogRouter);
+router.use("/users", usersRouter);
 router.use(scheduleRouter);
 router.use(templatesRouter);
 router.use(recordingsRouter);

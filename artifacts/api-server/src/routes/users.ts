@@ -6,7 +6,11 @@ import { requireAdmin } from "../middlewares/require-admin";
 
 const router: IRouter = Router();
 
-// Every route in this file is admin-only.
+// Every route in this file is admin-only. This `router.use` is
+// path-agnostic, so the parent MUST mount this sub-router under a path
+// prefix ("/users") — otherwise the 403 fires on every request that
+// reaches this router and breaks unrelated non-admin routes mounted
+// after it.
 router.use(requireAdmin);
 
 const userSelect = {
@@ -18,7 +22,7 @@ const userSelect = {
   createdAt: usersTable.createdAt,
 } as const;
 
-router.get("/users", async (_req, res) => {
+router.get("/", async (_req, res) => {
   const rows = await getDb()
     .select(userSelect)
     .from(usersTable)
@@ -26,7 +30,7 @@ router.get("/users", async (_req, res) => {
   res.json({ data: rows });
 });
 
-router.patch("/users/:id", async (req, res) => {
+router.patch("/:id", async (req, res) => {
   const parsed = UpdateUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -56,6 +60,32 @@ router.patch("/users/:id", async (req, res) => {
   ) {
     res.status(403).json({ error: "cannot_demote_self" });
     return;
+  }
+
+  // Admins must have TOTP enrolled (see /auth/login enforcement). Refuse
+  // to promote a user who hasn't enrolled yet — otherwise we'd create a
+  // row that immediately can't log in. The admin's runbook: ask the
+  // target to enroll TOTP first (POST /auth/2fa/setup + verify-setup),
+  // then re-issue the PATCH.
+  if (parsed.data.role === "admin") {
+    const [target] = await getDb()
+      .select({
+        id: usersTable.id,
+        totpEnabledAt: usersTable.totpEnabledAt,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, targetId))
+      .limit(1);
+    if (!target) {
+      res.status(404).json({ error: "user_not_found" });
+      return;
+    }
+    if (!target.totpEnabledAt) {
+      res.status(409).json({
+        error: "target_must_enroll_totp_before_admin",
+      });
+      return;
+    }
   }
 
   // Patch only the fields actually present in the request.

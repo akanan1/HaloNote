@@ -1,0 +1,26 @@
+User-agent: *
+Allow: /
+Allow: /product
+Allow: /pricing
+Allow: /about
+Allow: /security
+Allow: /request-access
+Allow: /privacy
+Allow: /terms
+Allow: /hipaa-notice
+
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /audio
+Disallow: /notes
+Disallow: /patients
+Disallow: /schedule
+Disallow: /triage
+Disallow: /analytics
+Disallow: /agents
+Disallow: /coder
+Disallow: /assistant
+Disallow: /settings
+Disallow: /founders
+Disallow: /onboarding
+Disallow: /pitch

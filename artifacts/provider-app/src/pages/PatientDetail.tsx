@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Fab } from "@/components/Fab";
+import { PatientEncountersSection } from "@/components/PatientEncountersSection";
 import { cn } from "@/lib/utils";
 
 interface PatientDetailPageProps {
@@ -139,6 +140,8 @@ export function PatientDetailPage({ patientId }: PatientDetailPageProps) {
           </Link>
         ) : null}
       </header>
+
+      <PatientEncountersSection patientId={patientId} />
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium text-(--color-foreground)">

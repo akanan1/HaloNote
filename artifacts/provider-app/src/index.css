@@ -101,3 +101,67 @@
     break-before: avoid-page;
   }
 }
+
+/* Patient-summary print mode. Toggled by the Print button on the
+   PatientSummaryPanel: sets body.print-mode-summary, calls window.print(),
+   and removes the class on the 'afterprint' event. CSS here hides
+   everything EXCEPT the .print-summary-root and lays the summary out as
+   a handout (sans-serif, looser leading, the 'Call us right away if…'
+   block kept on its own page if it's the last section). */
+@media print {
+  body.print-mode-summary > *:not(.print-summary-root) {
+    display: none !important;
+  }
+  body.print-mode-summary .print-summary-root {
+    display: block !important;
+    color: black !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      sans-serif;
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+  body.print-mode-summary .print-summary-header {
+    display: block !important;
+    border-bottom: 1.5pt solid black;
+    margin-bottom: 18pt;
+    padding-bottom: 8pt;
+  }
+  body.print-mode-summary .print-summary-header h1 {
+    font-size: 18pt;
+    font-weight: 700;
+    margin-bottom: 4pt;
+  }
+  body.print-mode-summary .print-summary-header p {
+    font-size: 10pt;
+    color: #444;
+    margin: 0;
+  }
+  body.print-mode-summary .print-summary-section h2 {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 14pt;
+    margin-bottom: 4pt;
+  }
+  body.print-mode-summary .print-summary-section ul {
+    margin-left: 18pt;
+    padding-left: 0;
+  }
+  body.print-mode-summary .print-summary-warning {
+    border: 1pt solid #b91c1c;
+    background: #fef2f2;
+    color: #7f1d1d;
+    padding: 10pt 12pt;
+    margin-top: 14pt;
+    break-inside: avoid-page;
+  }
+  body.print-mode-summary .print-summary-footer {
+    margin-top: 24pt;
+    border-top: 0.75pt solid #999;
+    padding-top: 8pt;
+    font-size: 9pt;
+    color: #555;
+  }
+}
+

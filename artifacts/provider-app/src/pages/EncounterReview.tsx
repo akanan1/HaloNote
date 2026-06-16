@@ -15,6 +15,7 @@ import {
   ListChecks,
   Loader2,
   Pill,
+  Printer,
   ReceiptText,
   Send,
   Sparkles,
@@ -712,7 +713,11 @@ export function EncounterReviewPage({ patientId, encounterId }: Props) {
 
       <VitalsPanel note={noteQuery.data ?? null} />
 
-      <PatientSummaryPanel note={noteQuery.data ?? null} />
+      <PatientSummaryPanel
+        note={noteQuery.data ?? null}
+        patient={patientQuery.data ?? null}
+        encounter={encounterQuery.data ?? null}
+      />
 
       <BillingPanel
         encounterId={encounterId}
@@ -2132,7 +2137,15 @@ function EncounterTaskRow({
 // Patient summary panel
 // ---------------------------------------------------------------------------
 
-function PatientSummaryPanel({ note }: { note: Note | null }) {
+function PatientSummaryPanel({
+  note,
+  patient,
+  encounter,
+}: {
+  note: Note | null;
+  patient: Patient | null;
+  encounter: Encounter | null;
+}) {
   // Summary lives in panel state (not persisted) so it clears on
   // remount. Re-running is cheap; v2 will persist + offer PDF / portal
   // export from the same surface.
@@ -2175,6 +2188,25 @@ function PatientSummaryPanel({ note }: { note: Note | null }) {
     }
   };
 
+  // Print flow: toggle a body class the print stylesheet matches against,
+  // call window.print(), and clean up on the afterprint event so the
+  // class doesn't linger if the user cancels the dialog. The print CSS
+  // in index.css hides everything except .print-summary-root so the
+  // page renders as a clean handout.
+  const print = () => {
+    if (!summary) return;
+    document.body.classList.add("print-mode-summary");
+    const cleanup = () => {
+      document.body.classList.remove("print-mode-summary");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    // Slight delay so the class change paints before the print dialog
+    // captures the layout. Without this, Chrome occasionally renders
+    // the page with the old layout on the first print.
+    setTimeout(() => window.print(), 50);
+  };
+
   return (
     <Card className="space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2205,9 +2237,15 @@ function PatientSummaryPanel({ note }: { note: Note | null }) {
             ))}
           </select>
           {summary ? (
-            <Button size="sm" variant="ghost" onClick={() => void copyAsText()}>
-              Copy
-            </Button>
+            <>
+              <Button size="sm" variant="ghost" onClick={() => void copyAsText()}>
+                Copy
+              </Button>
+              <Button size="sm" variant="ghost" onClick={print}>
+                <Printer className="h-4 w-4" aria-hidden="true" />
+                Print
+              </Button>
+            </>
           ) : null}
           <Button
             size="sm"
@@ -2230,27 +2268,79 @@ function PatientSummaryPanel({ note }: { note: Note | null }) {
           send via portal, or read in the room before leaving.
         </p>
       ) : (
-        <SummaryDisplay summary={summary} />
+        <SummaryDisplay
+          summary={summary}
+          patient={patient}
+          encounter={encounter}
+        />
       )}
     </Card>
   );
 }
 
-function SummaryDisplay({ summary }: { summary: PatientSummary }) {
+function SummaryDisplay({
+  summary,
+  patient,
+  encounter,
+}: {
+  summary: PatientSummary;
+  patient: Patient | null;
+  encounter: Encounter | null;
+}) {
+  // Visit date for the print header. Prefer the encounter's started/
+  // completed timestamps, fall back to today so the handout always
+  // shows a date even when an encounter has no started_at yet.
+  const visitDate = encounter?.completedAt
+    ? new Date(encounter.completedAt)
+    : encounter?.startedAt
+      ? new Date(encounter.startedAt)
+      : encounter?.scheduledAt
+        ? new Date(encounter.scheduledAt)
+        : new Date();
+  const visitDateLabel = visitDate.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const patientFullName = patient
+    ? `${patient.firstName} ${patient.lastName}`
+    : "Patient";
+
   return (
-    <article className="space-y-4 rounded-md border border-(--color-border) bg-(--color-card) p-4">
+    // print-summary-root is what the print stylesheet keeps visible —
+    // everything else on the page gets display:none under
+    // body.print-mode-summary. The screen rendering ignores the
+    // print-only header / footer via Tailwind print: variants.
+    <article className="print-summary-root space-y-4 rounded-md border border-(--color-border) bg-(--color-card) p-4">
+      {/* Print-only handout banner. Hidden on screen, becomes a
+          paper-style title block at the top of the printout. */}
+      <header className="print-summary-header hidden print:block">
+        <h1>Your visit summary</h1>
+        <p>
+          {patientFullName} · {visitDateLabel}
+        </p>
+      </header>
+
       <p className="text-sm leading-relaxed">{summary.overview}</p>
 
       {summary.diagnoses.length > 0 ? (
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+        <section className="print-summary-section space-y-2">
+          {/* On screen the section heading is h3 (in the EncounterReview
+              hierarchy); on paper we want the handout to read like
+              standalone document so the print CSS up-styles the same
+              h3 (via print-summary-section h2 — wait, mismatch).
+              Easier: use semantic h2 here and rely on Tailwind to
+              tone it down on screen. */}
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground) print:hidden">
             What we found
           </h3>
+          <h2 className="hidden print:block">What we found</h2>
           <ul className="space-y-2">
             {summary.diagnoses.map((d, i) => (
               <li key={i} className="text-sm">
                 <span className="font-medium">{d.name}.</span>{" "}
-                <span className="text-(--color-muted-foreground)">
+                <span className="text-(--color-muted-foreground) print:text-black">
                   {d.explanation}
                 </span>
               </li>
@@ -2260,15 +2350,16 @@ function SummaryDisplay({ summary }: { summary: PatientSummary }) {
       ) : null}
 
       {summary.medications.length > 0 ? (
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+        <section className="print-summary-section space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground) print:hidden">
             Your medicines
           </h3>
+          <h2 className="hidden print:block">Your medicines</h2>
           <ul className="space-y-2">
             {summary.medications.map((m, i) => (
               <li key={i} className="text-sm">
                 <span className="font-medium">{m.name}</span> — {m.howToTake}
-                <p className="text-xs italic text-(--color-muted-foreground)">
+                <p className="text-xs italic text-(--color-muted-foreground) print:text-black">
                   Why: {m.why}
                 </p>
               </li>
@@ -2278,10 +2369,13 @@ function SummaryDisplay({ summary }: { summary: PatientSummary }) {
       ) : null}
 
       {summary.selfCare.length > 0 ? (
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+        <section className="print-summary-section space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground) print:hidden">
             How to take care of yourself at home
           </h3>
+          <h2 className="hidden print:block">
+            How to take care of yourself at home
+          </h2>
           <ul className="list-inside list-disc space-y-1 text-sm">
             {summary.selfCare.map((s, i) => (
               <li key={i}>{s}</li>
@@ -2291,10 +2385,11 @@ function SummaryDisplay({ summary }: { summary: PatientSummary }) {
       ) : null}
 
       {summary.followUp ? (
-        <section className="space-y-1">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+        <section className="print-summary-section space-y-1">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground) print:hidden">
             Coming back
           </h3>
+          <h2 className="hidden print:block">Coming back</h2>
           <p className="text-sm">
             <span className="font-medium">{summary.followUp.when}.</span>{" "}
             {summary.followUp.why}
@@ -2303,10 +2398,15 @@ function SummaryDisplay({ summary }: { summary: PatientSummary }) {
       ) : null}
 
       {summary.whenToCall.length > 0 ? (
-        <section className="space-y-2 rounded-md bg-red-50 p-3 ring-1 ring-inset ring-red-200">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-red-900">
+        // print-summary-warning gets a colored box + break-inside:avoid
+        // in the print CSS so the warnings stay together on the page.
+        <section className="print-summary-warning space-y-2 rounded-md bg-red-50 p-3 ring-1 ring-inset ring-red-200">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-red-900 print:hidden">
             Call us right away if…
           </h3>
+          <h2 className="hidden text-red-900 print:block">
+            Call us right away if…
+          </h2>
           <ul className="list-inside list-disc space-y-1 text-sm text-red-900">
             {summary.whenToCall.map((w, i) => (
               <li key={i}>{w}</li>
@@ -2314,6 +2414,15 @@ function SummaryDisplay({ summary }: { summary: PatientSummary }) {
           </ul>
         </section>
       ) : null}
+
+      {/* Print-only footer. Identifies the document as auto-generated +
+          sign-off line for the provider. Hidden on screen. */}
+      <footer className="print-summary-footer hidden print:block">
+        <p>
+          Generated from your visit notes. If anything is unclear, please call
+          our office.
+        </p>
+      </footer>
     </article>
   );
 }

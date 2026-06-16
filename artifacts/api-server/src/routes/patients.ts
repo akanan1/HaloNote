@@ -19,6 +19,37 @@ router.get("/patients", async (req, res) => {
   res.json(payload);
 });
 
+// Single-patient lookup. Mounted BEFORE /patients/sync and
+// /patients/:id/history so Express's first-match routing reaches the
+// more specific endpoints first; placing this under /patients keeps it
+// path-distinct from /sync and /history (which are sibling literal
+// segments, not :id matches, in Express's router).
+router.get("/patients/:id", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const [row] = await getDb()
+    .select()
+    .from(patientsTable)
+    .where(
+      and(
+        eq(patientsTable.id, req.params.id),
+        eq(patientsTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  if (!row) {
+    res.status(404).json({ error: "patient_not_found" });
+    return;
+  }
+  res.json({
+    id: row.id,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    dateOfBirth: row.dateOfBirth,
+    mrn: row.mrn,
+  });
+});
+
 router.post("/patients", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;

@@ -53,6 +53,11 @@ const TodayPage = lazy(() =>
 const TasksPage = lazy(() =>
   import("@/pages/Tasks").then((m) => ({ default: m.TasksPage })),
 );
+const EncounterReviewPage = lazy(() =>
+  import("@/pages/EncounterReview").then((m) => ({
+    default: m.EncounterReviewPage,
+  })),
+);
 const OnboardingPage = lazy(() =>
   import("@/pages/Onboarding").then((m) => ({ default: m.OnboardingPage })),
 );
@@ -124,6 +129,16 @@ export default function App() {
             <RequireAuth>
               <NewPatientPage />
             </RequireAuth>
+          </Route>
+          <Route path="/patients/:id/encounters/:eid">
+            {(params) => (
+              <RequireAuth>
+                <EncounterReviewPage
+                  patientId={params.id}
+                  encounterId={params.eid}
+                />
+              </RequireAuth>
+            )}
           </Route>
           <Route path="/patients/:id/notes/new">
             {(params) => (

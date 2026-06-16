@@ -848,6 +848,30 @@ router.post("/notes/:id/extract-vitals", async (req, res) => {
     noteId: note.id,
     noteBody: note.body,
   });
+
+  // Persist the extraction so the longitudinal-trends endpoint can
+  // pull last-visit values without re-running the AI. Conditions:
+  //   - source === 'ai'   — stubs return nothing meaningful; persisting
+  //                         would pollute trend queries with empty rows
+  //   - status === 'draft' — approved/exported notes are body-locked,
+  //                         so the extracted body content is also
+  //                         immutable; refusing the write here keeps
+  //                         the signed-hash invariant honest.
+  if (source === "ai" && note.status === "draft") {
+    await db
+      .update(notesTable)
+      .set({ extractedVitals: result, updatedAt: new Date() })
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
+      .catch((err) => {
+        req.log.warn(
+          { err, noteId },
+          "Failed to persist extracted vitals — extraction still returned",
+        );
+      });
+  }
+
   res.json({ ...result, source });
 });
 

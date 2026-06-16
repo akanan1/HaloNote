@@ -1,0 +1,1 @@
+ALTER TABLE "notes" ADD COLUMN "extracted_vitals" jsonb;

@@ -368,6 +368,32 @@ async function extractVitals(noteId: string): Promise<VitalsResponse> {
   );
 }
 
+interface VitalTrendRow {
+  noteId: string;
+  encounterId: string | null;
+  noteCreatedAt: string;
+  noteUpdatedAt: string;
+  noteStatus: string;
+  // Same shape as VitalsResponse but without `source` (server doesn't
+  // persist that). Fields are optional and the trend renderer just
+  // reads what it finds.
+  extractedVitals: Omit<VitalsResponse, "source"> | null;
+}
+
+interface VitalTrendsResponse {
+  data: VitalTrendRow[];
+}
+
+async function fetchVitalTrends(
+  patientId: string,
+  excludeNoteId: string,
+): Promise<VitalTrendsResponse> {
+  const qs = new URLSearchParams({ excludeNoteId });
+  return customFetch<VitalTrendsResponse>(
+    `/api/patients/${patientId}/vital-trends?${qs.toString()}`,
+  );
+}
+
 type SummaryLanguage = "en" | "es" | "zh" | "vi" | "ko" | "tl" | "ru";
 
 // Native-script labels so the picker reads correctly to a multilingual
@@ -711,7 +737,7 @@ export function EncounterReviewPage({ patientId, encounterId }: Props) {
         encounterId={encounterId}
       />
 
-      <VitalsPanel note={noteQuery.data ?? null} />
+      <VitalsPanel note={noteQuery.data ?? null} patientId={patientId} />
 
       <PatientSummaryPanel
         note={noteQuery.data ?? null}
@@ -2466,9 +2492,27 @@ function summaryAsPlainText(s: PatientSummary): string {
 // Vitals panel
 // ---------------------------------------------------------------------------
 
-function VitalsPanel({ note }: { note: Note | null }) {
+function VitalsPanel({
+  note,
+  patientId,
+}: {
+  note: Note | null;
+  patientId: string;
+}) {
   const [vitals, setVitals] = useState<VitalsResponse | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Pull prior persisted vitals for this patient so each tile can show
+  // a "from 138/86 last visit" sublabel. Excludes the current note so
+  // re-extracting doesn't compare a tile against itself. Falls back
+  // silently to no comparison if the request fails — the panel still
+  // works without trends.
+  const trendsQuery = useQuery({
+    queryKey: ["vital-trends", patientId, note?.id ?? null],
+    queryFn: () => fetchVitalTrends(patientId, note?.id ?? ""),
+    enabled: !!note,
+    staleTime: 60_000,
+  });
 
   if (!note) return null;
 
@@ -2495,6 +2539,7 @@ function VitalsPanel({ note }: { note: Note | null }) {
   };
 
   const extractedCount = vitals ? countExtractedVitals(vitals) : 0;
+  const priorByKind = derivePriorByKind(trendsQuery.data?.data ?? []);
 
   return (
     <Card className="space-y-3 p-5">
@@ -2539,10 +2584,92 @@ function VitalsPanel({ note }: { note: Note | null }) {
             : "AI extractor is offline (ANTHROPIC_API_KEY not configured). No vitals returned."}
         </p>
       ) : (
-        <VitalsGrid vitals={vitals} />
+        <VitalsGrid vitals={vitals} prior={priorByKind} />
       )}
     </Card>
   );
+}
+
+// One vital "kind" worth of prior-visit context: the formatted value
+// (e.g. "138/86") + a friendly relative date ("last visit, 3 wks ago").
+// The grid hands one of these to each tile that has a match.
+interface PriorVital {
+  display: string;
+  when: string;
+}
+
+type PriorByKind = Partial<
+  Record<
+    | "bp"
+    | "heartRate"
+    | "respiratoryRate"
+    | "temperatureF"
+    | "spo2Percent"
+    | "weightLbs"
+    | "heightIn"
+    | "bmi"
+    | "pain",
+    PriorVital
+  >
+>;
+
+// Walk the trend rows newest-first and grab the first non-empty value
+// for each vital kind. Different vitals may come from different prior
+// visits — e.g. BP from 3 weeks ago but weight from 6 months ago — and
+// each tile labels its own date so the provider isn't misled.
+function derivePriorByKind(rows: VitalTrendRow[]): PriorByKind {
+  const out: PriorByKind = {};
+  for (const row of rows) {
+    const v = row.extractedVitals;
+    if (!v) continue;
+    const when = formatRelativeDate(row.noteCreatedAt);
+    if (!out.bp && v.bp) {
+      out.bp = { display: `${v.bp.systolic}/${v.bp.diastolic}`, when };
+    }
+    if (!out.heartRate && v.heartRate) {
+      out.heartRate = { display: String(v.heartRate.value), when };
+    }
+    if (!out.respiratoryRate && v.respiratoryRate) {
+      out.respiratoryRate = { display: String(v.respiratoryRate.value), when };
+    }
+    if (!out.temperatureF && v.temperatureF) {
+      out.temperatureF = { display: String(v.temperatureF.value), when };
+    }
+    if (!out.spo2Percent && v.spo2Percent) {
+      out.spo2Percent = { display: String(v.spo2Percent.value), when };
+    }
+    if (!out.weightLbs && v.weightLbs) {
+      out.weightLbs = { display: String(v.weightLbs.value), when };
+    }
+    if (!out.heightIn && v.heightIn) {
+      out.heightIn = { display: String(v.heightIn.value), when };
+    }
+    if (!out.bmi && v.bmi) {
+      out.bmi = { display: String(v.bmi.value), when };
+    }
+    if (!out.pain && v.pain && v.pain.score != null) {
+      out.pain = { display: `${v.pain.score}/10`, when };
+    }
+  }
+  return out;
+}
+
+// Human-readable "X ago" for tile sublabels. Kept inline rather than
+// pulling in date-fns just for this one helper. The tile's title
+// attribute will still carry the absolute date if the provider hovers.
+function formatRelativeDate(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const days = Math.max(0, Math.round((now - then) / 86_400_000));
+  if (days === 0) return "earlier today";
+  if (days === 1) return "1 day ago";
+  if (days < 14) return `${days} days ago`;
+  const weeks = Math.round(days / 7);
+  if (weeks < 8) return `${weeks} wks ago`;
+  const months = Math.round(days / 30);
+  if (months < 18) return `${months} mo ago`;
+  const years = Math.round(days / 365);
+  return `${years} yr${years === 1 ? "" : "s"} ago`;
 }
 
 function countExtractedVitals(v: VitalsResponse): number {
@@ -2566,7 +2693,13 @@ const CONFIDENCE_DOT: Record<VitalConfidence, string> = {
   low: "bg-red-500",
 };
 
-function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
+function VitalsGrid({
+  vitals,
+  prior,
+}: {
+  vitals: VitalsResponse;
+  prior: PriorByKind;
+}) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {vitals.bp ? (
@@ -2577,6 +2710,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           source={vitals.bp.source}
           confidence={vitals.bp.confidence}
           extra={vitals.bp.position ?? undefined}
+          prior={prior.bp}
         />
       ) : null}
       {vitals.heartRate ? (
@@ -2586,6 +2720,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit="bpm"
           source={vitals.heartRate.source}
           confidence={vitals.heartRate.confidence}
+          prior={prior.heartRate}
         />
       ) : null}
       {vitals.respiratoryRate ? (
@@ -2595,6 +2730,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit="bpm"
           source={vitals.respiratoryRate.source}
           confidence={vitals.respiratoryRate.confidence}
+          prior={prior.respiratoryRate}
         />
       ) : null}
       {vitals.temperatureF ? (
@@ -2604,6 +2740,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit="°F"
           source={vitals.temperatureF.source}
           confidence={vitals.temperatureF.confidence}
+          prior={prior.temperatureF}
         />
       ) : null}
       {vitals.spo2Percent ? (
@@ -2613,6 +2750,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit="%"
           source={vitals.spo2Percent.source}
           confidence={vitals.spo2Percent.confidence}
+          prior={prior.spo2Percent}
         />
       ) : null}
       {vitals.weightLbs ? (
@@ -2622,6 +2760,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit="lbs"
           source={vitals.weightLbs.source}
           confidence={vitals.weightLbs.confidence}
+          prior={prior.weightLbs}
         />
       ) : null}
       {vitals.heightIn ? (
@@ -2631,6 +2770,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit="in"
           source={vitals.heightIn.source}
           confidence={vitals.heightIn.confidence}
+          prior={prior.heightIn}
         />
       ) : null}
       {vitals.bmi ? (
@@ -2640,6 +2780,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit=""
           source={vitals.bmi.source}
           confidence={vitals.bmi.confidence}
+          prior={prior.bmi}
         />
       ) : null}
       {vitals.pain ? (
@@ -2649,6 +2790,7 @@ function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
           unit=""
           source={vitals.pain.source}
           confidence={vitals.pain.confidence}
+          prior={prior.pain}
         />
       ) : null}
       {vitals.other.map((o, i) => (
@@ -2675,6 +2817,7 @@ function VitalTile({
   source,
   confidence,
   extra,
+  prior,
 }: {
   label: string;
   value: string;
@@ -2682,6 +2825,7 @@ function VitalTile({
   source: string;
   confidence: VitalConfidence;
   extra?: string;
+  prior?: PriorVital;
 }) {
   return (
     <div className="rounded-md border border-(--color-border) bg-(--color-card) p-3">
@@ -2703,6 +2847,15 @@ function VitalTile({
       </div>
       {extra ? (
         <p className="text-xs text-(--color-muted-foreground)">{extra}</p>
+      ) : null}
+      {prior ? (
+        <p
+          className="mt-0.5 text-xs text-(--color-muted-foreground)"
+          title={`Prior recorded value: ${prior.display} (${prior.when})`}
+        >
+          <span className="tabular-nums">{prior.display}</span>{" "}
+          <span className="opacity-70">· {prior.when}</span>
+        </p>
       ) : null}
       <p
         className="mt-1 truncate text-xs italic text-(--color-muted-foreground)"

@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { type AnyPgColumn, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { encountersTable } from "./encounters";
 import { organizationsTable } from "./organizations";
 import { usersTable } from "./users";
@@ -100,6 +106,18 @@ export const notesTable = pgTable("notes", {
   ehrDocumentRef: text("ehr_document_ref"),
   ehrPushedAt: timestamp("ehr_pushed_at", { mode: "date", withTimezone: true }),
   ehrError: text("ehr_error"),
+
+  // Persisted vitals from the AI extractor (Phase 17). Written by
+  // POST /notes/:id/extract-vitals when source='ai' AND status='draft'
+  // — stub extractions don't write because they return nothing
+  // meaningful, and approved/exported notes are locked anyway.
+  // Shape mirrors VitalsResult from lib/vital-extractor.ts:
+  //   { bp?, heartRate?, respiratoryRate?, temperatureF?, spo2Percent?,
+  //     weightLbs?, heightIn?, bmi?, pain?, other[] }
+  // Stored as JSONB so the shape can evolve without migrations and
+  // the longitudinal-trends query can index into it with the ->>
+  // operator (e.g. extracted_vitals -> 'bp' -> 'systolic').
+  extractedVitals: jsonb("extracted_vitals"),
 });
 
 export type Note = typeof notesTable.$inferSelect;

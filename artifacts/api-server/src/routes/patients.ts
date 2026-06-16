@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { CreatePatientBody, ListPatientsResponse } from "@workspace/api-zod";
-import { getDb, patientsTable } from "@workspace/db";
+import { getDb, notesTable, patientsTable } from "@workspace/db";
 import { listPatients } from "../lib/patients";
 import { PatientSyncError, syncPatientFromEhr } from "../lib/patient-sync";
 import { getPatientHistory, HistoryError } from "../lib/ehr-history";
@@ -47,6 +47,58 @@ router.get("/patients/:id", async (req, res) => {
     lastName: row.lastName,
     dateOfBirth: row.dateOfBirth,
     mrn: row.mrn,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /patients/:id/vital-trends — chronological list of persisted
+// extracted_vitals across the patient's notes. Used by the
+// EncounterReview Vitals panel to render "from 138/86 last visit"
+// inline on each tile. Optional ?excludeNoteId so the panel can ask
+// for "prior visits, NOT this note's own values."
+// ---------------------------------------------------------------------------
+router.get("/patients/:id/vital-trends", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
+  const excludeNoteId =
+    typeof req.query["excludeNoteId"] === "string"
+      ? req.query["excludeNoteId"].trim() || undefined
+      : undefined;
+
+  // Capped at 10 — enough for the panel's "last visit" comparison and
+  // a future small sparkline. The query indexes well: (patient_id,
+  // created_at desc) covers everything.
+  const conditions = [
+    eq(notesTable.patientId, req.params.id),
+    eq(notesTable.organizationId, orgId),
+    isNotNull(notesTable.extractedVitals),
+  ];
+  if (excludeNoteId) conditions.push(ne(notesTable.id, excludeNoteId));
+
+  const rows = await getDb()
+    .select({
+      noteId: notesTable.id,
+      encounterId: notesTable.encounterId,
+      noteCreatedAt: notesTable.createdAt,
+      noteUpdatedAt: notesTable.updatedAt,
+      noteStatus: notesTable.status,
+      extractedVitals: notesTable.extractedVitals,
+    })
+    .from(notesTable)
+    .where(and(...conditions))
+    .orderBy(desc(notesTable.createdAt))
+    .limit(10);
+
+  res.json({
+    data: rows.map((r) => ({
+      noteId: r.noteId,
+      encounterId: r.encounterId,
+      noteCreatedAt: r.noteCreatedAt.toISOString(),
+      noteUpdatedAt: r.noteUpdatedAt.toISOString(),
+      noteStatus: r.noteStatus,
+      extractedVitals: r.extractedVitals,
+    })),
   });
 });
 

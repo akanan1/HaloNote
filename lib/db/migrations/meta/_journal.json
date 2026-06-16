@@ -176,6 +176,13 @@
       "when": 1781632639857,
       "tag": "0024_add_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1781633352253,
+      "tag": "0025_add_orders",
+      "breakpoints": true
     }
   ]
 }

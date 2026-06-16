@@ -4,6 +4,7 @@ export * from "./users";
 export * from "./sessions";
 export * from "./encounters";
 export * from "./billing-suggestions";
+export * from "./order-suggestions";
 export * from "./patients";
 export * from "./notes";
 export * from "./note-templates";

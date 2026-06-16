@@ -310,6 +310,21 @@ async function analyzeNoteGaps(noteId: string): Promise<GapAnalysisResponse> {
   );
 }
 
+type SummaryLanguage = "en" | "es" | "zh" | "vi" | "ko" | "tl" | "ru";
+
+// Native-script labels so the picker reads correctly to a multilingual
+// front-desk staffer or patient peeking over the provider's shoulder.
+// English in parens for the provider's clarity.
+const LANGUAGE_OPTIONS: { value: SummaryLanguage; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Español (Spanish)" },
+  { value: "zh", label: "中文 (Chinese)" },
+  { value: "vi", label: "Tiếng Việt (Vietnamese)" },
+  { value: "ko", label: "한국어 (Korean)" },
+  { value: "tl", label: "Tagalog (Filipino)" },
+  { value: "ru", label: "Русский (Russian)" },
+];
+
 interface PatientSummary {
   overview: string;
   diagnoses: { name: string; explanation: string }[];
@@ -318,11 +333,15 @@ interface PatientSummary {
   followUp?: { when: string; why: string };
   whenToCall: string[];
   source: "ai" | "stub";
+  language: SummaryLanguage;
 }
 
-async function generatePatientSummary(noteId: string): Promise<PatientSummary> {
+async function generatePatientSummary(
+  noteId: string,
+  language: SummaryLanguage,
+): Promise<PatientSummary> {
   return customFetch<PatientSummary>(
-    `/api/notes/${noteId}/generate-summary`,
+    `/api/notes/${noteId}/generate-summary?lang=${encodeURIComponent(language)}`,
     { method: "POST" },
   );
 }
@@ -1970,6 +1989,10 @@ function PatientSummaryPanel({ note }: { note: Note | null }) {
   // export from the same surface.
   const [summary, setSummary] = useState<PatientSummary | null>(null);
   const [busy, setBusy] = useState(false);
+  // Selected language. Defaults to English; the provider switches via the
+  // dropdown before clicking Generate. Changing language after a generation
+  // doesn't auto-regenerate — provider clicks Regenerate to commit.
+  const [language, setLanguage] = useState<SummaryLanguage>("en");
 
   // Don't show the panel until there's a note to summarize. Empty
   // encounter renders cleaner without it.
@@ -1978,7 +2001,7 @@ function PatientSummaryPanel({ note }: { note: Note | null }) {
   const generate = async () => {
     setBusy(true);
     try {
-      const s = await generatePatientSummary(note.id);
+      const s = await generatePatientSummary(note.id, language);
       setSummary(s);
       toast.success(
         s.source === "ai"
@@ -2018,7 +2041,20 @@ function PatientSummaryPanel({ note }: { note: Note | null }) {
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as SummaryLanguage)}
+            aria-label="Summary language"
+            disabled={busy}
+            className="h-8 rounded-md border border-(--color-border) bg-(--color-card) px-2 text-xs"
+          >
+            {LANGUAGE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
           {summary ? (
             <Button size="sm" variant="ghost" onClick={() => void copyAsText()}>
               Copy

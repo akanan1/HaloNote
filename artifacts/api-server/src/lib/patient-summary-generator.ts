@@ -60,11 +60,47 @@ const SummaryOutput = z.object({
 
 export type PatientSummaryResult = z.infer<typeof SummaryOutput>;
 
+// Patient-facing languages supported in v1. Picked for prevalence in US
+// primary care: English, Spanish, Simplified Chinese (Mandarin),
+// Vietnamese, Korean, Tagalog, Russian. Adding more is one entry per
+// language; Anthropic supports all of these natively at high quality.
+//
+// Stored as ISO 639-1 (two-letter) codes so they match standard
+// patient-portal locale conventions and Google Translate's URL format.
+export type SummaryLanguage = "en" | "es" | "zh" | "vi" | "ko" | "tl" | "ru";
+
+export const SUMMARY_LANGUAGES: SummaryLanguage[] = [
+  "en",
+  "es",
+  "zh",
+  "vi",
+  "ko",
+  "tl",
+  "ru",
+];
+
+// English label per language. The model writes the OUTPUT in the
+// requested language, but the prompt itself stays English so the
+// system prompt's tone / safety rules don't get lost in translation.
+const LANGUAGE_NAME: Record<SummaryLanguage, string> = {
+  en: "English",
+  es: "Spanish (Latin American)",
+  zh: "Simplified Chinese (Mandarin)",
+  vi: "Vietnamese",
+  ko: "Korean",
+  tl: "Tagalog (Filipino)",
+  ru: "Russian",
+};
+
 export interface SummaryGeneratorInput {
   noteId: string;
   noteBody: string;
   patient: Pick<Patient, "firstName" | "dateOfBirth">;
   encounter: Pick<Encounter, "visitType" | "customLabel" | "isTelehealth">;
+  // Optional. Defaults to English when omitted. Drives both the
+  // Anthropic prompt's "write the output in X" instruction and the
+  // stub's placeholder text label.
+  language?: SummaryLanguage;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,10 +113,11 @@ export interface SummaryGeneratorInput {
 
 function stubGenerate(input: SummaryGeneratorInput): PatientSummaryResult {
   const name = input.patient.firstName;
+  const langLabel = LANGUAGE_NAME[input.language ?? "en"];
   return {
     overview:
-      `Hi ${name}, this is a placeholder visit summary. The real AI ` +
-      "summary generator is offline (ANTHROPIC_API_KEY not configured). " +
+      `Hi ${name}, this is a placeholder visit summary (requested in ${langLabel}). ` +
+      "The real AI summary generator is offline (ANTHROPIC_API_KEY not configured). " +
       "Your provider will write a real summary before this is shared.",
     diagnoses: [],
     medications: [],
@@ -101,13 +138,25 @@ function stubGenerate(input: SummaryGeneratorInput): PatientSummaryResult {
 // reading level, jargon, and what NOT to fabricate.
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(language: SummaryLanguage): string {
+  const languageName = LANGUAGE_NAME[language];
   return [
     "You are a clinical communication assistant. Given a provider's",
     "clinical note from a visit, generate a patient-facing visit summary.",
     "",
     "Audience: patients, not clinicians. Many patients read at a 6th-grade",
     "level. Some have limited health literacy.",
+    "",
+    `CRITICAL — OUTPUT LANGUAGE: Write the entire summary in ${languageName}.`,
+    "All field values — overview, diagnosis names + explanations,",
+    "medication instructions, self-care, follow-up, when-to-call —",
+    "must be in this language. The structure / JSON keys stay English",
+    "(those are not user-facing). Keep the same 6th-grade reading level",
+    "and patient-friendly tone in the target language. Use the natural",
+    "everyday register a patient would actually read — not a literal",
+    "translation of English phrasing. For medication names, use the",
+    "brand or generic name the patient will see on the bottle (do NOT",
+    "translate drug names themselves).",
     "",
     "Rules:",
     "  1. Write at a 6th-grade reading level. Short sentences. Common words.",
@@ -208,7 +257,7 @@ async function realGenerate(
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 2048,
-    system: buildSystemPrompt(),
+    system: buildSystemPrompt(input.language ?? "en"),
     tools: [TOOL_SCHEMA],
     tool_choice: { type: "tool", name: TOOL_SCHEMA.name },
     messages: [{ role: "user", content: buildUserPrompt(input) }],

@@ -13,7 +13,11 @@ import { EhrPushError, pushNoteToEhr } from "../lib/ehr-push";
 import { findPatient } from "../lib/patients";
 import { getActiveOrgId } from "../lib/active-org";
 import { analyzeNoteGaps } from "../lib/note-gap-analyzer";
-import { generatePatientSummary } from "../lib/patient-summary-generator";
+import {
+  generatePatientSummary,
+  SUMMARY_LANGUAGES,
+  type SummaryLanguage,
+} from "../lib/patient-summary-generator";
 
 // Statuses that lock the note body from further direct edits. Once a
 // note is approved/exported/withdrawn, the only way to change the body
@@ -631,13 +635,29 @@ router.post("/notes/:id/generate-summary", async (req, res) => {
     if (enc) encounterContext = enc;
   }
 
+  // Patient-facing output language. Defaults to English when absent
+  // or unknown. Validated against the explicit allowlist so unknown
+  // codes default to English rather than being silently fed to the
+  // prompt (which would produce confusing "I don't know that
+  // language" output).
+  const langRaw =
+    typeof req.query["lang"] === "string"
+      ? req.query["lang"].trim().toLowerCase()
+      : "";
+  const language: SummaryLanguage = (
+    SUMMARY_LANGUAGES as readonly string[]
+  ).includes(langRaw)
+    ? (langRaw as SummaryLanguage)
+    : "en";
+
   const { result, source } = await generatePatientSummary({
     noteId: note.id,
     noteBody: note.body,
     patient,
     encounter: encounterContext,
+    language,
   });
-  res.json({ ...result, source });
+  res.json({ ...result, source, language });
 });
 
 router.post("/notes/:id/send-to-ehr", async (req, res) => {

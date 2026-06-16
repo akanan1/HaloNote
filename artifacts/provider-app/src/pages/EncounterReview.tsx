@@ -289,6 +289,27 @@ async function approveNote(noteId: string): Promise<Note> {
   return customFetch<Note>(`/api/notes/${noteId}/approve`, { method: "POST" });
 }
 
+interface NoteGap {
+  field: string;
+  message: string;
+  suggestedResolution?: string;
+  locationHint?: string;
+  severity: "info" | "warn" | "block";
+}
+
+interface GapAnalysisResponse {
+  gaps: NoteGap[];
+  summary: string;
+  source: "ai" | "stub";
+}
+
+async function analyzeNoteGaps(noteId: string): Promise<GapAnalysisResponse> {
+  return customFetch<GapAnalysisResponse>(
+    `/api/notes/${noteId}/analyze-gaps`,
+    { method: "POST" },
+  );
+}
+
 async function fetchBilling(encId: string): Promise<BillingResponse> {
   return customFetch<BillingResponse>(`/api/encounters/${encId}/billing`);
 }
@@ -728,6 +749,11 @@ function NotePanel({
   encounterId: string;
 }) {
   const [busy, setBusy] = useState(false);
+  // Gap analysis is request-driven — we don't persist the result, so
+  // it lives in component state and clears on remount. analysis === null
+  // means "never run"; an empty gaps array means "run, no gaps."
+  const [analysis, setAnalysis] = useState<GapAnalysisResponse | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const approve = async () => {
     if (!note) return;
@@ -742,6 +768,35 @@ function NotePanel({
       setBusy(false);
     }
   };
+
+  const runAnalysis = async () => {
+    if (!note) return;
+    setAnalyzing(true);
+    try {
+      const r = await analyzeNoteGaps(note.id);
+      setAnalysis(r);
+      const blockerCount = r.gaps.filter((g) => g.severity === "block").length;
+      if (blockerCount > 0) {
+        toast.warning(
+          `${blockerCount} blocker${blockerCount === 1 ? "" : "s"} found`,
+        );
+      } else if (r.gaps.length === 0) {
+        toast.success("No gaps detected");
+      } else {
+        toast.message(
+          `${r.gaps.length} item${r.gaps.length === 1 ? "" : "s"} to review`,
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gap analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const blockingGaps =
+    analysis?.gaps.filter((g) => g.severity === "block") ?? [];
+  const canApprove = note?.status === "draft" && blockingGaps.length === 0;
 
   // Where the "Record / write note" button goes — the NewNote page reads
   // ?encounterId from the URL and threads it through useNoteAutosave so
@@ -764,24 +819,51 @@ function NotePanel({
             </span>
           ) : null}
         </div>
-        {note && note.status === "draft" ? (
-          <Button size="sm" onClick={() => void approve()} disabled={busy}>
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            )}
-            Approve & sign
-          </Button>
-        ) : null}
-        {!loading && !note ? (
-          <Link href={recordHref}>
-            <Button size="sm">
-              <FileText className="h-4 w-4" aria-hidden="true" />
-              Start note
+        <div className="flex flex-wrap items-center gap-2">
+          {note && note.status === "draft" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void runAnalysis()}
+              disabled={analyzing}
+              title="Run an AI completeness check on the note"
+            >
+              {analyzing ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+              )}
+              {analysis ? "Re-analyze" : "Analyze gaps"}
             </Button>
-          </Link>
-        ) : null}
+          ) : null}
+          {note && note.status === "draft" ? (
+            <Button
+              size="sm"
+              onClick={() => void approve()}
+              disabled={busy || !canApprove}
+              title={
+                !canApprove
+                  ? "Resolve the block-severity gaps before signing"
+                  : undefined
+              }
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              )}
+              Approve & sign
+            </Button>
+          ) : null}
+          {!loading && !note ? (
+            <Link href={recordHref}>
+              <Button size="sm">
+                <FileText className="h-4 w-4" aria-hidden="true" />
+                Start note
+              </Button>
+            </Link>
+          ) : null}
+        </div>
       </div>
       {loading ? (
         <p className="text-sm text-(--color-muted-foreground)">Loading note…</p>
@@ -805,7 +887,86 @@ function NotePanel({
           ) : null}
         </>
       )}
+      {analysis ? (
+        <GapAnalysisDisplay analysis={analysis} />
+      ) : null}
     </Card>
+  );
+}
+
+// Inline gap-analysis renderer. Sorted so block-severity gaps land at the
+// top — the provider's first scan should hit the things that block signing.
+function GapAnalysisDisplay({ analysis }: { analysis: GapAnalysisResponse }) {
+  const sorted = [...analysis.gaps].sort((a, b) => {
+    const weight = { block: 0, warn: 1, info: 2 };
+    return weight[a.severity] - weight[b.severity];
+  });
+  return (
+    <div className="space-y-2 border-t border-(--color-border) pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+          Gap analysis
+        </h3>
+        <span className="text-xs uppercase tracking-wide text-(--color-muted-foreground)">
+          {analysis.source === "ai" ? "AI" : "stub"}
+        </span>
+      </div>
+      {analysis.gaps.length === 0 ? (
+        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-inset ring-emerald-200">
+          {analysis.summary}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {sorted.map((g, i) => (
+            <GapRow key={`${g.field}-${i}`} gap={g} />
+          ))}
+        </ul>
+      )}
+      {analysis.gaps.length > 0 && analysis.summary ? (
+        <p className="text-xs italic text-(--color-muted-foreground)">
+          {analysis.summary}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function GapRow({ gap }: { gap: NoteGap }) {
+  const tone =
+    gap.severity === "block"
+      ? "ring-red-200 bg-red-50 text-red-900"
+      : gap.severity === "warn"
+        ? "ring-amber-200 bg-amber-50 text-amber-900"
+        : "ring-(--color-border) bg-(--color-card) text-(--color-muted-foreground)";
+  return (
+    <li>
+      <div className={`rounded-md px-3 py-2 ring-1 ring-inset ${tone}`}>
+        <div className="flex items-start gap-2">
+          {gap.severity === "block" ? (
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide">
+                {gap.severity}
+              </span>
+              {gap.locationHint ? (
+                <span className="text-xs">{gap.locationHint}</span>
+              ) : null}
+            </div>
+            <p className="text-sm">{gap.message}</p>
+            {gap.suggestedResolution ? (
+              <p className="text-xs italic">
+                Suggested: &ldquo;{gap.suggestedResolution}&rdquo;
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </li>
   );
 }
 

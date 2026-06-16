@@ -12,6 +12,7 @@ import {
 import { EhrPushError, pushNoteToEhr } from "../lib/ehr-push";
 import { findPatient } from "../lib/patients";
 import { getActiveOrgId } from "../lib/active-org";
+import { analyzeNoteGaps } from "../lib/note-gap-analyzer";
 
 // Statuses that lock the note body from further direct edits. Once a
 // note is approved/exported/withdrawn, the only way to change the body
@@ -470,6 +471,80 @@ router.post("/notes/:id/approve", async (req, res) => {
     req.log.error({ err, noteId }, "Failed to approve note");
     res.status(500).json({ error: "persistence_failed" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/analyze-gaps — second AI pass that flags what the note
+// is missing or ambiguous. Read-only (no DB writes); the result is
+// surfaced inline in the UI for the provider to address before signing.
+// Re-runnable cheaply since the note body is the only input.
+// ---------------------------------------------------------------------------
+router.post("/notes/:id/analyze-gaps", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+      encounterId: notesTable.encounterId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  // Withdrawn notes have nothing to analyze; refuse instead of returning
+  // empty so the UI surfaces a clear error.
+  if (note.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+
+  // Encounter context biases the analyzer (a new-patient visit gets
+  // different gap expectations than a follow-up). Nullable: when a
+  // note has no linked encounter (rare for retroactive documentation),
+  // fall back to neutral context.
+  let encounterContext: {
+    visitType: import("@workspace/db").VisitType;
+    customLabel: string | null;
+    isTelehealth: boolean;
+  } = {
+    visitType: "follow_up",
+    customLabel: null,
+    isTelehealth: false,
+  };
+  if (note.encounterId) {
+    const [enc] = await db
+      .select({
+        visitType: encountersTable.visitType,
+        customLabel: encountersTable.customLabel,
+        isTelehealth: encountersTable.isTelehealth,
+      })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, note.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    if (enc) encounterContext = enc;
+  }
+
+  const { result, source } = await analyzeNoteGaps({
+    noteId: note.id,
+    noteBody: note.body,
+    encounter: encounterContext,
+  });
+  res.json({ ...result, source });
 });
 
 router.post("/notes/:id/send-to-ehr", async (req, res) => {

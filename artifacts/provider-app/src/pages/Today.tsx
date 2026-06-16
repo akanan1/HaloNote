@@ -27,6 +27,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { RecentEncountersSection } from "@/components/RecentEncountersSection";
 import {
   claimAppointment,
   getAppointmentClaim,
@@ -456,6 +457,12 @@ export function TodayPage() {
           })}
         </ul>
       )}
+
+      {/* Recent encounters across all patients — surfaces ongoing work
+          captured in HaloNote (independent of the EHR-driven schedule
+          above). Renders nothing on a clinic that hasn't started any
+          encounters yet, so the page doesn't grow an empty section. */}
+      <RecentEncountersSection />
     </div>
   );
 }

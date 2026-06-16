@@ -310,6 +310,19 @@ async function analyzeNoteGaps(noteId: string): Promise<GapAnalysisResponse> {
   );
 }
 
+interface RefineResponse {
+  note: { id: string; body: string; updatedAt: string };
+  changeSummary: string;
+  source: "ai" | "stub";
+}
+
+async function refineNote(noteId: string, instruction: string): Promise<RefineResponse> {
+  return customFetch<RefineResponse>(`/api/notes/${noteId}/refine`, {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
+}
+
 type SummaryLanguage = "en" | "es" | "zh" | "vi" | "ko" | "tl" | "ru";
 
 // Native-script labels so the picker reads correctly to a multilingual
@@ -792,6 +805,11 @@ function NotePanel({
   // means "never run"; an empty gaps array means "run, no gaps."
   const [analysis, setAnalysis] = useState<GapAnalysisResponse | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  // Conversational refinement state. refineOpen toggles the inline input;
+  // refining gates double-submits.
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [refineInstruction, setRefineInstruction] = useState("");
+  const [refining, setRefining] = useState(false);
 
   const approve = async () => {
     if (!note) return;
@@ -804,6 +822,26 @@ function NotePanel({
       toast.error(err instanceof Error ? err.message : "Approve failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runRefine = async () => {
+    if (!note || !refineInstruction.trim()) return;
+    setRefining(true);
+    try {
+      const r = await refineNote(note.id, refineInstruction.trim());
+      toast.success(r.changeSummary, { duration: 6000 });
+      setRefineInstruction("");
+      setRefineOpen(false);
+      // The note query re-fetches so the textarea-equivalent <pre>
+      // surface shows the new body. Clear any stale gap analysis since
+      // the body changed.
+      setAnalysis(null);
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Refine failed");
+    } finally {
+      setRefining(false);
     }
   };
 
@@ -858,6 +896,18 @@ function NotePanel({
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {note && note.status === "draft" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRefineOpen((v) => !v)}
+              disabled={refining}
+              title="Ask the AI to refine the note ('make assessment shorter', 'soften the tone', etc.)"
+            >
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              Refine with AI
+            </Button>
+          ) : null}
           {note && note.status === "draft" ? (
             <Button
               size="sm"
@@ -925,6 +975,59 @@ function NotePanel({
           ) : null}
         </>
       )}
+      {refineOpen && note && note.status === "draft" ? (
+        <div className="space-y-2 rounded-md border border-(--color-border) bg-(--color-muted)/30 p-3">
+          <label
+            htmlFor="refine-input"
+            className="block text-xs font-semibold uppercase tracking-wide text-(--color-muted-foreground)"
+          >
+            Ask the AI to refine the note
+          </label>
+          <textarea
+            id="refine-input"
+            value={refineInstruction}
+            onChange={(e) => setRefineInstruction(e.target.value)}
+            placeholder='e.g. "Shorten the assessment to 2 sentences" or "Add a normal 10-point ROS"'
+            rows={2}
+            disabled={refining}
+            className="block w-full rounded-md border border-(--color-border) bg-(--color-card) p-2 text-sm focus:outline-none focus:ring-2 focus:ring-(--color-primary)"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <p className="text-(--color-muted-foreground)">
+              The AI will rewrite the body and persist the change. It won't
+              add clinical content that isn't in the original.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setRefineOpen(false);
+                  setRefineInstruction("");
+                }}
+                disabled={refining}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void runRefine()}
+                disabled={refining || !refineInstruction.trim()}
+              >
+                {refining ? (
+                  <Loader2
+                    className="h-4 w-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                )}
+                Apply refinement
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {analysis ? (
         <GapAnalysisDisplay analysis={analysis} />
       ) : null}

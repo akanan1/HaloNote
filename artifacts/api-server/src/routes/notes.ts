@@ -18,6 +18,8 @@ import {
   SUMMARY_LANGUAGES,
   type SummaryLanguage,
 } from "../lib/patient-summary-generator";
+import { refineNote } from "../lib/note-refiner";
+import { z } from "@workspace/api-zod";
 
 // Statuses that lock the note body from further direct edits. Once a
 // note is approved/exported/withdrawn, the only way to change the body
@@ -658,6 +660,122 @@ router.post("/notes/:id/generate-summary", async (req, res) => {
     language,
   });
   res.json({ ...result, source, language });
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/refine — conversational rewrite. Provider sends a
+// natural-language instruction; AI returns a refined body that the route
+// persists in-place. Only works on DRAFT notes — approved/exported/
+// entered-in-error are locked, and the signed-hash invariant on
+// approved notes means the body cannot change once signed without going
+// through the FHIR replaces chain (a separate flow).
+// ---------------------------------------------------------------------------
+const RefineNoteBody = z.object({
+  instruction: z.string().min(1).max(2000),
+});
+
+router.post("/notes/:id/refine", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const parsed = RefineNoteBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "invalid_request", issues: parsed.error.issues });
+    return;
+  }
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+      encounterId: notesTable.encounterId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  // Lock invariant — once a note leaves draft, body is immutable.
+  // The 409 carries the actual locked status so the UI can route the
+  // provider to 'amend' (FHIR replaces-chain create) instead.
+  if (note.status !== "draft") {
+    res.status(409).json({ error: "note_locked", status: note.status });
+    return;
+  }
+
+  // Encounter context biases the refiner the same way it biases the gap
+  // analyzer + summary generator — visit type affects tone, expected
+  // sections, telehealth modifier expectations.
+  let encounterContext: {
+    visitType: import("@workspace/db").VisitType;
+    customLabel: string | null;
+    isTelehealth: boolean;
+  } = {
+    visitType: "follow_up",
+    customLabel: null,
+    isTelehealth: false,
+  };
+  if (note.encounterId) {
+    const [enc] = await db
+      .select({
+        visitType: encountersTable.visitType,
+        customLabel: encountersTable.customLabel,
+        isTelehealth: encountersTable.isTelehealth,
+      })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, note.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    if (enc) encounterContext = enc;
+  }
+
+  const { result, source } = await refineNote({
+    noteId: note.id,
+    body: note.body,
+    instruction: parsed.data.instruction,
+    encounter: encounterContext,
+  });
+
+  // Persist verbatim. The route is the only writer of body content on
+  // draft notes outside of PATCH; both go through the same lock check
+  // above. updatedAt bumps so autosave-listening clients invalidate.
+  try {
+    const [updated] = await db
+      .update(notesTable)
+      .set({ body: result.newBody, updatedAt: new Date() })
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
+      .returning({
+        id: notesTable.id,
+        body: notesTable.body,
+        updatedAt: notesTable.updatedAt,
+      });
+    if (!updated) {
+      res.status(404).json({ error: "note_not_found" });
+      return;
+    }
+    res.json({
+      note: updated,
+      changeSummary: result.changeSummary,
+      source,
+    });
+  } catch (err) {
+    req.log.error({ err, noteId }, "Failed to persist refined note");
+    res.status(500).json({ error: "persistence_failed" });
+  }
 });
 
 router.post("/notes/:id/send-to-ehr", async (req, res) => {

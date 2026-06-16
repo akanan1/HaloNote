@@ -102,6 +102,9 @@ importers:
       '@workspace/ehr':
         specifier: workspace:*
         version: link:../../lib/integrations/ehr
+      '@workspace/legal':
+        specifier: workspace:*
+        version: link:../../lib/legal
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -587,6 +590,18 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.3.5
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@25.3.5)(jsdom@29.1.1(@noble/hashes@2.2.0))(lightningcss@1.31.1)
+
+  lib/legal:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.3.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
       vitest:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@25.3.5)(jsdom@29.1.1(@noble/hashes@2.2.0))(lightningcss@1.31.1)

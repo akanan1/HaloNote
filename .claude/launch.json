@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "provider-app",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "console.log('attach to existing vite on 8081'); setInterval(()=>{}, 1e9);"],
+      "port": 8081
+    }
+  ]
+}

@@ -61,6 +61,18 @@ export const ConfirmPasswordResetResponse = zod.object({
     .boolean()
     .optional()
     .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
 });
 
 /**
@@ -81,6 +93,18 @@ export const LoginResponse = zod.object({
     .boolean()
     .optional()
     .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
 });
 
 /**
@@ -95,6 +119,388 @@ export const GetCurrentUserResponse = zod.object({
     .boolean()
     .optional()
     .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+});
+
+/**
+ * Append-only. Stores the supplied markdown as a new row in `legal_document_overrides` and makes it the current version for that document type. Previous versions stay in the table and are still referenced by historical acceptance rows. All users with stale acceptances are notified by email.
+ * @summary Publish a new version of a legal document
+ */
+export const uploadLegalVersionBodyVersionMax = 32;
+
+export const uploadLegalVersionBodyBodyMin = 100;
+
+export const UploadLegalVersionBody = zod.object({
+  type: zod.enum(["baa", "terms", "privacy"]),
+  version: zod
+    .string()
+    .min(1)
+    .max(uploadLegalVersionBodyVersionMax)
+    .describe("SemVer-ish, must be unique per type."),
+  body: zod
+    .string()
+    .min(uploadLegalVersionBodyBodyMin)
+    .describe("Full Markdown body of the new version."),
+});
+
+/**
+ * Sets `legalReacceptRequiredAt = now()` on the target user. Their existing acceptance rows stay on the audit trail; they just no longer count as current until the user clicks through onboarding again.
+ * @summary Force the user to re-accept the legal agreements
+ */
+export const RequireUserReacceptParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RequireUserReacceptResponse = zod.object({
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    displayName: zod.string(),
+    role: zod.enum(["admin", "member"]),
+    isFounder: zod.boolean().optional(),
+    createdAt: zod.coerce.date(),
+    lastNoteAt: zod.coerce
+      .date()
+      .optional()
+      .describe("When the user last created or edited a clinical note."),
+    patientCount: zod.number(),
+    noteCount: zod.number(),
+    recordingCount: zod.number(),
+    legalAcceptances: zod
+      .array(
+        zod.object({
+          type: zod.enum(["baa", "terms", "privacy"]),
+          currentVersion: zod.string(),
+          accepted: zod.boolean(),
+          acceptedVersion: zod
+            .string()
+            .optional()
+            .describe(
+              "Most recently accepted version (may be older than current).",
+            ),
+          acceptedAt: zod.coerce.date().optional(),
+        }),
+      )
+      .describe("One entry per required document type for this user."),
+  }),
+  acceptances: zod
+    .array(
+      zod.object({
+        type: zod.enum(["baa", "terms", "privacy"]),
+        version: zod.string(),
+        contentHash: zod.string(),
+        ipAddress: zod.string().optional(),
+        userAgent: zod.string().optional(),
+        acceptedAt: zod.coerce.date(),
+      }),
+    )
+    .describe("Full append-only history, newest first."),
+  dailySeries: zod.object({
+    startDate: zod.coerce.date(),
+    endDate: zod.coerce.date(),
+    notes: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    recordings: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    patients: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * @summary Detail view for a single user — full legal acceptance history
+ */
+export const GetFounderUserDetailParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetFounderUserDetailResponse = zod.object({
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    displayName: zod.string(),
+    role: zod.enum(["admin", "member"]),
+    isFounder: zod.boolean().optional(),
+    createdAt: zod.coerce.date(),
+    lastNoteAt: zod.coerce
+      .date()
+      .optional()
+      .describe("When the user last created or edited a clinical note."),
+    patientCount: zod.number(),
+    noteCount: zod.number(),
+    recordingCount: zod.number(),
+    legalAcceptances: zod
+      .array(
+        zod.object({
+          type: zod.enum(["baa", "terms", "privacy"]),
+          currentVersion: zod.string(),
+          accepted: zod.boolean(),
+          acceptedVersion: zod
+            .string()
+            .optional()
+            .describe(
+              "Most recently accepted version (may be older than current).",
+            ),
+          acceptedAt: zod.coerce.date().optional(),
+        }),
+      )
+      .describe("One entry per required document type for this user."),
+  }),
+  acceptances: zod
+    .array(
+      zod.object({
+        type: zod.enum(["baa", "terms", "privacy"]),
+        version: zod.string(),
+        contentHash: zod.string(),
+        ipAddress: zod.string().optional(),
+        userAgent: zod.string().optional(),
+        acceptedAt: zod.coerce.date(),
+      }),
+    )
+    .describe("Full append-only history, newest first."),
+  dailySeries: zod.object({
+    startDate: zod.coerce.date(),
+    endDate: zod.coerce.date(),
+    notes: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    recordings: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    patients: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * Founder-only. Returns aggregate platform stats (user/patient/note/ recording counts), recent signups, and a per-user row with activity counts and the acceptance status for each required legal document. Returns 404 to non-founders so the endpoint doesn't advertise its existence.
+ * @summary Cross-tenant analytics + per-user legal acceptance status
+ */
+export const GetFounderAnalyticsResponse = zod.object({
+  compliance: zod.object({
+    onboardingCompleted: zod.number(),
+    onboardingPending: zod.number(),
+    onboardingCompletionRate: zod.number().describe("0..1"),
+    staleBaaUsers: zod
+      .number()
+      .describe("Users without a current BAA acceptance."),
+    staleTermsUsers: zod.number(),
+    stalePrivacyUsers: zod.number(),
+    staleAnyUsers: zod
+      .number()
+      .describe("Users stale on any required document."),
+  }),
+  dailySeries: zod
+    .object({
+      startDate: zod.coerce
+        .date()
+        .describe("First day in the series (inclusive, UTC)."),
+      endDate: zod.coerce
+        .date()
+        .describe("Last day in the series (inclusive, UTC)."),
+      signups: zod.array(
+        zod.object({
+          date: zod.coerce.date(),
+          count: zod.number(),
+        }),
+      ),
+      notes: zod.array(
+        zod.object({
+          date: zod.coerce.date(),
+          count: zod.number(),
+        }),
+      ),
+      recordings: zod.array(
+        zod.object({
+          date: zod.coerce.date(),
+          count: zod.number(),
+        }),
+      ),
+    })
+    .describe(
+      "Counts per UTC day for the last 30 days. Each array is ordered oldest → newest and includes zero-count days so the sparkline renderer can skip gap handling.",
+    ),
+  totals: zod.object({
+    users: zod.number(),
+    admins: zod.number(),
+    patients: zod.number(),
+    notes: zod.number(),
+    recordingsTotal: zod.number(),
+    recordingsDone: zod.number(),
+    recordingsFailed: zod.number(),
+    signupsLast7Days: zod.number(),
+    signupsLast30Days: zod.number(),
+  }),
+  users: zod.array(
+    zod.object({
+      id: zod.string(),
+      email: zod.string(),
+      displayName: zod.string(),
+      role: zod.enum(["admin", "member"]),
+      isFounder: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      lastNoteAt: zod.coerce
+        .date()
+        .optional()
+        .describe("When the user last created or edited a clinical note."),
+      patientCount: zod.number(),
+      noteCount: zod.number(),
+      recordingCount: zod.number(),
+      legalAcceptances: zod
+        .array(
+          zod.object({
+            type: zod.enum(["baa", "terms", "privacy"]),
+            currentVersion: zod.string(),
+            accepted: zod.boolean(),
+            acceptedVersion: zod
+              .string()
+              .optional()
+              .describe(
+                "Most recently accepted version (may be older than current).",
+              ),
+            acceptedAt: zod.coerce.date().optional(),
+          }),
+        )
+        .describe("One entry per required document type for this user."),
+    }),
+  ),
+});
+
+/**
+ * Returns each currently-required document (BAA, ToS, Privacy) with its full body text, the current version, and whether the signed-in user has accepted that version. The frontend uses this to render the agreement-acceptance step of onboarding and to surface acceptance history in Settings.
+ * @summary Get current legal agreements and acceptance status
+ */
+export const GetLegalAgreementsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      type: zod.enum(["baa", "terms", "privacy"]),
+      title: zod.string(),
+      summary: zod.string(),
+      currentVersion: zod.string(),
+      body: zod.string().describe("Markdown body of the current version."),
+      contentHash: zod
+        .string()
+        .describe(
+          "SHA-256 (hex) of `body`. Frontend echoes this back on POST.",
+        ),
+      accepted: zod
+        .boolean()
+        .describe("True iff the signed-in user has accepted `currentVersion`."),
+      acceptedAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "When the current version was accepted. Absent if accepted=false.",
+        ),
+    }),
+  ),
+});
+
+/**
+ * Idempotent per (user, documentType, version). The server computes the content hash from the in-repo text and stores it with IP + user agent. Returns the refreshed acceptance status so the client can advance.
+ * @summary Record acceptance of one or more legal agreements
+ */
+
+export const AcceptLegalAgreementsBody = zod.object({
+  acceptances: zod
+    .array(
+      zod.object({
+        type: zod.enum(["baa", "terms", "privacy"]),
+        version: zod.string(),
+        contentHash: zod
+          .string()
+          .describe(
+            "The hash the client received on GET. Server re-computes from disk and rejects with 400 if they don't match — protects against a stale client persisting a stale hash.",
+          ),
+      }),
+    )
+    .min(1),
+});
+
+export const AcceptLegalAgreementsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      type: zod.enum(["baa", "terms", "privacy"]),
+      title: zod.string(),
+      summary: zod.string(),
+      currentVersion: zod.string(),
+      body: zod.string().describe("Markdown body of the current version."),
+      contentHash: zod
+        .string()
+        .describe(
+          "SHA-256 (hex) of `body`. Frontend echoes this back on POST.",
+        ),
+      accepted: zod
+        .boolean()
+        .describe("True iff the signed-in user has accepted `currentVersion`."),
+      acceptedAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "When the current version was accepted. Absent if accepted=false.",
+        ),
+    }),
+  ),
+});
+
+/**
+ * Idempotent. Sets `users.onboardingCompletedAt` to `now()` if it's currently null. Returns the refreshed AuthUser so the client can update its cached state in one round trip.
+ * @summary Mark the first-run onboarding flow as completed
+ */
+export const CompleteOnboardingResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+  role: zod.enum(["admin", "member"]),
+  twoFactorEnabled: zod
+    .boolean()
+    .optional()
+    .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
 });
 
 /**
@@ -708,6 +1114,216 @@ export const ResetTemplatesResponse = zod.object({
       sortOrder: zod.number(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * Per-provider "when I say X, document Y" overrides applied during the AI structuring pass. Returned in manual sort order.
+ * @summary List the signed-in provider's phrase mappings
+ */
+export const listPhraseMappingsResponseDataItemSpokenMax = 200;
+
+export const listPhraseMappingsResponseDataItemDocumentedMax = 200;
+
+export const ListPhraseMappingsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      spoken: zod
+        .string()
+        .min(1)
+        .max(listPhraseMappingsResponseDataItemSpokenMax)
+        .describe(
+          "The colloquial phrase the provider tends to say during a visit. Matched case-insensitively in the transcript.",
+        ),
+      documented: zod
+        .string()
+        .min(1)
+        .max(listPhraseMappingsResponseDataItemDocumentedMax)
+        .describe(
+          "The preferred documentation term to use in the AI-generated note when the spoken phrase is detected.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new phrase mapping
+ */
+export const createPhraseMappingBodySpokenMax = 200;
+
+export const createPhraseMappingBodyDocumentedMax = 200;
+
+export const CreatePhraseMappingBody = zod.object({
+  spoken: zod.string().min(1).max(createPhraseMappingBodySpokenMax),
+  documented: zod.string().min(1).max(createPhraseMappingBodyDocumentedMax),
+});
+
+/**
+ * @summary Edit a phrase mapping
+ */
+export const UpdatePhraseMappingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updatePhraseMappingBodySpokenMax = 200;
+
+export const updatePhraseMappingBodyDocumentedMax = 200;
+
+export const UpdatePhraseMappingBody = zod
+  .object({
+    spoken: zod
+      .string()
+      .min(1)
+      .max(updatePhraseMappingBodySpokenMax)
+      .optional(),
+    documented: zod
+      .string()
+      .min(1)
+      .max(updatePhraseMappingBodyDocumentedMax)
+      .optional(),
+  })
+  .describe(
+    "Partial update. Any provided field replaces; omitted fields are untouched.",
+  );
+
+export const updatePhraseMappingResponseSpokenMax = 200;
+
+export const updatePhraseMappingResponseDocumentedMax = 200;
+
+export const UpdatePhraseMappingResponse = zod.object({
+  id: zod.string(),
+  spoken: zod
+    .string()
+    .min(1)
+    .max(updatePhraseMappingResponseSpokenMax)
+    .describe(
+      "The colloquial phrase the provider tends to say during a visit. Matched case-insensitively in the transcript.",
+    ),
+  documented: zod
+    .string()
+    .min(1)
+    .max(updatePhraseMappingResponseDocumentedMax)
+    .describe(
+      "The preferred documentation term to use in the AI-generated note when the spoken phrase is detected.",
+    ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a phrase mapping
+ */
+export const DeletePhraseMappingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Per-provider "always apply" assumptions the AI bakes into every generated note (e.g. "14-point ROS negative unless stated").
+ * @summary List the signed-in provider's encounter defaults
+ */
+export const listNoteDefaultsResponseDataItemLabelMax = 120;
+
+export const listNoteDefaultsResponseDataItemRuleMax = 1000;
+
+export const ListNoteDefaultsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      label: zod.string().min(1).max(listNoteDefaultsResponseDataItemLabelMax),
+      rule: zod
+        .string()
+        .min(1)
+        .max(listNoteDefaultsResponseDataItemRuleMax)
+        .describe(
+          "Imperative instruction the AI applies on every encounter unless the transcript contradicts it.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new note default
+ */
+export const createNoteDefaultBodyLabelMax = 120;
+
+export const createNoteDefaultBodyRuleMax = 1000;
+
+export const CreateNoteDefaultBody = zod.object({
+  label: zod.string().min(1).max(createNoteDefaultBodyLabelMax),
+  rule: zod.string().min(1).max(createNoteDefaultBodyRuleMax),
+});
+
+/**
+ * @summary Edit a note default
+ */
+export const UpdateNoteDefaultParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateNoteDefaultBodyLabelMax = 120;
+
+export const updateNoteDefaultBodyRuleMax = 1000;
+
+export const UpdateNoteDefaultBody = zod
+  .object({
+    label: zod.string().min(1).max(updateNoteDefaultBodyLabelMax).optional(),
+    rule: zod.string().min(1).max(updateNoteDefaultBodyRuleMax).optional(),
+  })
+  .describe(
+    "Partial update. Any provided field replaces; omitted fields are untouched.",
+  );
+
+export const updateNoteDefaultResponseLabelMax = 120;
+
+export const updateNoteDefaultResponseRuleMax = 1000;
+
+export const UpdateNoteDefaultResponse = zod.object({
+  id: zod.string(),
+  label: zod.string().min(1).max(updateNoteDefaultResponseLabelMax),
+  rule: zod
+    .string()
+    .min(1)
+    .max(updateNoteDefaultResponseRuleMax)
+    .describe(
+      "Imperative instruction the AI applies on every encounter unless the transcript contradicts it.",
+    ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a note default
+ */
+export const DeleteNoteDefaultParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Returns a catalog of common encounter defaults (ROS, vitals, physical exam framework, etc.) that the provider can adopt wholesale to skip the blank-page problem during onboarding.
+ * @summary List the built-in suggested defaults the provider can adopt
+ */
+export const ListNoteDefaultSuggestionsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      key: zod
+        .string()
+        .describe(
+          'Stable identifier of the suggestion (e.g. \"ros-default\"). The UI uses this to mark already-adopted suggestions.',
+        ),
+      label: zod.string(),
+      rule: zod.string(),
+      description: zod
+        .string()
+        .optional()
+        .describe(
+          "Plain-English explanation of what this default does, shown in the UI under the label.",
+        ),
     }),
   ),
 });

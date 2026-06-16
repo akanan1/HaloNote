@@ -8,7 +8,10 @@ import {
 } from "@workspace/ehr";
 import { getAthenahealthClient } from "./athena";
 import { getEpicClient } from "./epic";
-import { getAthenahealthClientForUser } from "./ehr-user-client";
+import {
+  getAthenahealthClientForUser,
+  getCernerClientForUser,
+} from "./ehr-user-client";
 import { logger } from "./logger";
 
 export interface PatientHistoryProblem {
@@ -68,9 +71,18 @@ export async function getPatientHistory(
   userId?: string,
 ): Promise<PatientHistory> {
   if (userId) {
-    const userClient = await getAthenahealthClientForUser(userId);
-    if (userClient) {
-      return runHistoryFetch(userClient.fhir, ehrPatientId);
+    // Cerner first: it's the active residency-pilot path. A user who
+    // launched via Cerner has a `cerner` connection but no Athena
+    // one, and falling through to the env-driven Athena/Epic client
+    // would return another tenant's chart data — wrong-patient risk
+    // we must not ship.
+    const cernerClient = await getCernerClientForUser(userId);
+    if (cernerClient) {
+      return runHistoryFetch(cernerClient.fhir, ehrPatientId);
+    }
+    const athenaClient = await getAthenahealthClientForUser(userId);
+    if (athenaClient) {
+      return runHistoryFetch(athenaClient.fhir, ehrPatientId);
     }
   }
   const provider = resolveProvider();

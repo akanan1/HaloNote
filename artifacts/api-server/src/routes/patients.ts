@@ -1,22 +1,28 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { CreatePatientBody, ListPatientsResponse } from "@workspace/api-zod";
 import { getDb, patientsTable } from "@workspace/db";
 import { listPatients } from "../lib/patients";
 import { PatientSyncError, syncPatientFromEhr } from "../lib/patient-sync";
 import { getPatientHistory, HistoryError } from "../lib/ehr-history";
 import { PatientMappingError } from "@workspace/ehr";
+import { getActiveOrgId } from "../lib/active-org";
 
 const router: IRouter = Router();
 
-router.get("/patients", async (_req, res) => {
-  const patients = await listPatients();
+router.get("/patients", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const patients = await listPatients(orgId);
   const payload = ListPatientsResponse.parse({ data: patients });
   res.json(payload);
 });
 
 router.post("/patients", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
   const parsed = CreatePatientBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -31,6 +37,7 @@ router.post("/patients", async (req, res) => {
       .insert(patientsTable)
       .values({
         id: `pt_${randomUUID()}`,
+        organizationId: orgId,
         firstName: parsed.data.firstName,
         lastName: parsed.data.lastName,
         dateOfBirth: parsed.data.dateOfBirth,
@@ -62,6 +69,9 @@ router.post("/patients", async (req, res) => {
 });
 
 router.post("/patients/sync", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
   const externalId =
     typeof req.body === "object" && req.body !== null
       ? (req.body as { externalId?: unknown }).externalId
@@ -98,10 +108,18 @@ router.post("/patients/sync", async (req, res) => {
     // Upsert keyed on MRN — that's the only natural identity we share
     // with the EHR. If the row exists, refresh demographic fields in case
     // they changed upstream.
+    // MRN is now only unique within an org, so scope the lookup. A
+    // different org may have a row with the same MRN and that's their
+    // patient, not ours.
     const existing = await db
       .select()
       .from(patientsTable)
-      .where(eq(patientsTable.mrn, fields.mrn))
+      .where(
+        and(
+          eq(patientsTable.organizationId, orgId),
+          eq(patientsTable.mrn, fields.mrn),
+        ),
+      )
       .limit(1);
 
     if (existing[0]) {
@@ -131,6 +149,7 @@ router.post("/patients/sync", async (req, res) => {
       .insert(patientsTable)
       .values({
         id: `pt_${randomUUID()}`,
+        organizationId: orgId,
         firstName: fields.firstName,
         lastName: fields.lastName,
         dateOfBirth: fields.dateOfBirth,

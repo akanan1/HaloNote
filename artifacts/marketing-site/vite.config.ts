@@ -27,6 +27,17 @@ export default defineConfig({
   server: {
     port,
     host: "0.0.0.0",
+    // In local dev the marketing site is on 5174 and the api-server
+    // is on 8080. Proxy /api so the early-access form (and anything
+    // else that calls /api/*) works without CORS gymnastics. In prod
+    // both are served from the same origin, so this is a dev-only
+    // convenience.
+    proxy: {
+      "/api": {
+        target: process.env["API_PROXY_TARGET"] || "http://localhost:8080",
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,

@@ -17,31 +17,43 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AcceptLegalAgreements200,
+  AcceptLegalAgreementsRequest,
   AdminUser,
   AuthUser,
+  CreateNoteDefaultRequest,
   CreateNoteRequest,
   CreatePatientRequest,
+  CreatePhraseMappingRequest,
   CreateRecordingRequest,
   CreateTemplateRequest,
   EhrConnectionStatus,
   EhrPushResult,
+  FounderAnalytics,
+  FounderUserDetail,
+  GetLegalAgreements200,
   GetTodaySchedule200,
   GetTodayScheduleParams,
   HealthStatus,
   ListAuditLog200,
   ListAuditLogParams,
+  ListNoteDefaultSuggestions200,
+  ListNoteDefaults200,
   ListNotes200,
   ListNotesParams,
   ListPatients200,
+  ListPhraseMappings200,
   ListTemplates200,
   ListUsers200,
   LoginRequest,
   Note,
+  NoteDefault,
   NoteTemplate,
   PasswordResetConfirm,
   PasswordResetRequest,
   Patient,
   PatientHistory,
+  PhraseMapping,
   RecordingJob,
   RecordingJobDetail,
   RecordingSegment,
@@ -53,9 +65,13 @@ import type {
   StartEhrOauthRequest,
   SyncPatientRequest,
   SyncedPatient,
+  UpdateNoteDefaultRequest,
   UpdateNoteRequest,
+  UpdatePhraseMappingRequest,
   UpdateTemplateRequest,
   UpdateUserRequest,
+  UploadLegalVersionRequest,
+  UploadLegalVersionResult,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -641,6 +657,589 @@ export function useGetCurrentUser<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Append-only. Stores the supplied markdown as a new row in `legal_document_overrides` and makes it the current version for that document type. Previous versions stay in the table and are still referenced by historical acceptance rows. All users with stale acceptances are notified by email.
+ * @summary Publish a new version of a legal document
+ */
+export const getUploadLegalVersionUrl = () => {
+  return `/api/founder/legal-versions`;
+};
+
+export const uploadLegalVersion = async (
+  uploadLegalVersionRequest: UploadLegalVersionRequest,
+  options?: RequestInit,
+): Promise<UploadLegalVersionResult> => {
+  return customFetch<UploadLegalVersionResult>(getUploadLegalVersionUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(uploadLegalVersionRequest),
+  });
+};
+
+export const getUploadLegalVersionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadLegalVersion>>,
+    TError,
+    { data: BodyType<UploadLegalVersionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof uploadLegalVersion>>,
+  TError,
+  { data: BodyType<UploadLegalVersionRequest> },
+  TContext
+> => {
+  const mutationKey = ["uploadLegalVersion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof uploadLegalVersion>>,
+    { data: BodyType<UploadLegalVersionRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return uploadLegalVersion(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UploadLegalVersionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof uploadLegalVersion>>
+>;
+export type UploadLegalVersionMutationBody =
+  BodyType<UploadLegalVersionRequest>;
+export type UploadLegalVersionMutationError = ErrorType<void>;
+
+/**
+ * @summary Publish a new version of a legal document
+ */
+export const useUploadLegalVersion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadLegalVersion>>,
+    TError,
+    { data: BodyType<UploadLegalVersionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof uploadLegalVersion>>,
+  TError,
+  { data: BodyType<UploadLegalVersionRequest> },
+  TContext
+> => {
+  return useMutation(getUploadLegalVersionMutationOptions(options));
+};
+
+/**
+ * Sets `legalReacceptRequiredAt = now()` on the target user. Their existing acceptance rows stay on the audit trail; they just no longer count as current until the user clicks through onboarding again.
+ * @summary Force the user to re-accept the legal agreements
+ */
+export const getRequireUserReacceptUrl = (id: string) => {
+  return `/api/founder/users/${id}/require-reaccept`;
+};
+
+export const requireUserReaccept = async (
+  id: string,
+  options?: RequestInit,
+): Promise<FounderUserDetail> => {
+  return customFetch<FounderUserDetail>(getRequireUserReacceptUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRequireUserReacceptMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requireUserReaccept>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requireUserReaccept>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["requireUserReaccept"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requireUserReaccept>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return requireUserReaccept(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequireUserReacceptMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requireUserReaccept>>
+>;
+
+export type RequireUserReacceptMutationError = ErrorType<void>;
+
+/**
+ * @summary Force the user to re-accept the legal agreements
+ */
+export const useRequireUserReaccept = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requireUserReaccept>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requireUserReaccept>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRequireUserReacceptMutationOptions(options));
+};
+
+/**
+ * @summary Detail view for a single user — full legal acceptance history
+ */
+export const getGetFounderUserDetailUrl = (id: string) => {
+  return `/api/founder/users/${id}`;
+};
+
+export const getFounderUserDetail = async (
+  id: string,
+  options?: RequestInit,
+): Promise<FounderUserDetail> => {
+  return customFetch<FounderUserDetail>(getGetFounderUserDetailUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFounderUserDetailQueryKey = (id: string) => {
+  return [`/api/founder/users/${id}`] as const;
+};
+
+export const getGetFounderUserDetailQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFounderUserDetail>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFounderUserDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetFounderUserDetailQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFounderUserDetail>>
+  > = ({ signal }) => getFounderUserDetail(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFounderUserDetail>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFounderUserDetailQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFounderUserDetail>>
+>;
+export type GetFounderUserDetailQueryError = ErrorType<void>;
+
+/**
+ * @summary Detail view for a single user — full legal acceptance history
+ */
+
+export function useGetFounderUserDetail<
+  TData = Awaited<ReturnType<typeof getFounderUserDetail>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFounderUserDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFounderUserDetailQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Founder-only. Returns aggregate platform stats (user/patient/note/ recording counts), recent signups, and a per-user row with activity counts and the acceptance status for each required legal document. Returns 404 to non-founders so the endpoint doesn't advertise its existence.
+ * @summary Cross-tenant analytics + per-user legal acceptance status
+ */
+export const getGetFounderAnalyticsUrl = () => {
+  return `/api/founder/analytics`;
+};
+
+export const getFounderAnalytics = async (
+  options?: RequestInit,
+): Promise<FounderAnalytics> => {
+  return customFetch<FounderAnalytics>(getGetFounderAnalyticsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFounderAnalyticsQueryKey = () => {
+  return [`/api/founder/analytics`] as const;
+};
+
+export const getGetFounderAnalyticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFounderAnalytics>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFounderAnalytics>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFounderAnalyticsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFounderAnalytics>>
+  > = ({ signal }) => getFounderAnalytics({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFounderAnalytics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFounderAnalyticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFounderAnalytics>>
+>;
+export type GetFounderAnalyticsQueryError = ErrorType<void>;
+
+/**
+ * @summary Cross-tenant analytics + per-user legal acceptance status
+ */
+
+export function useGetFounderAnalytics<
+  TData = Awaited<ReturnType<typeof getFounderAnalytics>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFounderAnalytics>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFounderAnalyticsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns each currently-required document (BAA, ToS, Privacy) with its full body text, the current version, and whether the signed-in user has accepted that version. The frontend uses this to render the agreement-acceptance step of onboarding and to surface acceptance history in Settings.
+ * @summary Get current legal agreements and acceptance status
+ */
+export const getGetLegalAgreementsUrl = () => {
+  return `/api/legal/agreements`;
+};
+
+export const getLegalAgreements = async (
+  options?: RequestInit,
+): Promise<GetLegalAgreements200> => {
+  return customFetch<GetLegalAgreements200>(getGetLegalAgreementsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLegalAgreementsQueryKey = () => {
+  return [`/api/legal/agreements`] as const;
+};
+
+export const getGetLegalAgreementsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLegalAgreements>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLegalAgreements>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLegalAgreementsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLegalAgreements>>
+  > = ({ signal }) => getLegalAgreements({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLegalAgreements>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLegalAgreementsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLegalAgreements>>
+>;
+export type GetLegalAgreementsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get current legal agreements and acceptance status
+ */
+
+export function useGetLegalAgreements<
+  TData = Awaited<ReturnType<typeof getLegalAgreements>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLegalAgreements>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLegalAgreementsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Idempotent per (user, documentType, version). The server computes the content hash from the in-repo text and stores it with IP + user agent. Returns the refreshed acceptance status so the client can advance.
+ * @summary Record acceptance of one or more legal agreements
+ */
+export const getAcceptLegalAgreementsUrl = () => {
+  return `/api/legal/accept`;
+};
+
+export const acceptLegalAgreements = async (
+  acceptLegalAgreementsRequest: AcceptLegalAgreementsRequest,
+  options?: RequestInit,
+): Promise<AcceptLegalAgreements200> => {
+  return customFetch<AcceptLegalAgreements200>(getAcceptLegalAgreementsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(acceptLegalAgreementsRequest),
+  });
+};
+
+export const getAcceptLegalAgreementsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptLegalAgreements>>,
+    TError,
+    { data: BodyType<AcceptLegalAgreementsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof acceptLegalAgreements>>,
+  TError,
+  { data: BodyType<AcceptLegalAgreementsRequest> },
+  TContext
+> => {
+  const mutationKey = ["acceptLegalAgreements"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof acceptLegalAgreements>>,
+    { data: BodyType<AcceptLegalAgreementsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return acceptLegalAgreements(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AcceptLegalAgreementsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof acceptLegalAgreements>>
+>;
+export type AcceptLegalAgreementsMutationBody =
+  BodyType<AcceptLegalAgreementsRequest>;
+export type AcceptLegalAgreementsMutationError = ErrorType<void>;
+
+/**
+ * @summary Record acceptance of one or more legal agreements
+ */
+export const useAcceptLegalAgreements = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptLegalAgreements>>,
+    TError,
+    { data: BodyType<AcceptLegalAgreementsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof acceptLegalAgreements>>,
+  TError,
+  { data: BodyType<AcceptLegalAgreementsRequest> },
+  TContext
+> => {
+  return useMutation(getAcceptLegalAgreementsMutationOptions(options));
+};
+
+/**
+ * Idempotent. Sets `users.onboardingCompletedAt` to `now()` if it's currently null. Returns the refreshed AuthUser so the client can update its cached state in one round trip.
+ * @summary Mark the first-run onboarding flow as completed
+ */
+export const getCompleteOnboardingUrl = () => {
+  return `/api/onboarding/complete`;
+};
+
+export const completeOnboarding = async (
+  options?: RequestInit,
+): Promise<AuthUser> => {
+  return customFetch<AuthUser>(getCompleteOnboardingUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCompleteOnboardingMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeOnboarding>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof completeOnboarding>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["completeOnboarding"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof completeOnboarding>>,
+    void
+  > = () => {
+    return completeOnboarding(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CompleteOnboardingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof completeOnboarding>>
+>;
+
+export type CompleteOnboardingMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark the first-run onboarding flow as completed
+ */
+export const useCompleteOnboarding = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeOnboarding>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof completeOnboarding>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getCompleteOnboardingMutationOptions(options));
+};
 
 /**
  * @summary List all users (admin only)
@@ -2345,6 +2944,754 @@ export const useResetTemplates = <
 > => {
   return useMutation(getResetTemplatesMutationOptions(options));
 };
+
+/**
+ * Per-provider "when I say X, document Y" overrides applied during the AI structuring pass. Returned in manual sort order.
+ * @summary List the signed-in provider's phrase mappings
+ */
+export const getListPhraseMappingsUrl = () => {
+  return `/api/phrase-mappings`;
+};
+
+export const listPhraseMappings = async (
+  options?: RequestInit,
+): Promise<ListPhraseMappings200> => {
+  return customFetch<ListPhraseMappings200>(getListPhraseMappingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPhraseMappingsQueryKey = () => {
+  return [`/api/phrase-mappings`] as const;
+};
+
+export const getListPhraseMappingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPhraseMappings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPhraseMappings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPhraseMappingsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPhraseMappings>>
+  > = ({ signal }) => listPhraseMappings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPhraseMappings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPhraseMappingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPhraseMappings>>
+>;
+export type ListPhraseMappingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the signed-in provider's phrase mappings
+ */
+
+export function useListPhraseMappings<
+  TData = Awaited<ReturnType<typeof listPhraseMappings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPhraseMappings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPhraseMappingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a new phrase mapping
+ */
+export const getCreatePhraseMappingUrl = () => {
+  return `/api/phrase-mappings`;
+};
+
+export const createPhraseMapping = async (
+  createPhraseMappingRequest: CreatePhraseMappingRequest,
+  options?: RequestInit,
+): Promise<PhraseMapping> => {
+  return customFetch<PhraseMapping>(getCreatePhraseMappingUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createPhraseMappingRequest),
+  });
+};
+
+export const getCreatePhraseMappingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createPhraseMapping>>,
+    TError,
+    { data: BodyType<CreatePhraseMappingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createPhraseMapping>>,
+  TError,
+  { data: BodyType<CreatePhraseMappingRequest> },
+  TContext
+> => {
+  const mutationKey = ["createPhraseMapping"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createPhraseMapping>>,
+    { data: BodyType<CreatePhraseMappingRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createPhraseMapping(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreatePhraseMappingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createPhraseMapping>>
+>;
+export type CreatePhraseMappingMutationBody =
+  BodyType<CreatePhraseMappingRequest>;
+export type CreatePhraseMappingMutationError = ErrorType<void>;
+
+/**
+ * @summary Create a new phrase mapping
+ */
+export const useCreatePhraseMapping = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createPhraseMapping>>,
+    TError,
+    { data: BodyType<CreatePhraseMappingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createPhraseMapping>>,
+  TError,
+  { data: BodyType<CreatePhraseMappingRequest> },
+  TContext
+> => {
+  return useMutation(getCreatePhraseMappingMutationOptions(options));
+};
+
+/**
+ * @summary Edit a phrase mapping
+ */
+export const getUpdatePhraseMappingUrl = (id: string) => {
+  return `/api/phrase-mappings/${id}`;
+};
+
+export const updatePhraseMapping = async (
+  id: string,
+  updatePhraseMappingRequest: UpdatePhraseMappingRequest,
+  options?: RequestInit,
+): Promise<PhraseMapping> => {
+  return customFetch<PhraseMapping>(getUpdatePhraseMappingUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updatePhraseMappingRequest),
+  });
+};
+
+export const getUpdatePhraseMappingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePhraseMapping>>,
+    TError,
+    { id: string; data: BodyType<UpdatePhraseMappingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updatePhraseMapping>>,
+  TError,
+  { id: string; data: BodyType<UpdatePhraseMappingRequest> },
+  TContext
+> => {
+  const mutationKey = ["updatePhraseMapping"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updatePhraseMapping>>,
+    { id: string; data: BodyType<UpdatePhraseMappingRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updatePhraseMapping(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdatePhraseMappingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updatePhraseMapping>>
+>;
+export type UpdatePhraseMappingMutationBody =
+  BodyType<UpdatePhraseMappingRequest>;
+export type UpdatePhraseMappingMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a phrase mapping
+ */
+export const useUpdatePhraseMapping = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePhraseMapping>>,
+    TError,
+    { id: string; data: BodyType<UpdatePhraseMappingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updatePhraseMapping>>,
+  TError,
+  { id: string; data: BodyType<UpdatePhraseMappingRequest> },
+  TContext
+> => {
+  return useMutation(getUpdatePhraseMappingMutationOptions(options));
+};
+
+/**
+ * @summary Delete a phrase mapping
+ */
+export const getDeletePhraseMappingUrl = (id: string) => {
+  return `/api/phrase-mappings/${id}`;
+};
+
+export const deletePhraseMapping = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeletePhraseMappingUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeletePhraseMappingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePhraseMapping>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePhraseMapping>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deletePhraseMapping"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePhraseMapping>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deletePhraseMapping(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeletePhraseMappingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deletePhraseMapping>>
+>;
+
+export type DeletePhraseMappingMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a phrase mapping
+ */
+export const useDeletePhraseMapping = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePhraseMapping>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deletePhraseMapping>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeletePhraseMappingMutationOptions(options));
+};
+
+/**
+ * Per-provider "always apply" assumptions the AI bakes into every generated note (e.g. "14-point ROS negative unless stated").
+ * @summary List the signed-in provider's encounter defaults
+ */
+export const getListNoteDefaultsUrl = () => {
+  return `/api/note-defaults`;
+};
+
+export const listNoteDefaults = async (
+  options?: RequestInit,
+): Promise<ListNoteDefaults200> => {
+  return customFetch<ListNoteDefaults200>(getListNoteDefaultsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListNoteDefaultsQueryKey = () => {
+  return [`/api/note-defaults`] as const;
+};
+
+export const getListNoteDefaultsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listNoteDefaults>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listNoteDefaults>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListNoteDefaultsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listNoteDefaults>>
+  > = ({ signal }) => listNoteDefaults({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listNoteDefaults>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListNoteDefaultsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listNoteDefaults>>
+>;
+export type ListNoteDefaultsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the signed-in provider's encounter defaults
+ */
+
+export function useListNoteDefaults<
+  TData = Awaited<ReturnType<typeof listNoteDefaults>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listNoteDefaults>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListNoteDefaultsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a new note default
+ */
+export const getCreateNoteDefaultUrl = () => {
+  return `/api/note-defaults`;
+};
+
+export const createNoteDefault = async (
+  createNoteDefaultRequest: CreateNoteDefaultRequest,
+  options?: RequestInit,
+): Promise<NoteDefault> => {
+  return customFetch<NoteDefault>(getCreateNoteDefaultUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createNoteDefaultRequest),
+  });
+};
+
+export const getCreateNoteDefaultMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createNoteDefault>>,
+    TError,
+    { data: BodyType<CreateNoteDefaultRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createNoteDefault>>,
+  TError,
+  { data: BodyType<CreateNoteDefaultRequest> },
+  TContext
+> => {
+  const mutationKey = ["createNoteDefault"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createNoteDefault>>,
+    { data: BodyType<CreateNoteDefaultRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createNoteDefault(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateNoteDefaultMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createNoteDefault>>
+>;
+export type CreateNoteDefaultMutationBody = BodyType<CreateNoteDefaultRequest>;
+export type CreateNoteDefaultMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a new note default
+ */
+export const useCreateNoteDefault = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createNoteDefault>>,
+    TError,
+    { data: BodyType<CreateNoteDefaultRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createNoteDefault>>,
+  TError,
+  { data: BodyType<CreateNoteDefaultRequest> },
+  TContext
+> => {
+  return useMutation(getCreateNoteDefaultMutationOptions(options));
+};
+
+/**
+ * @summary Edit a note default
+ */
+export const getUpdateNoteDefaultUrl = (id: string) => {
+  return `/api/note-defaults/${id}`;
+};
+
+export const updateNoteDefault = async (
+  id: string,
+  updateNoteDefaultRequest: UpdateNoteDefaultRequest,
+  options?: RequestInit,
+): Promise<NoteDefault> => {
+  return customFetch<NoteDefault>(getUpdateNoteDefaultUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateNoteDefaultRequest),
+  });
+};
+
+export const getUpdateNoteDefaultMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateNoteDefault>>,
+    TError,
+    { id: string; data: BodyType<UpdateNoteDefaultRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateNoteDefault>>,
+  TError,
+  { id: string; data: BodyType<UpdateNoteDefaultRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateNoteDefault"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateNoteDefault>>,
+    { id: string; data: BodyType<UpdateNoteDefaultRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateNoteDefault(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateNoteDefaultMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateNoteDefault>>
+>;
+export type UpdateNoteDefaultMutationBody = BodyType<UpdateNoteDefaultRequest>;
+export type UpdateNoteDefaultMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a note default
+ */
+export const useUpdateNoteDefault = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateNoteDefault>>,
+    TError,
+    { id: string; data: BodyType<UpdateNoteDefaultRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateNoteDefault>>,
+  TError,
+  { id: string; data: BodyType<UpdateNoteDefaultRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateNoteDefaultMutationOptions(options));
+};
+
+/**
+ * @summary Delete a note default
+ */
+export const getDeleteNoteDefaultUrl = (id: string) => {
+  return `/api/note-defaults/${id}`;
+};
+
+export const deleteNoteDefault = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteNoteDefaultUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteNoteDefaultMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteNoteDefault>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteNoteDefault>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteNoteDefault"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteNoteDefault>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteNoteDefault(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteNoteDefaultMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteNoteDefault>>
+>;
+
+export type DeleteNoteDefaultMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a note default
+ */
+export const useDeleteNoteDefault = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteNoteDefault>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteNoteDefault>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteNoteDefaultMutationOptions(options));
+};
+
+/**
+ * Returns a catalog of common encounter defaults (ROS, vitals, physical exam framework, etc.) that the provider can adopt wholesale to skip the blank-page problem during onboarding.
+ * @summary List the built-in suggested defaults the provider can adopt
+ */
+export const getListNoteDefaultSuggestionsUrl = () => {
+  return `/api/note-defaults/suggestions`;
+};
+
+export const listNoteDefaultSuggestions = async (
+  options?: RequestInit,
+): Promise<ListNoteDefaultSuggestions200> => {
+  return customFetch<ListNoteDefaultSuggestions200>(
+    getListNoteDefaultSuggestionsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListNoteDefaultSuggestionsQueryKey = () => {
+  return [`/api/note-defaults/suggestions`] as const;
+};
+
+export const getListNoteDefaultSuggestionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listNoteDefaultSuggestions>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listNoteDefaultSuggestions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListNoteDefaultSuggestionsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listNoteDefaultSuggestions>>
+  > = ({ signal }) => listNoteDefaultSuggestions({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listNoteDefaultSuggestions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListNoteDefaultSuggestionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listNoteDefaultSuggestions>>
+>;
+export type ListNoteDefaultSuggestionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the built-in suggested defaults the provider can adopt
+ */
+
+export function useListNoteDefaultSuggestions<
+  TData = Awaited<ReturnType<typeof listNoteDefaultSuggestions>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listNoteDefaultSuggestions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListNoteDefaultSuggestionsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * Creates a `recording_jobs` row in the `capturing` state. Returns the id the browser uses to upload audio segments to, and to later finalize / poll. Calling this without a patientId is allowed (unattached test captures); the typical product flow always supplies one.

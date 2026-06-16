@@ -85,6 +85,83 @@
       "when": 1778873853470,
       "tag": "0011_recordings",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781031181324,
+      "tag": "0012_add-writing-style-profile-to-users",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781043512719,
+      "tag": "0013_add-provider-phrase-mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781044813160,
+      "tag": "0014_add-provider-note-defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781046167589,
+      "tag": "0015_add-onboarding-completed-at",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781047717751,
+      "tag": "0016_add-legal-acceptances",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781049201936,
+      "tag": "0017_add-is-founder",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781117333236,
+      "tag": "0018_add-legal-reaccept-required-at",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781122639356,
+      "tag": "0019_add-legal-document-overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1781624501173,
+      "tag": "0020_add_organizations",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1781624732198,
+      "tag": "0021_add_organization_id_to_phi",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1781625567841,
+      "tag": "0022_add_org_to_oauth_states",
+      "breakpoints": true
     }
   ]
 }

@@ -137,6 +137,168 @@ paths:
                 $ref: "#/components/schemas/AuthUser"
         "401":
           description: Not signed in
+  /founder/legal-versions:
+    post:
+      operationId: uploadLegalVersion
+      tags: [founder]
+      summary: Publish a new version of a legal document
+      description: >-
+        Append-only. Stores the supplied markdown as a new row in
+        `legal_document_overrides` and makes it the current version
+        for that document type. Previous versions stay in the table
+        and are still referenced by historical acceptance rows. All
+        users with stale acceptances are notified by email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadLegalVersionRequest"
+      responses:
+        "201":
+          description: New version published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadLegalVersionResult"
+        "409":
+          description: Version conflict — that (type, version) already exists.
+  /founder/users/{id}/require-reaccept:
+    post:
+      operationId: requireUserReaccept
+      tags: [founder]
+      summary: Force the user to re-accept the legal agreements
+      description: >-
+        Sets `legalReacceptRequiredAt = now()` on the target user.
+        Their existing acceptance rows stay on the audit trail; they
+        just no longer count as current until the user clicks
+        through onboarding again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Re-acceptance required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FounderUserDetail"
+        "404":
+          description: User not found
+  /founder/users/{id}:
+    get:
+      operationId: getFounderUserDetail
+      tags: [founder]
+      summary: Detail view for a single user — full legal acceptance history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FounderUserDetail"
+        "404":
+          description: Not a founder, or user not found
+  /founder/analytics:
+    get:
+      operationId: getFounderAnalytics
+      tags: [founder]
+      summary: Cross-tenant analytics + per-user legal acceptance status
+      description: >-
+        Founder-only. Returns aggregate platform stats (user/patient/note/
+        recording counts), recent signups, and a per-user row with
+        activity counts and the acceptance status for each required
+        legal document. Returns 404 to non-founders so the endpoint
+        doesn't advertise its existence.
+      responses:
+        "200":
+          description: Analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FounderAnalytics"
+        "404":
+          description: Not a founder
+  /legal/agreements:
+    get:
+      operationId: getLegalAgreements
+      tags: [legal]
+      summary: Get current legal agreements and acceptance status
+      description: >-
+        Returns each currently-required document (BAA, ToS, Privacy)
+        with its full body text, the current version, and whether the
+        signed-in user has accepted that version. The frontend uses
+        this to render the agreement-acceptance step of onboarding and
+        to surface acceptance history in Settings.
+      responses:
+        "200":
+          description: Agreements with per-user acceptance status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LegalAgreementStatus"
+  /legal/accept:
+    post:
+      operationId: acceptLegalAgreements
+      tags: [legal]
+      summary: Record acceptance of one or more legal agreements
+      description: >-
+        Idempotent per (user, documentType, version). The server
+        computes the content hash from the in-repo text and stores it
+        with IP + user agent. Returns the refreshed acceptance status
+        so the client can advance.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptLegalAgreementsRequest"
+      responses:
+        "200":
+          description: Acceptances recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LegalAgreementStatus"
+        "400":
+          description: Request references an unknown document type or version
+  /onboarding/complete:
+    post:
+      operationId: completeOnboarding
+      tags: [onboarding]
+      summary: Mark the first-run onboarding flow as completed
+      description: >-
+        Idempotent. Sets `users.onboardingCompletedAt` to `now()` if it's
+        currently null. Returns the refreshed AuthUser so the client can
+        update its cached state in one round trip.
+      responses:
+        "200":
+          description: Onboarding marked complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
   /users:
     get:
       operationId: listUsers
@@ -683,6 +845,190 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/NoteTemplate"
+  /phrase-mappings:
+    get:
+      operationId: listPhraseMappings
+      tags: [phrase-mappings]
+      summary: List the signed-in provider's phrase mappings
+      description: >-
+        Per-provider "when I say X, document Y" overrides applied during
+        the AI structuring pass. Returned in manual sort order.
+      responses:
+        "200":
+          description: Phrase mappings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PhraseMapping"
+    post:
+      operationId: createPhraseMapping
+      tags: [phrase-mappings]
+      summary: Create a new phrase mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePhraseMappingRequest"
+      responses:
+        "201":
+          description: Phrase mapping created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhraseMapping"
+        "409":
+          description: spoken phrase already mapped by the caller
+  /phrase-mappings/{id}:
+    patch:
+      operationId: updatePhraseMapping
+      tags: [phrase-mappings]
+      summary: Edit a phrase mapping
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePhraseMappingRequest"
+      responses:
+        "200":
+          description: Phrase mapping updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhraseMapping"
+        "404":
+          description: Phrase mapping not found (or not owned by caller)
+        "409":
+          description: spoken phrase collides with another of the caller's mappings
+    delete:
+      operationId: deletePhraseMapping
+      tags: [phrase-mappings]
+      summary: Delete a phrase mapping
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Phrase mapping deleted
+        "404":
+          description: Phrase mapping not found (or not owned by caller)
+  /note-defaults:
+    get:
+      operationId: listNoteDefaults
+      tags: [note-defaults]
+      summary: List the signed-in provider's encounter defaults
+      description: >-
+        Per-provider "always apply" assumptions the AI bakes into every
+        generated note (e.g. "14-point ROS negative unless stated").
+      responses:
+        "200":
+          description: Note defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NoteDefault"
+    post:
+      operationId: createNoteDefault
+      tags: [note-defaults]
+      summary: Create a new note default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNoteDefaultRequest"
+      responses:
+        "201":
+          description: Note default created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteDefault"
+  /note-defaults/{id}:
+    patch:
+      operationId: updateNoteDefault
+      tags: [note-defaults]
+      summary: Edit a note default
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNoteDefaultRequest"
+      responses:
+        "200":
+          description: Note default updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteDefault"
+        "404":
+          description: Note default not found (or not owned by caller)
+    delete:
+      operationId: deleteNoteDefault
+      tags: [note-defaults]
+      summary: Delete a note default
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Note default deleted
+        "404":
+          description: Note default not found (or not owned by caller)
+  /note-defaults/suggestions:
+    get:
+      operationId: listNoteDefaultSuggestions
+      tags: [note-defaults]
+      summary: List the built-in suggested defaults the provider can adopt
+      description: >-
+        Returns a catalog of common encounter defaults (ROS, vitals,
+        physical exam framework, etc.) that the provider can adopt
+        wholesale to skip the blank-page problem during onboarding.
+      responses:
+        "200":
+          description: Suggested defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NoteDefaultSuggestion"
   /recordings:
     post:
       operationId: createRecording
@@ -1044,6 +1390,19 @@ components:
         twoFactorEnabled:
           type: boolean
           description: True when the user has TOTP 2FA enrolled.
+        onboardingCompleted:
+          type: boolean
+          description: >-
+            False when the user hasn't finished (or skipped) the first-run
+            onboarding flow. The frontend uses this to route new users
+            to /onboarding on sign-in.
+        isFounder:
+          type: boolean
+          description: >-
+            Founder-tier access. Stricter than admin — gates the
+            cross-tenant Founder dashboard (analytics + per-user legal
+            acceptance tracking). Granted manually for the HaloNote
+            team only.
     LoginRequest:
       type: object
       required: [email, password]
@@ -1314,6 +1673,433 @@ components:
             type: string
           description: >-
             All of the caller's template ids in their new desired order.
+    PhraseMapping:
+      type: object
+      required:
+        - id
+        - spoken
+        - documented
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        spoken:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            The colloquial phrase the provider tends to say during a
+            visit. Matched case-insensitively in the transcript.
+        documented:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            The preferred documentation term to use in the AI-generated
+            note when the spoken phrase is detected.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreatePhraseMappingRequest:
+      type: object
+      required: [spoken, documented]
+      properties:
+        spoken:
+          type: string
+          minLength: 1
+          maxLength: 200
+        documented:
+          type: string
+          minLength: 1
+          maxLength: 200
+    UpdatePhraseMappingRequest:
+      type: object
+      description: >-
+        Partial update. Any provided field replaces; omitted fields are
+        untouched.
+      properties:
+        spoken:
+          type: string
+          minLength: 1
+          maxLength: 200
+        documented:
+          type: string
+          minLength: 1
+          maxLength: 200
+    NoteDefault:
+      type: object
+      required:
+        - id
+        - label
+        - rule
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        rule:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: >-
+            Imperative instruction the AI applies on every encounter
+            unless the transcript contradicts it.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateNoteDefaultRequest:
+      type: object
+      required: [label, rule]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        rule:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    UpdateNoteDefaultRequest:
+      type: object
+      description: >-
+        Partial update. Any provided field replaces; omitted fields are
+        untouched.
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        rule:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    FounderAnalytics:
+      type: object
+      required: [totals, dailySeries, compliance, users]
+      properties:
+        compliance:
+          type: object
+          required:
+            - onboardingCompleted
+            - onboardingPending
+            - onboardingCompletionRate
+            - staleBaaUsers
+            - staleTermsUsers
+            - stalePrivacyUsers
+            - staleAnyUsers
+          properties:
+            onboardingCompleted:
+              type: integer
+            onboardingPending:
+              type: integer
+            onboardingCompletionRate:
+              type: number
+              description: 0..1
+            staleBaaUsers:
+              type: integer
+              description: Users without a current BAA acceptance.
+            staleTermsUsers:
+              type: integer
+            stalePrivacyUsers:
+              type: integer
+            staleAnyUsers:
+              type: integer
+              description: Users stale on any required document.
+        dailySeries:
+          type: object
+          required: [signups, notes, recordings, startDate, endDate]
+          description: >-
+            Counts per UTC day for the last 30 days. Each array is
+            ordered oldest → newest and includes zero-count days so
+            the sparkline renderer can skip gap handling.
+          properties:
+            startDate:
+              type: string
+              format: date
+              description: First day in the series (inclusive, UTC).
+            endDate:
+              type: string
+              format: date
+              description: Last day in the series (inclusive, UTC).
+            signups:
+              type: array
+              items:
+                $ref: "#/components/schemas/DailyCount"
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/DailyCount"
+            recordings:
+              type: array
+              items:
+                $ref: "#/components/schemas/DailyCount"
+        totals:
+          type: object
+          required:
+            - users
+            - admins
+            - patients
+            - notes
+            - recordingsTotal
+            - recordingsDone
+            - recordingsFailed
+            - signupsLast7Days
+            - signupsLast30Days
+          properties:
+            users:
+              type: integer
+            admins:
+              type: integer
+            patients:
+              type: integer
+            notes:
+              type: integer
+            recordingsTotal:
+              type: integer
+            recordingsDone:
+              type: integer
+            recordingsFailed:
+              type: integer
+            signupsLast7Days:
+              type: integer
+            signupsLast30Days:
+              type: integer
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/FounderUserRow"
+    DailyCount:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+    FounderUserAcceptance:
+      type: object
+      required: [type, version, contentHash, acceptedAt]
+      properties:
+        type:
+          type: string
+          enum: [baa, terms, privacy]
+        version:
+          type: string
+        contentHash:
+          type: string
+        ipAddress:
+          type: string
+        userAgent:
+          type: string
+        acceptedAt:
+          type: string
+          format: date-time
+    FounderUserDetail:
+      type: object
+      required: [user, acceptances, dailySeries]
+      properties:
+        user:
+          $ref: "#/components/schemas/FounderUserRow"
+        acceptances:
+          type: array
+          description: Full append-only history, newest first.
+          items:
+            $ref: "#/components/schemas/FounderUserAcceptance"
+        dailySeries:
+          type: object
+          required: [startDate, endDate, notes, recordings, patients]
+          properties:
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/DailyCount"
+            recordings:
+              type: array
+              items:
+                $ref: "#/components/schemas/DailyCount"
+            patients:
+              type: array
+              items:
+                $ref: "#/components/schemas/DailyCount"
+    FounderUserRow:
+      type: object
+      required:
+        - id
+        - email
+        - displayName
+        - role
+        - createdAt
+        - patientCount
+        - noteCount
+        - recordingCount
+        - legalAcceptances
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [admin, member]
+        isFounder:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        lastNoteAt:
+          type: string
+          format: date-time
+          description: When the user last created or edited a clinical note.
+        patientCount:
+          type: integer
+        noteCount:
+          type: integer
+        recordingCount:
+          type: integer
+        legalAcceptances:
+          type: array
+          description: One entry per required document type for this user.
+          items:
+            $ref: "#/components/schemas/FounderUserLegalStatus"
+    FounderUserLegalStatus:
+      type: object
+      required: [type, currentVersion, accepted]
+      properties:
+        type:
+          type: string
+          enum: [baa, terms, privacy]
+        currentVersion:
+          type: string
+        accepted:
+          type: boolean
+        acceptedVersion:
+          type: string
+          description: Most recently accepted version (may be older than current).
+        acceptedAt:
+          type: string
+          format: date-time
+    LegalAgreementStatus:
+      type: object
+      required:
+        - type
+        - title
+        - summary
+        - currentVersion
+        - body
+        - contentHash
+        - accepted
+      properties:
+        type:
+          type: string
+          enum: [baa, terms, privacy]
+        title:
+          type: string
+        summary:
+          type: string
+        currentVersion:
+          type: string
+        body:
+          type: string
+          description: Markdown body of the current version.
+        contentHash:
+          type: string
+          description: SHA-256 (hex) of `body`. Frontend echoes this back on POST.
+        accepted:
+          type: boolean
+          description: True iff the signed-in user has accepted `currentVersion`.
+        acceptedAt:
+          type: string
+          format: date-time
+          description: When the current version was accepted. Absent if accepted=false.
+    AcceptLegalAgreementsRequest:
+      type: object
+      required: [acceptances]
+      properties:
+        acceptances:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [type, version, contentHash]
+            properties:
+              type:
+                type: string
+                enum: [baa, terms, privacy]
+              version:
+                type: string
+              contentHash:
+                type: string
+                description: >-
+                  The hash the client received on GET. Server re-computes
+                  from disk and rejects with 400 if they don't match —
+                  protects against a stale client persisting a stale hash.
+    UploadLegalVersionRequest:
+      type: object
+      required: [type, version, body]
+      properties:
+        type:
+          type: string
+          enum: [baa, terms, privacy]
+        version:
+          type: string
+          description: SemVer-ish, must be unique per type.
+          minLength: 1
+          maxLength: 32
+        body:
+          type: string
+          description: Full Markdown body of the new version.
+          minLength: 100
+    UploadLegalVersionResult:
+      type: object
+      required: [type, version, contentHash, notifiedUserCount]
+      properties:
+        type:
+          type: string
+        version:
+          type: string
+        contentHash:
+          type: string
+        notifiedUserCount:
+          type: integer
+          description: How many users got a notification email.
+    NoteDefaultSuggestion:
+      type: object
+      required: [key, label, rule]
+      properties:
+        key:
+          type: string
+          description: >-
+            Stable identifier of the suggestion (e.g. "ros-default"). The
+            UI uses this to mark already-adopted suggestions.
+        label:
+          type: string
+        rule:
+          type: string
+        description:
+          type: string
+          description: >-
+            Plain-English explanation of what this default does, shown
+            in the UI under the label.
     EhrProviderConnection:
       type: object
       required: [connected]

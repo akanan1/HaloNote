@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { CreateNoteBody, UpdateNoteBody } from "@workspace/api-zod";
-import { getDb, notesTable, usersTable } from "@workspace/db";
+import { getDb, notesTable, patientsTable, usersTable } from "@workspace/db";
 import { EhrPushError, pushNoteToEhr } from "../lib/ehr-push";
 import { findPatient } from "../lib/patients";
+import { getActiveOrgId } from "../lib/active-org";
 
 const router: IRouter = Router();
 
@@ -123,6 +124,9 @@ router.get("/notes", async (req, res) => {
 });
 
 router.post("/notes", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
   const parsed = CreateNoteBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -138,19 +142,35 @@ router.post("/notes", async (req, res) => {
     return;
   }
 
-  // If replacing, verify the predecessor exists and isn't itself entered-
-  // in-error. Replacing a withdrawn note would create a confusing chain.
+  // Verify the patient belongs to the active org. A 404 (not 403) is
+  // deliberate: revealing "exists but in another org" is itself a
+  // cross-tenant leak.
+  const [patient] = await getDb()
+    .select({ id: patientsTable.id, organizationId: patientsTable.organizationId })
+    .from(patientsTable)
+    .where(eq(patientsTable.id, parsed.data.patientId))
+    .limit(1);
+  if (!patient || patient.organizationId !== orgId) {
+    res.status(404).json({ error: "patient_not_found" });
+    return;
+  }
+
+  // If replacing, verify the predecessor exists, isn't itself entered-
+  // in-error, and belongs to the same org. Replacing a withdrawn note
+  // would create a confusing chain; replacing across orgs would break
+  // tenant isolation.
   if (parsed.data.replacesNoteId) {
     const [predecessor] = await getDb()
       .select({
         id: notesTable.id,
         status: notesTable.status,
         patientId: notesTable.patientId,
+        organizationId: notesTable.organizationId,
       })
       .from(notesTable)
       .where(eq(notesTable.id, parsed.data.replacesNoteId))
       .limit(1);
-    if (!predecessor) {
+    if (!predecessor || predecessor.organizationId !== orgId) {
       res.status(404).json({ error: "predecessor_not_found" });
       return;
     }
@@ -170,6 +190,7 @@ router.post("/notes", async (req, res) => {
     const inserted = await getDb()
       .insert(notesTable)
       .values({
+        organizationId: orgId,
         patientId: parsed.data.patientId,
         body: parsed.data.body,
         authorId: author.id,
@@ -259,13 +280,17 @@ router.delete("/notes/:id", async (req, res) => {
 });
 
 router.post("/notes/:id/send-to-ehr", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const noteId = req.params.id;
   const db = getDb();
 
   const rows = await db
     .select()
     .from(notesTable)
-    .where(eq(notesTable.id, noteId))
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
     .limit(1);
   const note = rows[0];
   if (!note) {
@@ -277,7 +302,7 @@ router.post("/notes/:id/send-to-ehr", async (req, res) => {
     return;
   }
 
-  const patient = await findPatient(note.patientId);
+  const patient = await findPatient(note.patientId, orgId);
   if (!patient) {
     res.status(404).json({ error: "patient_not_found" });
     return;

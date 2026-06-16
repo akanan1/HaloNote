@@ -14,4 +14,8 @@ export interface AuthUser {
   role: AuthUserRole;
   /** True when the user has TOTP 2FA enrolled. */
   twoFactorEnabled?: boolean;
+  /** False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to /onboarding on sign-in. */
+  onboardingCompleted?: boolean;
+  /** Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only. */
+  isFounder?: boolean;
 }

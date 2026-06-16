@@ -36,6 +36,7 @@ async function seedPatient(id: string, mrn: string) {
     .insert(patientsTable)
     .values({
       id,
+      organizationId: "org_default",
       firstName: "Test",
       lastName: "Patient",
       dateOfBirth: "1990-01-01",

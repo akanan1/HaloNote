@@ -14,6 +14,15 @@ export interface AudioSegment {
 
 interface RecordingPanelProps {
   disabled?: boolean;
+  /**
+   * If true, attempt to begin recording immediately on mount. Set by the
+   * Today schedule's "Start note" tap so the provider doesn't have to
+   * tap the mic again on arrival. Browsers gate `getUserMedia` on a
+   * user gesture for the first permission prompt — if the mic isn't
+   * pre-granted the call will throw `NotAllowedError` and we fall back
+   * to the manual button. We only fire the auto-start once per mount.
+   */
+  autoStart?: boolean;
   onSegmentsChange?: (segments: AudioSegment[]) => void;
 }
 
@@ -78,6 +87,7 @@ function formatDuration(ms: number): string {
 
 export function RecordingPanel({
   disabled,
+  autoStart,
   onSegmentsChange,
 }: RecordingPanelProps) {
   const [supported] = useState(isSupported);
@@ -315,6 +325,20 @@ export function RecordingPanel({
     startLevelLoop();
     startTicker();
   }, [supported, disabled, teardownAudioGraph, startLevelLoop, startTicker]);
+
+  // Auto-start once per mount when the parent (e.g. Today → "Start
+  // note") asks for it. Runs after `handleStart` is defined so the
+  // closure captures the latest callbacks. Guard with a ref so a parent
+  // re-render that flips `autoStart` back doesn't re-trigger us.
+  const autoStartFiredRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart) return;
+    if (autoStartFiredRef.current) return;
+    if (!supported || disabled) return;
+    if (state !== "idle") return;
+    autoStartFiredRef.current = true;
+    void handleStart();
+  }, [autoStart, supported, disabled, state, handleStart]);
 
   const handlePause = useCallback(() => {
     const rec = recorderRef.current;

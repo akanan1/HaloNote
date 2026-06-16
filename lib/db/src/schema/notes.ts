@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type AnyPgColumn, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { organizationsTable } from "./organizations";
 import { usersTable } from "./users";
 
 export type NoteStatus = "active" | "entered-in-error";
@@ -8,6 +9,11 @@ export const notesTable = pgTable("notes", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => `note_${randomUUID()}`),
+  // Tenant scope; matches the patient's organization. Enforced at the
+  // route layer on every create/read/update.
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizationsTable.id, { onDelete: "cascade" }),
   patientId: text("patient_id").notNull(),
   body: text("body").notNull(),
   // Nullable because notes predating auth wiring have no author.

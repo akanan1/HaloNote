@@ -143,6 +143,10 @@ export interface AuthUser {
   role: AuthUserRole;
   /** True when the user has TOTP 2FA enrolled. */
   twoFactorEnabled?: boolean;
+  /** False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to /onboarding on sign-in. */
+  onboardingCompleted?: boolean;
+  /** Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only. */
+  isFounder?: boolean;
 }
 
 export interface LoginRequest {
@@ -351,6 +355,311 @@ export interface ReorderTemplatesRequest {
   ids: string[];
 }
 
+export interface PhraseMapping {
+  id: string;
+  /**
+   * The colloquial phrase the provider tends to say during a visit. Matched case-insensitively in the transcript.
+   * @minLength 1
+   * @maxLength 200
+   */
+  spoken: string;
+  /**
+   * The preferred documentation term to use in the AI-generated note when the spoken phrase is detected.
+   * @minLength 1
+   * @maxLength 200
+   */
+  documented: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePhraseMappingRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  spoken: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  documented: string;
+}
+
+/**
+ * Partial update. Any provided field replaces; omitted fields are untouched.
+ */
+export interface UpdatePhraseMappingRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  spoken?: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  documented?: string;
+}
+
+export interface NoteDefault {
+  id: string;
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  label: string;
+  /**
+   * Imperative instruction the AI applies on every encounter unless the transcript contradicts it.
+   * @minLength 1
+   * @maxLength 1000
+   */
+  rule: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateNoteDefaultRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  label: string;
+  /**
+   * @minLength 1
+   * @maxLength 1000
+   */
+  rule: string;
+}
+
+/**
+ * Partial update. Any provided field replaces; omitted fields are untouched.
+ */
+export interface UpdateNoteDefaultRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  label?: string;
+  /**
+   * @minLength 1
+   * @maxLength 1000
+   */
+  rule?: string;
+}
+
+export type FounderAnalyticsCompliance = {
+  onboardingCompleted: number;
+  onboardingPending: number;
+  /** 0..1 */
+  onboardingCompletionRate: number;
+  /** Users without a current BAA acceptance. */
+  staleBaaUsers: number;
+  staleTermsUsers: number;
+  stalePrivacyUsers: number;
+  /** Users stale on any required document. */
+  staleAnyUsers: number;
+};
+
+export interface DailyCount {
+  date: string;
+  count: number;
+}
+
+/**
+ * Counts per UTC day for the last 30 days. Each array is ordered oldest → newest and includes zero-count days so the sparkline renderer can skip gap handling.
+ */
+export type FounderAnalyticsDailySeries = {
+  /** First day in the series (inclusive, UTC). */
+  startDate: string;
+  /** Last day in the series (inclusive, UTC). */
+  endDate: string;
+  signups: DailyCount[];
+  notes: DailyCount[];
+  recordings: DailyCount[];
+};
+
+export type FounderAnalyticsTotals = {
+  users: number;
+  admins: number;
+  patients: number;
+  notes: number;
+  recordingsTotal: number;
+  recordingsDone: number;
+  recordingsFailed: number;
+  signupsLast7Days: number;
+  signupsLast30Days: number;
+};
+
+export type FounderUserRowRole =
+  (typeof FounderUserRowRole)[keyof typeof FounderUserRowRole];
+
+export const FounderUserRowRole = {
+  admin: "admin",
+  member: "member",
+} as const;
+
+export type FounderUserLegalStatusType =
+  (typeof FounderUserLegalStatusType)[keyof typeof FounderUserLegalStatusType];
+
+export const FounderUserLegalStatusType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface FounderUserLegalStatus {
+  type: FounderUserLegalStatusType;
+  currentVersion: string;
+  accepted: boolean;
+  /** Most recently accepted version (may be older than current). */
+  acceptedVersion?: string;
+  acceptedAt?: string;
+}
+
+export interface FounderUserRow {
+  id: string;
+  email: string;
+  displayName: string;
+  role: FounderUserRowRole;
+  isFounder?: boolean;
+  createdAt: string;
+  /** When the user last created or edited a clinical note. */
+  lastNoteAt?: string;
+  patientCount: number;
+  noteCount: number;
+  recordingCount: number;
+  /** One entry per required document type for this user. */
+  legalAcceptances: FounderUserLegalStatus[];
+}
+
+export interface FounderAnalytics {
+  compliance: FounderAnalyticsCompliance;
+  /** Counts per UTC day for the last 30 days. Each array is ordered oldest → newest and includes zero-count days so the sparkline renderer can skip gap handling. */
+  dailySeries: FounderAnalyticsDailySeries;
+  totals: FounderAnalyticsTotals;
+  users: FounderUserRow[];
+}
+
+export type FounderUserAcceptanceType =
+  (typeof FounderUserAcceptanceType)[keyof typeof FounderUserAcceptanceType];
+
+export const FounderUserAcceptanceType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface FounderUserAcceptance {
+  type: FounderUserAcceptanceType;
+  version: string;
+  contentHash: string;
+  ipAddress?: string;
+  userAgent?: string;
+  acceptedAt: string;
+}
+
+export type FounderUserDetailDailySeries = {
+  startDate: string;
+  endDate: string;
+  notes: DailyCount[];
+  recordings: DailyCount[];
+  patients: DailyCount[];
+};
+
+export interface FounderUserDetail {
+  user: FounderUserRow;
+  /** Full append-only history, newest first. */
+  acceptances: FounderUserAcceptance[];
+  dailySeries: FounderUserDetailDailySeries;
+}
+
+export type LegalAgreementStatusType =
+  (typeof LegalAgreementStatusType)[keyof typeof LegalAgreementStatusType];
+
+export const LegalAgreementStatusType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface LegalAgreementStatus {
+  type: LegalAgreementStatusType;
+  title: string;
+  summary: string;
+  currentVersion: string;
+  /** Markdown body of the current version. */
+  body: string;
+  /** SHA-256 (hex) of `body`. Frontend echoes this back on POST. */
+  contentHash: string;
+  /** True iff the signed-in user has accepted `currentVersion`. */
+  accepted: boolean;
+  /** When the current version was accepted. Absent if accepted=false. */
+  acceptedAt?: string;
+}
+
+export type AcceptLegalAgreementsRequestAcceptancesItemType =
+  (typeof AcceptLegalAgreementsRequestAcceptancesItemType)[keyof typeof AcceptLegalAgreementsRequestAcceptancesItemType];
+
+export const AcceptLegalAgreementsRequestAcceptancesItemType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export type AcceptLegalAgreementsRequestAcceptancesItem = {
+  type: AcceptLegalAgreementsRequestAcceptancesItemType;
+  version: string;
+  /** The hash the client received on GET. Server re-computes from disk and rejects with 400 if they don't match — protects against a stale client persisting a stale hash. */
+  contentHash: string;
+};
+
+export interface AcceptLegalAgreementsRequest {
+  /** @minItems 1 */
+  acceptances: AcceptLegalAgreementsRequestAcceptancesItem[];
+}
+
+export type UploadLegalVersionRequestType =
+  (typeof UploadLegalVersionRequestType)[keyof typeof UploadLegalVersionRequestType];
+
+export const UploadLegalVersionRequestType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface UploadLegalVersionRequest {
+  type: UploadLegalVersionRequestType;
+  /**
+   * SemVer-ish, must be unique per type.
+   * @minLength 1
+   * @maxLength 32
+   */
+  version: string;
+  /**
+   * Full Markdown body of the new version.
+   * @minLength 100
+   */
+  body: string;
+}
+
+export interface UploadLegalVersionResult {
+  type: string;
+  version: string;
+  contentHash: string;
+  /** How many users got a notification email. */
+  notifiedUserCount: number;
+}
+
+export interface NoteDefaultSuggestion {
+  /** Stable identifier of the suggestion (e.g. "ros-default"). The UI uses this to mark already-adopted suggestions. */
+  key: string;
+  label: string;
+  rule: string;
+  /** Plain-English explanation of what this default does, shown in the UI under the label. */
+  description?: string;
+}
+
 export interface EhrProviderConnection {
   connected: boolean;
   /**
@@ -433,6 +742,14 @@ export type RecordingJobDetail = RecordingJob & {
   segments: RecordingSegment[];
 };
 
+export type GetLegalAgreements200 = {
+  data: LegalAgreementStatus[];
+};
+
+export type AcceptLegalAgreements200 = {
+  data: LegalAgreementStatus[];
+};
+
 export type ListUsers200 = {
   data: AdminUser[];
 };
@@ -504,6 +821,18 @@ export type ReorderTemplates200 = {
 
 export type ResetTemplates200 = {
   data: NoteTemplate[];
+};
+
+export type ListPhraseMappings200 = {
+  data: PhraseMapping[];
+};
+
+export type ListNoteDefaults200 = {
+  data: NoteDefault[];
+};
+
+export type ListNoteDefaultSuggestions200 = {
+  data: NoteDefaultSuggestion[];
 };
 
 export type StartEhrOauth200 = {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { organizationsTable } from "./organizations";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { notesTable } from "./notes";
@@ -24,6 +25,10 @@ export const recordingJobsTable = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => `rec_${randomUUID()}`),
+    // Tenant scope; must match the user's active org and the patient's org.
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizationsTable.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => usersTable.id, { onDelete: "cascade" }),

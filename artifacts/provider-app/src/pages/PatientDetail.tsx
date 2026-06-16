@@ -77,25 +77,49 @@ export function PatientDetailPage({ patientId }: PatientDetailPageProps) {
       </div>
 
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-1">
+        <div className="min-w-0 flex-1 space-y-3">
           {patientsQuery.isPending ? (
-            <h1 className="text-3xl font-semibold tracking-tight text-(--color-muted-foreground)">
-              Loading…
-            </h1>
+            <Card className="relative overflow-hidden px-5 py-4">
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 w-1 bg-(--color-border)"
+              />
+              <div className="space-y-2 pl-2">
+                <div className="h-6 w-2/3 animate-pulse rounded bg-(--color-muted)" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-(--color-muted)" />
+              </div>
+            </Card>
           ) : patient ? (
-            <>
-              <h1 className="text-3xl font-semibold tracking-tight">
-                {patient.lastName}, {patient.firstName}
-              </h1>
-              <p className="text-(--color-muted-foreground)">
-                DOB {formatDob(patient.dateOfBirth)}
-                {(() => {
-                  const age = calculateAge(patient.dateOfBirth);
-                  return age != null ? ` · ${age} yrs` : "";
-                })()}{" "}
-                · MRN {patient.mrn}
-              </p>
-            </>
+            <Card className="relative overflow-hidden px-5 py-4">
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 w-1 bg-(--color-primary)"
+              />
+              <div className="space-y-1 pl-2">
+                <h1 className="truncate text-2xl font-semibold leading-tight tracking-tight">
+                  {patient.lastName}, {patient.firstName}
+                </h1>
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm text-(--color-muted-foreground)">
+                  {(() => {
+                    const age = calculateAge(patient.dateOfBirth);
+                    return age != null ? (
+                      <span>
+                        <span className="font-medium text-(--color-foreground)">
+                          {age}
+                        </span>{" "}
+                        yrs
+                      </span>
+                    ) : null;
+                  })()}
+                  <span className="tabular-nums">
+                    DOB {formatDob(patient.dateOfBirth)}
+                  </span>
+                  <span className="font-mono text-xs tabular-nums">
+                    {patient.mrn}
+                  </span>
+                </div>
+              </div>
+            </Card>
           ) : (
             <h1 className="text-3xl font-semibold tracking-tight text-(--color-destructive)">
               Patient not found
@@ -122,9 +146,27 @@ export function PatientDetailPage({ patientId }: PatientDetailPageProps) {
         </h2>
 
         {notesQuery.isPending ? (
-          <p role="status" className="text-(--color-muted-foreground)">
-            Loading notes…
-          </p>
+          <ul
+            className="space-y-3"
+            role="status"
+            aria-label="Loading notes"
+          >
+            {[0, 1, 2].map((i) => (
+              <li key={i}>
+                <Card className="relative overflow-hidden p-5">
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 left-0 w-1 bg-(--color-border)"
+                  />
+                  <div className="space-y-2">
+                    <div className="h-3 w-1/3 animate-pulse rounded bg-(--color-muted)" />
+                    <div className="h-4 w-full animate-pulse rounded bg-(--color-muted)" />
+                    <div className="h-4 w-4/5 animate-pulse rounded bg-(--color-muted)" />
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
         ) : notesQuery.isError ? (
           <p role="alert" className="text-(--color-destructive)">
             Couldn't load notes.{" "}
@@ -135,18 +177,27 @@ export function PatientDetailPage({ patientId }: PatientDetailPageProps) {
         ) : notes.length === 0 ? (
           <EmptyNotes patientId={patientId} />
         ) : (
-          <ul className="space-y-3" aria-label="Recent notes">
+          <ul className="space-y-3 pb-24 md:pb-0" aria-label="Recent notes">
             {notes.map((note) => {
               const withdrawn = note.status === "entered-in-error";
+              const status = withdrawn ? "withdrawn" : ehrStatus(note);
+              const railClass = NOTE_RAIL[status];
               return (
                 <li key={note.id}>
                   <Link href={`/patients/${patientId}/notes/${note.id}`}>
                     <Card
                       className={cn(
-                        "cursor-pointer p-5 transition-colors hover:bg-(--color-muted)",
+                        "relative cursor-pointer overflow-hidden p-5 transition-colors hover:bg-(--color-muted)",
                         withdrawn && "opacity-60",
                       )}
                     >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "absolute inset-y-0 left-0 w-1",
+                          railClass,
+                        )}
+                      />
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-1.5 min-w-0 flex-1">
                           <div className="text-sm text-(--color-muted-foreground)">
@@ -218,6 +269,16 @@ function ehrStatus(note: Note): EhrStatus {
   if (note.ehrError) return "failed";
   return "draft";
 }
+
+// Left accent rail per note status — mirrors the Today page's
+// AppointmentCard rails so the visual grammar stays consistent across
+// the app.
+const NOTE_RAIL: Record<EhrStatus | "withdrawn", string> = {
+  sent: "bg-emerald-500",
+  failed: "bg-red-500",
+  draft: "bg-(--color-border)",
+  withdrawn: "bg-(--color-border)",
+};
 
 function EhrBadge({ note }: { note: Note }) {
   const status = ehrStatus(note);

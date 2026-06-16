@@ -1,0 +1,2 @@
+ALTER TABLE "ehr_oauth_states" ADD COLUMN "organization_id" text;--> statement-breakpoint
+ALTER TABLE "ehr_oauth_states" ADD CONSTRAINT "ehr_oauth_states_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;

@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-zod";
 import { getDb, noteTemplatesTable } from "@workspace/db";
 import { DEFAULT_TEMPLATES } from "../lib/default-templates";
+import { getActiveOrgId } from "../lib/active-org";
 
 const router: IRouter = Router();
 
@@ -41,21 +42,36 @@ function normalizeCue(raw: string | null | undefined): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-async function listForUser(userId: string): Promise<SerializedTemplate[]> {
+// Always scope by (userId, organizationId). A user who switches between
+// two orgs gets two distinct template lists; cross-org reads must not
+// return rows even if the userId matches.
+async function listForUser(
+  userId: string,
+  organizationId: string,
+): Promise<SerializedTemplate[]> {
   const rows = await getDb()
     .select()
     .from(noteTemplatesTable)
-    .where(eq(noteTemplatesTable.userId, userId))
+    .where(
+      and(
+        eq(noteTemplatesTable.userId, userId),
+        eq(noteTemplatesTable.organizationId, organizationId),
+      ),
+    )
     .orderBy(asc(noteTemplatesTable.sortOrder), asc(noteTemplatesTable.createdAt));
   return rows.map(serialize);
 }
 
-async function seedDefaults(userId: string): Promise<SerializedTemplate[]> {
+async function seedDefaults(
+  userId: string,
+  organizationId: string,
+): Promise<SerializedTemplate[]> {
   const rows = await getDb()
     .insert(noteTemplatesTable)
     .values(
       DEFAULT_TEMPLATES.map((t, i) => ({
         userId,
+        organizationId,
         name: t.name,
         voiceCue: normalizeCue(t.voiceCue),
         body: t.body,
@@ -72,7 +88,9 @@ router.get("/templates", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  const existing = await listForUser(user.id);
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const existing = await listForUser(user.id, orgId);
   if (existing.length > 0) {
     res.json({ data: existing });
     return;
@@ -81,7 +99,7 @@ router.get("/templates", async (req, res) => {
   // staring at an empty list. Idempotent — repeat zero-row calls keep
   // re-seeding, but only when the user has actively deleted every
   // template, which is rare.
-  const seeded = await seedDefaults(user.id);
+  const seeded = await seedDefaults(user.id, orgId);
   res.json({ data: seeded });
 });
 
@@ -91,6 +109,8 @@ router.post("/templates", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const parsed = CreateTemplateBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -108,6 +128,7 @@ router.post("/templates", async (req, res) => {
       .where(
         and(
           eq(noteTemplatesTable.userId, user.id),
+          eq(noteTemplatesTable.organizationId, orgId),
           eq(noteTemplatesTable.voiceCue, cue),
         ),
       )
@@ -124,7 +145,12 @@ router.post("/templates", async (req, res) => {
   const [maxRow] = await getDb()
     .select({ value: max(noteTemplatesTable.sortOrder) })
     .from(noteTemplatesTable)
-    .where(eq(noteTemplatesTable.userId, user.id));
+    .where(
+      and(
+        eq(noteTemplatesTable.userId, user.id),
+        eq(noteTemplatesTable.organizationId, orgId),
+      ),
+    );
   const nextSortOrder = (maxRow?.value ?? 0) + 10;
 
   try {
@@ -132,6 +158,7 @@ router.post("/templates", async (req, res) => {
       .insert(noteTemplatesTable)
       .values({
         userId: user.id,
+        organizationId: orgId,
         name: parsed.data.name,
         voiceCue: cue,
         body: parsed.data.body,
@@ -158,6 +185,8 @@ router.patch("/templates/:id", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const parsed = UpdateTemplateBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -175,6 +204,7 @@ router.patch("/templates/:id", async (req, res) => {
       and(
         eq(noteTemplatesTable.id, id),
         eq(noteTemplatesTable.userId, user.id),
+        eq(noteTemplatesTable.organizationId, orgId),
       ),
     )
     .limit(1);
@@ -199,6 +229,7 @@ router.patch("/templates/:id", async (req, res) => {
         .where(
           and(
             eq(noteTemplatesTable.userId, user.id),
+            eq(noteTemplatesTable.organizationId, orgId),
             eq(noteTemplatesTable.voiceCue, nextCue),
           ),
         )
@@ -219,6 +250,7 @@ router.patch("/templates/:id", async (req, res) => {
         and(
           eq(noteTemplatesTable.id, id),
           eq(noteTemplatesTable.userId, user.id),
+          eq(noteTemplatesTable.organizationId, orgId),
         ),
       )
       .returning();
@@ -243,6 +275,8 @@ router.delete("/templates/:id", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const id = req.params.id;
   const result = await getDb()
     .delete(noteTemplatesTable)
@@ -250,6 +284,7 @@ router.delete("/templates/:id", async (req, res) => {
       and(
         eq(noteTemplatesTable.id, id),
         eq(noteTemplatesTable.userId, user.id),
+        eq(noteTemplatesTable.organizationId, orgId),
       ),
     )
     .returning({ id: noteTemplatesTable.id });
@@ -266,6 +301,8 @@ router.put("/templates", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const parsed = ReorderTemplatesBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -278,7 +315,12 @@ router.put("/templates", async (req, res) => {
   const ownedRows = await db
     .select({ id: noteTemplatesTable.id })
     .from(noteTemplatesTable)
-    .where(eq(noteTemplatesTable.userId, user.id));
+    .where(
+      and(
+        eq(noteTemplatesTable.userId, user.id),
+        eq(noteTemplatesTable.organizationId, orgId),
+      ),
+    );
   const ownedIds = new Set(ownedRows.map((r) => r.id));
   const submittedIds = parsed.data.ids;
 
@@ -309,12 +351,13 @@ router.put("/templates", async (req, res) => {
           and(
             eq(noteTemplatesTable.id, id),
             eq(noteTemplatesTable.userId, user.id),
+            eq(noteTemplatesTable.organizationId, orgId),
           ),
         );
     }
   });
 
-  const fresh = await listForUser(user.id);
+  const fresh = await listForUser(user.id, orgId);
   res.json({ data: fresh });
 });
 
@@ -324,14 +367,22 @@ router.post("/templates/reset", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const db = getDb();
   await db.transaction(async (tx) => {
     await tx
       .delete(noteTemplatesTable)
-      .where(eq(noteTemplatesTable.userId, user.id));
+      .where(
+        and(
+          eq(noteTemplatesTable.userId, user.id),
+          eq(noteTemplatesTable.organizationId, orgId),
+        ),
+      );
     await tx.insert(noteTemplatesTable).values(
       DEFAULT_TEMPLATES.map((t, i) => ({
         userId: user.id,
+        organizationId: orgId,
         name: t.name,
         voiceCue: normalizeCue(t.voiceCue),
         body: t.body,
@@ -339,7 +390,7 @@ router.post("/templates/reset", async (req, res) => {
       })),
     );
   });
-  const fresh = await listForUser(user.id);
+  const fresh = await listForUser(user.id, orgId);
   res.json({ data: fresh });
 });
 

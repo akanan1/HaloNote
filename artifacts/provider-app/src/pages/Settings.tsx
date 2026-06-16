@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EhrConnectionSection } from "@/components/EhrConnectionSection";
 import { TemplatesSection } from "@/components/TemplatesSection";
+import { PhraseMappingsSection } from "@/components/PhraseMappingsSection";
+import { NoteDefaultsSection } from "@/components/NoteDefaultsSection";
+import { LegalSection } from "@/components/LegalSection";
 
 interface SetupResponse {
   secret: string;
@@ -42,6 +45,12 @@ export function SettingsPage() {
       <EhrConnectionSection />
 
       <TemplatesSection />
+
+      <PhraseMappingsSection />
+
+      <NoteDefaultsSection />
+
+      <LegalSection />
 
       <TwoFactorSection
         initiallyEnabled={Boolean(user?.twoFactorEnabled)}

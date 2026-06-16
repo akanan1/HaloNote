@@ -5,6 +5,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { organizationsTable } from "./organizations";
 import { usersTable } from "./users";
 
 // One row per (user, EHR provider) once that user has completed the
@@ -23,6 +24,13 @@ export const ehrConnectionsTable = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => `ehrc_${randomUUID()}`),
+    // Tenant scope. An EHR connection is owned by an organization even
+    // though the OAuth handshake is performed by a single provider —
+    // billing for the EHR contract sits with the clinic, and other
+    // members of the org can read patient data through this connection.
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizationsTable.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => usersTable.id, { onDelete: "cascade" }),
@@ -64,6 +72,16 @@ export const ehrConnectionsTable = pgTable(
 // user id the flow was initiated for.
 export const ehrOauthStatesTable = pgTable("ehr_oauth_states", {
   state: text("state").primaryKey(),
+  // The org the user was acting on behalf of at /start time. Locked
+  // here so a mid-flow org-switch doesn't accidentally write the new
+  // connection into the wrong tenant. Nullable for backfill on legacy
+  // rows; required for any state created after migration 0021 wires
+  // the /start endpoint through this column. The callback enforces
+  // non-null before upserting the connection.
+  organizationId: text("organization_id").references(
+    () => organizationsTable.id,
+    { onDelete: "cascade" },
+  ),
   userId: text("user_id")
     .notNull()
     .references(() => usersTable.id, { onDelete: "cascade" }),

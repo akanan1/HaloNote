@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { logger } from "./logger";
 
@@ -20,6 +20,14 @@ export interface RecordingStorage {
     bytes: Buffer;
     mimeType: string;
   }): Promise<{ storageKey: string }>;
+
+  /**
+   * Read a previously-written segment. Used by the transcription
+   * pipeline to feed audio into the STT vendor. Throws if the segment
+   * is missing — the caller should treat that as a hard pipeline error
+   * (the row points at a key that's no longer on disk).
+   */
+  readSegment(args: { storageKey: string }): Promise<Buffer>;
 
   /** Best-effort cleanup. Caller swallows errors; logging is the adapter's job. */
   deleteJob(recordingJobId: string): Promise<void>;
@@ -56,6 +64,15 @@ class LocalFilesystemStorage implements RecordingStorage {
     await mkdir(join(this.root, recordingJobId), { recursive: true });
     await writeFile(absPath, bytes);
     return { storageKey: relPath };
+  }
+
+  async readSegment({
+    storageKey,
+  }: {
+    storageKey: string;
+  }): Promise<Buffer> {
+    const absPath = join(this.root, storageKey);
+    return readFile(absPath);
   }
 
   async deleteJob(recordingJobId: string): Promise<void> {

@@ -13,10 +13,13 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
+    "@deepgram/sdk": "^3.9.0",
     "@sentry/node": "^10.52.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/ehr": "workspace:*",
+    "@workspace/legal": "workspace:*",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "drizzle-orm": "catalog:",

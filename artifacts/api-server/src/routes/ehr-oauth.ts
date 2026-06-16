@@ -8,11 +8,23 @@ import {
   startOauthFlow,
   type EhrProvider,
 } from "../lib/ehr-oauth";
+import {
+  buildLaunchReturnPath,
+  isAllowedIssuer,
+  isCernerConfigured,
+  isValidLaunchToken,
+  upsertCernerPatientFromLaunch,
+} from "../lib/cerner-launch";
 import { devRoutesEnabled } from "../lib/dev-routes";
+import { getActiveOrgId } from "../lib/active-org";
 
 const router: IRouter = Router();
 
-const PROVIDERS: ReadonlySet<EhrProvider> = new Set(["athenahealth", "epic"]);
+const PROVIDERS: ReadonlySet<EhrProvider> = new Set([
+  "athenahealth",
+  "epic",
+  "cerner",
+]);
 
 function parseProvider(raw: unknown): EhrProvider | null {
   if (typeof raw !== "string") return null;
@@ -36,6 +48,8 @@ router.post("/auth/ehr/:provider/start", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const provider = parseProvider(req.params.provider);
   if (!provider) {
     res.status(400).json({ error: "unknown_provider" });
@@ -47,6 +61,7 @@ router.post("/auth/ehr/:provider/start", async (req, res) => {
 
   try {
     const { authorizeUrl } = await startOauthFlow({
+      organizationId: orgId,
       userId: user.id,
       provider,
       ...(returnPath ? { returnPath } : {}),
@@ -78,8 +93,11 @@ if (devRoutesEnabled()) {
       return;
     }
     const returnPath = safeReturnPath(req.query["return"]) ?? "/settings";
+    const orgId = getActiveOrgId(req, res);
+    if (!orgId) return;
     try {
       const { authorizeUrl } = await startOauthFlow({
+        organizationId: orgId,
         userId: user.id,
         provider,
         returnPath,
@@ -92,6 +110,66 @@ if (devRoutesEnabled()) {
     }
   });
 }
+
+// Cerner SMART EHR-launch entrypoint. Registered as the "Launch URL"
+// in Cerner's app gallery. Cerner navigates the resident's browser
+// here with `iss` (FHIR base) + `launch` (opaque context token). We
+// validate iss against the configured tenant, kick off the standard
+// SMART OAuth flow with `launch=` appended, and let the existing
+// callback land them on a patient/note page.
+//
+// Resident must already have a HaloNote session (single-tenant pilot
+// posture — admins pre-provision accounts). If not signed in, we 303
+// to /login?next=<launch-url> so they can land back here after auth.
+//
+// We deliberately don't expose POST start / dev-start / direct
+// frontend hooks for Cerner — the only way in is from inside Cerner.
+router.get("/auth/ehr/cerner/launch", async (req, res) => {
+  if (!isCernerConfigured()) {
+    req.log.warn(
+      "cerner SMART launch hit while server unconfigured (CERNER_* env missing)",
+    );
+    res.status(503).json({ error: "cerner_not_configured" });
+    return;
+  }
+
+  const iss = req.query["iss"];
+  const launch = req.query["launch"];
+
+  if (!isAllowedIssuer(iss)) {
+    req.log.warn({ iss }, "cerner launch rejected: iss not allow-listed");
+    res.status(400).json({ error: "bad_issuer" });
+    return;
+  }
+  if (!isValidLaunchToken(launch)) {
+    res.status(400).json({ error: "bad_launch_token" });
+    return;
+  }
+
+  const user = req.user;
+  if (!user) {
+    // Preserve the original launch URL so the resident can resume
+    // after signing in. The login page can read `?next=` to navigate.
+    const next = encodeURIComponent(req.originalUrl);
+    res.redirect(303, `/login?next=${next}`);
+    return;
+  }
+
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  try {
+    const { authorizeUrl } = await startOauthFlow({
+      organizationId: orgId,
+      userId: user.id,
+      provider: "cerner",
+      launch: launch as string,
+    });
+    res.redirect(303, authorizeUrl);
+  } catch (err) {
+    req.log.error({ err }, "cerner SMART launch start failed");
+    res.status(500).json({ error: "launch_start_failed" });
+  }
+});
 
 // The callback is hit by the browser following an Athena redirect, NOT
 // by application code — it has to be a GET so the redirect carries.
@@ -149,6 +227,50 @@ router.get("/auth/ehr/callback", async (req, res) => {
       redirectToSettings(res, { ok: false, error: "user_mismatch" });
       return;
     }
+    // Cerner SMART EHR-launch landing: we have patient + (optionally)
+    // encounter context in hand. Do a one-shot FHIR Patient read with
+    // the just-minted access token, upsert by MRN, then drop the
+    // resident on NewNote with the patient preloaded. Any failure
+    // here falls back to the standard /settings redirect — the
+    // tokens are already persisted, so the resident can retry from
+    // inside Cerner.
+    if (
+      result.provider === "cerner" &&
+      result.launchContext &&
+      result.launchContext.patient
+    ) {
+      try {
+        const externalPatientId = result.launchContext.patient;
+        const internalPatientId = await upsertCernerPatientFromLaunch({
+          organizationId: result.organizationId,
+          externalId: externalPatientId,
+          fhirBaseUrl: process.env["CERNER_FHIR_BASE_URL"] as string,
+          accessToken: result.launchContext.accessToken,
+        });
+        const target = buildLaunchReturnPath({
+          internalPatientId,
+          externalPatientId,
+          encounterId: result.launchContext.encounter,
+        });
+        res.redirect(303, target);
+        return;
+      } catch (err) {
+        // Don't fail the whole launch — tokens are stored, so the
+        // resident can retry. Land them on /settings with a
+        // diagnostic so they understand what happened.
+        req.log.warn(
+          { err, provider: result.provider },
+          "cerner launch patient upsert failed; falling back to /settings",
+        );
+        redirectToSettings(res, {
+          ok: false,
+          provider: result.provider,
+          error: "launch_patient_sync_failed",
+        });
+        return;
+      }
+    }
+
     const returnPath = result.returnPath ?? "/settings";
     redirectToSettings(res, {
       ok: true,

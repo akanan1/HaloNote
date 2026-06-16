@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Calendar,
   ContactRound,
+  Crown,
   LogOut,
   Menu,
   ScrollText,
@@ -35,6 +36,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }
 
   const isAdmin = user?.role === "admin";
+  const isFounder = Boolean(user?.isFounder);
   const isTodayActive = location === "/";
   // /patients, /patients/new, /patients/:id, /patients/:id/notes/* all
   // belong to the Patients tab on mobile.
@@ -42,6 +44,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isSettingsActive = location === "/settings";
   const isUsersActive = location === "/admin/users";
   const isAuditActive = location === "/audit-log";
+  const isFounderActive = location === "/founder";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -66,9 +69,14 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
           <Link
             href="/"
-            className="text-xl font-semibold tracking-tight text-(--color-foreground)"
+            className="flex items-center text-(--color-foreground)"
+            aria-label="HaloNote home"
           >
-            HaloNote
+            <img
+              src="/halonote-logo-on-light.svg"
+              alt="HaloNote"
+              className="h-7 w-auto"
+            />
           </Link>
           {user ? (
             <>
@@ -103,6 +111,14 @@ export function AppLayout({ children }: AppLayoutProps) {
                       label="Audit log"
                     />
                   </>
+                ) : null}
+                {isFounder ? (
+                  <TopNavLink
+                    href="/founder"
+                    active={isFounderActive}
+                    icon={Crown}
+                    label="Founder"
+                  />
                 ) : null}
                 <span className="text-(--color-muted-foreground)">
                   {user.displayName}
@@ -202,9 +218,11 @@ export function AppLayout({ children }: AppLayoutProps) {
             <MoreSheet
               onClose={() => setMoreOpen(false)}
               isAdmin={isAdmin}
+              isFounder={isFounder}
               displayName={user.displayName}
               isUsersActive={isUsersActive}
               isAuditActive={isAuditActive}
+              isFounderActive={isFounderActive}
               onSignOut={() => void handleSignOut()}
             />
           ) : null}
@@ -272,18 +290,22 @@ function BottomNavLink({
 interface MoreSheetProps {
   onClose: () => void;
   isAdmin: boolean;
+  isFounder: boolean;
   displayName: string;
   isUsersActive: boolean;
   isAuditActive: boolean;
+  isFounderActive: boolean;
   onSignOut: () => void;
 }
 
 function MoreSheet({
   onClose,
   isAdmin,
+  isFounder,
   displayName,
   isUsersActive,
   isAuditActive,
+  isFounderActive,
   onSignOut,
 }: MoreSheetProps) {
   // Close on Escape — modal dialogs should always honor it.
@@ -338,6 +360,14 @@ function MoreSheet({
                 label="Audit log"
               />
             </>
+          ) : null}
+          {isFounder ? (
+            <MoreSheetLink
+              href="/founder"
+              active={isFounderActive}
+              icon={Crown}
+              label="Founder"
+            />
           ) : null}
           <button
             type="button"

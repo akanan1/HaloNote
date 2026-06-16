@@ -3,6 +3,17 @@ import { getDb, usersTable, type UserRole } from "@workspace/db";
 import { hashPassword } from "./auth";
 import { logger } from "./logger";
 
+// Deterministic, dev-only TOTP secret. Admin login enforces TOTP, so
+// the seeded admin (alice) is pre-enrolled with this Base32 secret. Any
+// authenticator app (Google Authenticator, 1Password, `oathtool`) can
+// generate a current 6-digit code from it.
+//
+// `JBSWY3DPEHPK3PXP` is the canonical RFC 4226 test vector — published
+// in countless examples — so we are NOT leaking real secret material by
+// committing it. It will never be used outside of `NODE_ENV !==
+// "production"` seeds (see the guard in seedUsersIfEmpty below).
+const DEMO_ADMIN_TOTP_SECRET = "JBSWY3DPEHPK3PXP";
+
 // Demo users idempotently re-seeded at every boot (in non-production).
 // alice is seeded as an admin so the audit-log UI is reachable from at
 // least one demo account; bob is a regular member.
@@ -12,6 +23,7 @@ const DEMO_USERS: Array<{
   displayName: string;
   password: string;
   role: UserRole;
+  totpSecret?: string;
 }> = [
   {
     id: "usr_demo_alice",
@@ -19,6 +31,10 @@ const DEMO_USERS: Array<{
     displayName: "Dr. Alice Chen",
     password: "hunter2",
     role: "admin",
+    // Admin login enforces TOTP — pre-enroll with the dev secret so
+    // local sign-in still works. Code: any authenticator app pointed
+    // at otpauth://totp/HaloNote:alice?secret=JBSWY3DPEHPK3PXP&issuer=HaloNote
+    totpSecret: DEMO_ADMIN_TOTP_SECRET,
   },
   {
     id: "usr_demo_bob",
@@ -64,6 +80,11 @@ export async function seedUsersIfEmpty(): Promise<void> {
       displayName: u.displayName,
       passwordHash: await hashPassword(u.password),
       role: u.role,
+      // Pre-enroll TOTP for demo admins so they can clear the
+      // admin-requires-TOTP login check without manual setup.
+      ...(u.totpSecret
+        ? { totpSecret: u.totpSecret, totpEnabledAt: new Date() }
+        : {}),
     })),
   );
   // ON CONFLICT DO NOTHING on email — two parallel boots seeding at once

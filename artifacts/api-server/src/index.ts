@@ -14,6 +14,8 @@ import {
   stopAuditLogCleanup,
 } from "./lib/audit-cleanup";
 import { runMigrations } from "./lib/run-migrations";
+import { validateSessionCookieConfig } from "./lib/auth";
+import { validateEhrProductionConfig } from "./lib/ehr-prod-guard";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +32,8 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 try {
+  validateSessionCookieConfig();
+  validateEhrProductionConfig(process.env);
   // Run pending migrations first so the seed code below sees the
   // schema it expects. A deploy that ships a schema change can't
   // accept traffic until the schema matches the code.

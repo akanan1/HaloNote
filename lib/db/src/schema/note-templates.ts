@@ -7,6 +7,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { organizationsTable } from "./organizations";
 import { usersTable } from "./users";
 
 // Per-user dictation templates. Each provider can tune the skeleton +
@@ -20,6 +21,13 @@ export const noteTemplatesTable = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => `tpl_${randomUUID()}`),
+    // Tenant scope. Templates remain user-owned (each provider tunes
+    // their own list), but carry organization_id so a provider who
+    // belongs to two orgs gets distinct template lists per org and so
+    // cross-tenant reads can't surface them.
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizationsTable.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => usersTable.id, { onDelete: "cascade" }),

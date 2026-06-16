@@ -63,6 +63,7 @@ async function seedConnection(opts: {
   expiresAt: Date;
 }): Promise<void> {
   await getDb().insert(ehrConnectionsTable).values({
+    organizationId: "org_default",
     userId: opts.userId,
     provider: opts.provider,
     accessToken: PLACEHOLDER_CT,

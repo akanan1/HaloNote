@@ -310,6 +310,23 @@ async function analyzeNoteGaps(noteId: string): Promise<GapAnalysisResponse> {
   );
 }
 
+interface PatientSummary {
+  overview: string;
+  diagnoses: { name: string; explanation: string }[];
+  medications: { name: string; howToTake: string; why: string }[];
+  selfCare: string[];
+  followUp?: { when: string; why: string };
+  whenToCall: string[];
+  source: "ai" | "stub";
+}
+
+async function generatePatientSummary(noteId: string): Promise<PatientSummary> {
+  return customFetch<PatientSummary>(
+    `/api/notes/${noteId}/generate-summary`,
+    { method: "POST" },
+  );
+}
+
 async function fetchBilling(encId: string): Promise<BillingResponse> {
   return customFetch<BillingResponse>(`/api/encounters/${encId}/billing`);
 }
@@ -616,6 +633,8 @@ export function EncounterReviewPage({ patientId, encounterId }: Props) {
         patientId={patientId}
         encounterId={encounterId}
       />
+
+      <PatientSummaryPanel note={noteQuery.data ?? null} />
 
       <BillingPanel
         encounterId={encounterId}
@@ -1939,4 +1958,212 @@ function EncounterTaskRow({
       </div>
     </li>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Patient summary panel
+// ---------------------------------------------------------------------------
+
+function PatientSummaryPanel({ note }: { note: Note | null }) {
+  // Summary lives in panel state (not persisted) so it clears on
+  // remount. Re-running is cheap; v2 will persist + offer PDF / portal
+  // export from the same surface.
+  const [summary, setSummary] = useState<PatientSummary | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Don't show the panel until there's a note to summarize. Empty
+  // encounter renders cleaner without it.
+  if (!note) return null;
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      const s = await generatePatientSummary(note.id);
+      setSummary(s);
+      toast.success(
+        s.source === "ai"
+          ? "Patient summary generated"
+          : "Patient summary generated (stub)",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't generate summary");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyAsText = async () => {
+    if (!summary) return;
+    const text = summaryAsPlainText(summary);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard");
+    } catch {
+      toast.error("Couldn't copy");
+    }
+  };
+
+  return (
+    <Card className="space-y-4 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FileText
+            className="h-5 w-5 text-(--color-muted-foreground)"
+            aria-hidden="true"
+          />
+          <h2 className="text-lg font-medium">Patient summary</h2>
+          {summary ? (
+            <span className="text-xs uppercase tracking-wide text-(--color-muted-foreground)">
+              {summary.source === "ai" ? "AI" : "stub"}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {summary ? (
+            <Button size="sm" variant="ghost" onClick={() => void copyAsText()}>
+              Copy
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant={summary ? "outline" : "default"}
+            onClick={() => void generate()}
+            disabled={busy}
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            )}
+            {summary ? "Regenerate" : "Generate"}
+          </Button>
+        </div>
+      </div>
+      {!summary ? (
+        <p className="text-sm text-(--color-muted-foreground)">
+          Generate a 6th-grade reading-level handout the patient can take home,
+          send via portal, or read in the room before leaving.
+        </p>
+      ) : (
+        <SummaryDisplay summary={summary} />
+      )}
+    </Card>
+  );
+}
+
+function SummaryDisplay({ summary }: { summary: PatientSummary }) {
+  return (
+    <article className="space-y-4 rounded-md border border-(--color-border) bg-(--color-card) p-4">
+      <p className="text-sm leading-relaxed">{summary.overview}</p>
+
+      {summary.diagnoses.length > 0 ? (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+            What we found
+          </h3>
+          <ul className="space-y-2">
+            {summary.diagnoses.map((d, i) => (
+              <li key={i} className="text-sm">
+                <span className="font-medium">{d.name}.</span>{" "}
+                <span className="text-(--color-muted-foreground)">
+                  {d.explanation}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {summary.medications.length > 0 ? (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+            Your medicines
+          </h3>
+          <ul className="space-y-2">
+            {summary.medications.map((m, i) => (
+              <li key={i} className="text-sm">
+                <span className="font-medium">{m.name}</span> — {m.howToTake}
+                <p className="text-xs italic text-(--color-muted-foreground)">
+                  Why: {m.why}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {summary.selfCare.length > 0 ? (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+            How to take care of yourself at home
+          </h3>
+          <ul className="list-inside list-disc space-y-1 text-sm">
+            {summary.selfCare.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {summary.followUp ? (
+        <section className="space-y-1">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-(--color-muted-foreground)">
+            Coming back
+          </h3>
+          <p className="text-sm">
+            <span className="font-medium">{summary.followUp.when}.</span>{" "}
+            {summary.followUp.why}
+          </p>
+        </section>
+      ) : null}
+
+      {summary.whenToCall.length > 0 ? (
+        <section className="space-y-2 rounded-md bg-red-50 p-3 ring-1 ring-inset ring-red-200">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-red-900">
+            Call us right away if…
+          </h3>
+          <ul className="list-inside list-disc space-y-1 text-sm text-red-900">
+            {summary.whenToCall.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </article>
+  );
+}
+
+// Plain-text serializer for the copy-to-clipboard button. Mirrors the
+// rendered structure so a patient pasting it into a portal message
+// (or print preview) sees the same sections in the same order.
+function summaryAsPlainText(s: PatientSummary): string {
+  const lines: string[] = [s.overview, ""];
+  if (s.diagnoses.length > 0) {
+    lines.push("WHAT WE FOUND");
+    for (const d of s.diagnoses) lines.push(`• ${d.name}. ${d.explanation}`);
+    lines.push("");
+  }
+  if (s.medications.length > 0) {
+    lines.push("YOUR MEDICINES");
+    for (const m of s.medications) {
+      lines.push(`• ${m.name} — ${m.howToTake}`);
+      lines.push(`  Why: ${m.why}`);
+    }
+    lines.push("");
+  }
+  if (s.selfCare.length > 0) {
+    lines.push("HOW TO TAKE CARE OF YOURSELF AT HOME");
+    for (const c of s.selfCare) lines.push(`• ${c}`);
+    lines.push("");
+  }
+  if (s.followUp) {
+    lines.push("COMING BACK");
+    lines.push(`${s.followUp.when}. ${s.followUp.why}`);
+    lines.push("");
+  }
+  if (s.whenToCall.length > 0) {
+    lines.push("CALL US RIGHT AWAY IF…");
+    for (const w of s.whenToCall) lines.push(`• ${w}`);
+  }
+  return lines.join("\n").trim();
 }

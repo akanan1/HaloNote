@@ -13,6 +13,7 @@ import { EhrPushError, pushNoteToEhr } from "../lib/ehr-push";
 import { findPatient } from "../lib/patients";
 import { getActiveOrgId } from "../lib/active-org";
 import { analyzeNoteGaps } from "../lib/note-gap-analyzer";
+import { generatePatientSummary } from "../lib/patient-summary-generator";
 
 // Statuses that lock the note body from further direct edits. Once a
 // note is approved/exported/withdrawn, the only way to change the body
@@ -542,6 +543,98 @@ router.post("/notes/:id/analyze-gaps", async (req, res) => {
   const { result, source } = await analyzeNoteGaps({
     noteId: note.id,
     noteBody: note.body,
+    encounter: encounterContext,
+  });
+  res.json({ ...result, source });
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/generate-summary — AI generates a 6th-grade
+// reading-level patient handout from the note. Read-only (no DB writes
+// in v1); the frontend renders it and the provider can copy or hand off
+// to a future PDF / portal export.
+// ---------------------------------------------------------------------------
+router.post("/notes/:id/generate-summary", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+      patientId: notesTable.patientId,
+      encounterId: notesTable.encounterId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  if (note.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+
+  // Patient first name + DOB go into the prompt so the AI can address
+  // the patient by name and (later) check for pediatric / geriatric
+  // language. Tenant-scoped lookup; cross-org returns 404 like the
+  // patient-detail page.
+  const [patient] = await db
+    .select({
+      firstName: patientsTable.firstName,
+      dateOfBirth: patientsTable.dateOfBirth,
+    })
+    .from(patientsTable)
+    .where(
+      and(
+        eq(patientsTable.id, note.patientId),
+        eq(patientsTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  if (!patient) {
+    res.status(404).json({ error: "patient_not_found" });
+    return;
+  }
+
+  let encounterContext: {
+    visitType: import("@workspace/db").VisitType;
+    customLabel: string | null;
+    isTelehealth: boolean;
+  } = {
+    visitType: "follow_up",
+    customLabel: null,
+    isTelehealth: false,
+  };
+  if (note.encounterId) {
+    const [enc] = await db
+      .select({
+        visitType: encountersTable.visitType,
+        customLabel: encountersTable.customLabel,
+        isTelehealth: encountersTable.isTelehealth,
+      })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, note.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    if (enc) encounterContext = enc;
+  }
+
+  const { result, source } = await generatePatientSummary({
+    noteId: note.id,
+    noteBody: note.body,
+    patient,
     encounter: encounterContext,
   });
   res.json({ ...result, source });

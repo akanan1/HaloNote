@@ -21,6 +21,7 @@ import type {
   AcceptLegalAgreementsRequest,
   AdminUser,
   AuthUser,
+  CreateEncounterRequest,
   CreateNoteDefaultRequest,
   CreateNoteRequest,
   CreatePatientRequest,
@@ -29,6 +30,7 @@ import type {
   CreateTemplateRequest,
   EhrConnectionStatus,
   EhrPushResult,
+  Encounter,
   FounderAnalytics,
   FounderUserDetail,
   GetLegalAgreements200,
@@ -37,6 +39,8 @@ import type {
   HealthStatus,
   ListAuditLog200,
   ListAuditLogParams,
+  ListEncounters200,
+  ListEncountersParams,
   ListNoteDefaultSuggestions200,
   ListNoteDefaults200,
   ListNotes200,
@@ -65,6 +69,7 @@ import type {
   StartEhrOauthRequest,
   SyncPatientRequest,
   SyncedPatient,
+  UpdateEncounterRequest,
   UpdateNoteDefaultRequest,
   UpdateNoteRequest,
   UpdatePhraseMappingRequest,
@@ -2354,6 +2359,375 @@ export function useGetTodaySchedule<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Returns encounters scoped to the caller's active organization,
+ordered by createdAt desc. Optional patientId narrows to a
+single chart. Cap at 200 rows; revisit with cursor pagination if
+a busy clinic exceeds it.
+
+ * @summary List encounters in the active organization
+ */
+export const getListEncountersUrl = (params?: ListEncountersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/encounters?${stringifiedParams}`
+    : `/api/encounters`;
+};
+
+export const listEncounters = async (
+  params?: ListEncountersParams,
+  options?: RequestInit,
+): Promise<ListEncounters200> => {
+  return customFetch<ListEncounters200>(getListEncountersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListEncountersQueryKey = (params?: ListEncountersParams) => {
+  return [`/api/encounters`, ...(params ? [params] : [])] as const;
+};
+
+export const getListEncountersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listEncounters>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListEncountersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listEncounters>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListEncountersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listEncounters>>> = ({
+    signal,
+  }) => listEncounters(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listEncounters>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListEncountersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listEncounters>>
+>;
+export type ListEncountersQueryError = ErrorType<void>;
+
+/**
+ * @summary List encounters in the active organization
+ */
+
+export function useListEncounters<
+  TData = Awaited<ReturnType<typeof listEncounters>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListEncountersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listEncounters>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListEncountersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Patient must belong to the active organization. visitType='custom'
+requires customLabel; any other visitType forbids it. Defaults
+providerId to the current user when not supplied.
+
+ * @summary Start a new encounter
+ */
+export const getCreateEncounterUrl = () => {
+  return `/api/encounters`;
+};
+
+export const createEncounter = async (
+  createEncounterRequest: CreateEncounterRequest,
+  options?: RequestInit,
+): Promise<Encounter> => {
+  return customFetch<Encounter>(getCreateEncounterUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createEncounterRequest),
+  });
+};
+
+export const getCreateEncounterMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createEncounter>>,
+    TError,
+    { data: BodyType<CreateEncounterRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createEncounter>>,
+  TError,
+  { data: BodyType<CreateEncounterRequest> },
+  TContext
+> => {
+  const mutationKey = ["createEncounter"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createEncounter>>,
+    { data: BodyType<CreateEncounterRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createEncounter(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateEncounterMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createEncounter>>
+>;
+export type CreateEncounterMutationBody = BodyType<CreateEncounterRequest>;
+export type CreateEncounterMutationError = ErrorType<void>;
+
+/**
+ * @summary Start a new encounter
+ */
+export const useCreateEncounter = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createEncounter>>,
+    TError,
+    { data: BodyType<CreateEncounterRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createEncounter>>,
+  TError,
+  { data: BodyType<CreateEncounterRequest> },
+  TContext
+> => {
+  return useMutation(getCreateEncounterMutationOptions(options));
+};
+
+/**
+ * @summary Read a single encounter
+ */
+export const getGetEncounterUrl = (id: string) => {
+  return `/api/encounters/${id}`;
+};
+
+export const getEncounter = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Encounter> => {
+  return customFetch<Encounter>(getGetEncounterUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEncounterQueryKey = (id: string) => {
+  return [`/api/encounters/${id}`] as const;
+};
+
+export const getGetEncounterQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEncounter>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounter>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEncounterQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getEncounter>>> = ({
+    signal,
+  }) => getEncounter(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEncounter>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEncounterQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEncounter>>
+>;
+export type GetEncounterQueryError = ErrorType<void>;
+
+/**
+ * @summary Read a single encounter
+ */
+
+export function useGetEncounter<
+  TData = Awaited<ReturnType<typeof getEncounter>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounter>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEncounterQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Status transitions are enforced server-side: scheduled →
+in_progress → completed are the legal forward steps; cancellation
+is allowed from any non-terminal state. Completed and cancelled
+are terminal. Auto-stamps startedAt / completedAt timestamps on
+the matching transition.
+
+ * @summary Update encounter fields and/or transition status
+ */
+export const getUpdateEncounterUrl = (id: string) => {
+  return `/api/encounters/${id}`;
+};
+
+export const updateEncounter = async (
+  id: string,
+  updateEncounterRequest: UpdateEncounterRequest,
+  options?: RequestInit,
+): Promise<Encounter> => {
+  return customFetch<Encounter>(getUpdateEncounterUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateEncounterRequest),
+  });
+};
+
+export const getUpdateEncounterMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateEncounter>>,
+    TError,
+    { id: string; data: BodyType<UpdateEncounterRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateEncounter>>,
+  TError,
+  { id: string; data: BodyType<UpdateEncounterRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateEncounter"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateEncounter>>,
+    { id: string; data: BodyType<UpdateEncounterRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateEncounter(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateEncounterMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateEncounter>>
+>;
+export type UpdateEncounterMutationBody = BodyType<UpdateEncounterRequest>;
+export type UpdateEncounterMutationError = ErrorType<void>;
+
+/**
+ * @summary Update encounter fields and/or transition status
+ */
+export const useUpdateEncounter = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateEncounter>>,
+    TError,
+    { id: string; data: BodyType<UpdateEncounterRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateEncounter>>,
+  TError,
+  { id: string; data: BodyType<UpdateEncounterRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateEncounterMutationOptions(options));
+};
 
 /**
  * Pulls Condition (active), MedicationRequest (active), and AllergyIntolerance resources from the configured EHR in parallel and shapes them for a note-prep panel. The patient id parameter is the EHR Patient.id (same value used for /patients/sync).

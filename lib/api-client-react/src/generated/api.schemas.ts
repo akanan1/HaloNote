@@ -87,6 +87,100 @@ export interface UpdateNoteRequest {
   body: string;
 }
 
+export type VisitType = (typeof VisitType)[keyof typeof VisitType];
+
+export const VisitType = {
+  new_patient: "new_patient",
+  established_patient: "established_patient",
+  follow_up: "follow_up",
+  annual_physical: "annual_physical",
+  hospital_follow_up: "hospital_follow_up",
+  procedure: "procedure",
+  telehealth: "telehealth",
+  nursing_facility: "nursing_facility",
+  custom: "custom",
+} as const;
+
+export type EncounterStatus =
+  (typeof EncounterStatus)[keyof typeof EncounterStatus];
+
+export const EncounterStatus = {
+  scheduled: "scheduled",
+  in_progress: "in_progress",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type EncounterPriority =
+  (typeof EncounterPriority)[keyof typeof EncounterPriority];
+
+export const EncounterPriority = {
+  routine: "routine",
+  urgent: "urgent",
+  stat: "stat",
+} as const;
+
+export interface Encounter {
+  id: string;
+  organizationId: string;
+  patientId: string;
+  providerId?: string | null;
+  visitType: VisitType;
+  customLabel?: string | null;
+  status: EncounterStatus;
+  isTelehealth: boolean;
+  location?: string | null;
+  scheduledAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListEncounters200 {
+  data: Encounter[];
+}
+
+export interface CreateEncounterRequest {
+  /** @minLength 1 */
+  patientId: string;
+  visitType: VisitType;
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  customLabel?: string;
+  isTelehealth?: boolean;
+  /** @maxLength 120 */
+  location?: string;
+  scheduledAt?: string;
+  /** @minLength 1 */
+  providerId?: string;
+}
+
+/**
+ * All fields optional. Set a field to null to clear it where the
+column allows null (location, customLabel, scheduledAt,
+providerId). visitType / status / isTelehealth are non-nullable
+so null isn't accepted there.
+
+ */
+export interface UpdateEncounterRequest {
+  visitType?: VisitType;
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  customLabel?: string | null;
+  isTelehealth?: boolean;
+  /** @maxLength 120 */
+  location?: string | null;
+  status?: EncounterStatus;
+  scheduledAt?: string | null;
+  /** @minLength 1 */
+  providerId?: string | null;
+}
+
 export interface CreatePatientRequest {
   /** @minLength 1 */
   firstName: string;
@@ -816,6 +910,10 @@ export type GetTodayScheduleParams = {
 
 export type GetTodaySchedule200 = {
   data: ScheduledAppointment[];
+};
+
+export type ListEncountersParams = {
+  patientId?: string;
 };
 
 export type ListTemplates200 = {

@@ -1,10 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
   ChevronRight,
@@ -14,71 +10,30 @@ import {
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
-import { customFetch } from "@workspace/api-client-react";
+import {
+  getListEncountersQueryKey,
+  useCreateEncounter,
+  useListEncounters,
+  VisitType,
+  type Encounter,
+  type EncounterStatus,
+  type ListEncountersParams,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// ---------------------------------------------------------------------------
-// Wire types (mirrored from routes/encounters.ts serializer; replace with
-// codegen once OpenAPI catches up to the encounters endpoints).
-// ---------------------------------------------------------------------------
-
-type EncounterStatus =
-  | "scheduled"
-  | "in_progress"
-  | "completed"
-  | "cancelled";
-
-type VisitType =
-  | "new_patient"
-  | "established_patient"
-  | "follow_up"
-  | "annual_physical"
-  | "hospital_follow_up"
-  | "procedure"
-  | "telehealth"
-  | "nursing_facility"
-  | "custom";
-
-interface Encounter {
-  id: string;
-  patientId: string;
-  visitType: VisitType;
-  customLabel: string | null;
-  status: EncounterStatus;
-  isTelehealth: boolean;
-  location: string | null;
-  scheduledAt: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-}
-
-interface ListResponse {
-  data: Encounter[];
-}
-
-interface CreateBody {
-  patientId: string;
-  visitType: VisitType;
-  customLabel?: string;
-  isTelehealth?: boolean;
-  location?: string;
-  scheduledAt?: string;
-}
-
 const VISIT_OPTIONS: { value: VisitType; label: string }[] = [
-  { value: "new_patient", label: "New patient" },
-  { value: "established_patient", label: "Established patient" },
-  { value: "follow_up", label: "Follow-up" },
-  { value: "annual_physical", label: "Annual physical" },
-  { value: "hospital_follow_up", label: "Hospital follow-up" },
-  { value: "procedure", label: "Procedure" },
-  { value: "telehealth", label: "Telehealth" },
-  { value: "nursing_facility", label: "Nursing facility" },
-  { value: "custom", label: "Custom" },
+  { value: VisitType.new_patient, label: "New patient" },
+  { value: VisitType.established_patient, label: "Established patient" },
+  { value: VisitType.follow_up, label: "Follow-up" },
+  { value: VisitType.annual_physical, label: "Annual physical" },
+  { value: VisitType.hospital_follow_up, label: "Hospital follow-up" },
+  { value: VisitType.procedure, label: "Procedure" },
+  { value: VisitType.telehealth, label: "Telehealth" },
+  { value: VisitType.nursing_facility, label: "Nursing facility" },
+  { value: VisitType.custom, label: "Custom" },
 ];
 
 const VISIT_LABEL: Record<VisitType, string> = Object.fromEntries(
@@ -116,22 +71,10 @@ function formatTimestamp(iso: string | null): string {
 // Pick the most informative timestamp for the chart row's right rail.
 // Provider scanning the list cares most about "when did this happen"
 // not "when was this row created in the DB", so prefer completed →
-// started → scheduled → createdAt.
+// started → scheduled → createdAt. createdAt is required on the wire,
+// so the chain always resolves to a string.
 function pickAnchorTimestamp(e: Encounter): string {
   return e.completedAt ?? e.startedAt ?? e.scheduledAt ?? e.createdAt;
-}
-
-async function fetchEncountersFor(patientId: string): Promise<ListResponse> {
-  return customFetch<ListResponse>(
-    `/api/encounters?patientId=${encodeURIComponent(patientId)}`,
-  );
-}
-
-async function createEncounter(body: CreateBody): Promise<Encounter> {
-  return customFetch<Encounter>("/api/encounters", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -142,12 +85,15 @@ export function PatientEncountersSection({ patientId }: { patientId: string }) {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const query = useQuery({
-    queryKey: ["patient-encounters", patientId],
-    queryFn: () => fetchEncountersFor(patientId),
+  // Codegen-typed list query. patientId is forwarded as the filter the
+  // listEncounters endpoint already supports; org scope is enforced
+  // server-side from the session.
+  const params: ListEncountersParams = { patientId };
+  const query = useListEncounters(params, {
+    query: { queryKey: getListEncountersQueryKey(params) },
   });
 
-  const encounters = useMemo(
+  const encounters: Encounter[] = useMemo(
     () => query.data?.data ?? [],
     [query.data],
   );
@@ -175,7 +121,7 @@ export function PatientEncountersSection({ patientId }: { patientId: string }) {
           onCreated={() => {
             setCreateOpen(false);
             void qc.invalidateQueries({
-              queryKey: ["patient-encounters", patientId],
+              queryKey: getListEncountersQueryKey(params),
             });
           }}
         />
@@ -277,39 +223,46 @@ function NewEncounterForm({
   onCreated: () => void;
 }) {
   const [, navigate] = useLocation();
-  const [visitType, setVisitType] = useState<VisitType>("follow_up");
+  const [visitType, setVisitType] = useState<VisitType>(VisitType.follow_up);
   const [customLabel, setCustomLabel] = useState("");
   const [isTelehealth, setIsTelehealth] = useState(false);
   const [location, setLocation] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
 
-  const create = useMutation({
-    mutationFn: (body: CreateBody) => createEncounter(body),
-    onSuccess: (encounter) => {
-      toast.success("Encounter started");
-      onCreated();
-      // Drop the provider straight onto the new encounter's review page
-      // so the next action (recording / charting) is one click away.
-      navigate(`/patients/${patientId}/encounters/${encounter.id}`);
+  // Codegen-typed mutation. onSuccess receives the typed Encounter from
+  // POST /encounters; navigating to its review page completes the
+  // "start visit → document it" UX promise.
+  const create = useCreateEncounter({
+    mutation: {
+      onSuccess: (encounter: Encounter) => {
+        toast.success("Encounter started");
+        onCreated();
+        navigate(`/patients/${patientId}/encounters/${encounter.id}`);
+      },
+      onError: (err: unknown) =>
+        toast.error(err instanceof Error ? err.message : "Couldn't create"),
     },
-    onError: (err) =>
-      toast.error(err instanceof Error ? err.message : "Couldn't create"),
   });
 
-  const isCustom = visitType === "custom";
+  const isCustom = visitType === VisitType.custom;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (isCustom && !customLabel.trim()) return;
-    const body: CreateBody = {
-      patientId,
-      visitType,
-    };
-    if (isCustom && customLabel.trim()) body.customLabel = customLabel.trim();
-    if (isTelehealth) body.isTelehealth = true;
-    if (location.trim()) body.location = location.trim();
-    if (scheduledAt) body.scheduledAt = new Date(scheduledAt).toISOString();
-    create.mutate(body);
+    create.mutate({
+      data: {
+        patientId,
+        visitType,
+        ...(isCustom && customLabel.trim()
+          ? { customLabel: customLabel.trim() }
+          : {}),
+        ...(isTelehealth ? { isTelehealth: true } : {}),
+        ...(location.trim() ? { location: location.trim() } : {}),
+        ...(scheduledAt
+          ? { scheduledAt: new Date(scheduledAt).toISOString() }
+          : {}),
+      },
+    });
   }
 
   return (

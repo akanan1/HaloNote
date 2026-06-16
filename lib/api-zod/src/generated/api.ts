@@ -934,6 +934,195 @@ export const GetTodayScheduleResponse = zod.object({
 });
 
 /**
+ * Returns encounters scoped to the caller's active organization,
+ordered by createdAt desc. Optional patientId narrows to a
+single chart. Cap at 200 rows; revisit with cursor pagination if
+a busy clinic exceeds it.
+
+ * @summary List encounters in the active organization
+ */
+export const ListEncountersQueryParams = zod.object({
+  patientId: zod.coerce.string().optional(),
+});
+
+export const ListEncountersResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      patientId: zod.string(),
+      providerId: zod.string().nullish(),
+      visitType: zod.enum([
+        "new_patient",
+        "established_patient",
+        "follow_up",
+        "annual_physical",
+        "hospital_follow_up",
+        "procedure",
+        "telehealth",
+        "nursing_facility",
+        "custom",
+      ]),
+      customLabel: zod.string().nullish(),
+      status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
+      isTelehealth: zod.boolean(),
+      location: zod.string().nullish(),
+      scheduledAt: zod.coerce.date().nullish(),
+      startedAt: zod.coerce.date().nullish(),
+      completedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * Patient must belong to the active organization. visitType='custom'
+requires customLabel; any other visitType forbids it. Defaults
+providerId to the current user when not supplied.
+
+ * @summary Start a new encounter
+ */
+
+export const createEncounterBodyCustomLabelMax = 120;
+
+export const createEncounterBodyLocationMax = 120;
+
+export const CreateEncounterBody = zod.object({
+  patientId: zod.string().min(1),
+  visitType: zod.enum([
+    "new_patient",
+    "established_patient",
+    "follow_up",
+    "annual_physical",
+    "hospital_follow_up",
+    "procedure",
+    "telehealth",
+    "nursing_facility",
+    "custom",
+  ]),
+  customLabel: zod
+    .string()
+    .min(1)
+    .max(createEncounterBodyCustomLabelMax)
+    .optional(),
+  isTelehealth: zod.boolean().optional(),
+  location: zod.string().max(createEncounterBodyLocationMax).optional(),
+  scheduledAt: zod.coerce.date().optional(),
+  providerId: zod.string().min(1).optional(),
+});
+
+/**
+ * @summary Read a single encounter
+ */
+export const GetEncounterParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  patientId: zod.string(),
+  providerId: zod.string().nullish(),
+  visitType: zod.enum([
+    "new_patient",
+    "established_patient",
+    "follow_up",
+    "annual_physical",
+    "hospital_follow_up",
+    "procedure",
+    "telehealth",
+    "nursing_facility",
+    "custom",
+  ]),
+  customLabel: zod.string().nullish(),
+  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
+  isTelehealth: zod.boolean(),
+  location: zod.string().nullish(),
+  scheduledAt: zod.coerce.date().nullish(),
+  startedAt: zod.coerce.date().nullish(),
+  completedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * Status transitions are enforced server-side: scheduled →
+in_progress → completed are the legal forward steps; cancellation
+is allowed from any non-terminal state. Completed and cancelled
+are terminal. Auto-stamps startedAt / completedAt timestamps on
+the matching transition.
+
+ * @summary Update encounter fields and/or transition status
+ */
+export const UpdateEncounterParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateEncounterBodyCustomLabelMax = 120;
+
+export const updateEncounterBodyLocationMax = 120;
+
+export const UpdateEncounterBody = zod
+  .object({
+    visitType: zod
+      .enum([
+        "new_patient",
+        "established_patient",
+        "follow_up",
+        "annual_physical",
+        "hospital_follow_up",
+        "procedure",
+        "telehealth",
+        "nursing_facility",
+        "custom",
+      ])
+      .optional(),
+    customLabel: zod
+      .string()
+      .min(1)
+      .max(updateEncounterBodyCustomLabelMax)
+      .nullish(),
+    isTelehealth: zod.boolean().optional(),
+    location: zod.string().max(updateEncounterBodyLocationMax).nullish(),
+    status: zod
+      .enum(["scheduled", "in_progress", "completed", "cancelled"])
+      .optional(),
+    scheduledAt: zod.coerce.date().nullish(),
+    providerId: zod.string().min(1).nullish(),
+  })
+  .describe(
+    "All fields optional. Set a field to null to clear it where the\ncolumn allows null (location, customLabel, scheduledAt,\nproviderId). visitType \/ status \/ isTelehealth are non-nullable\nso null isn't accepted there.\n",
+  );
+
+export const UpdateEncounterResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  patientId: zod.string(),
+  providerId: zod.string().nullish(),
+  visitType: zod.enum([
+    "new_patient",
+    "established_patient",
+    "follow_up",
+    "annual_physical",
+    "hospital_follow_up",
+    "procedure",
+    "telehealth",
+    "nursing_facility",
+    "custom",
+  ]),
+  customLabel: zod.string().nullish(),
+  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
+  isTelehealth: zod.boolean(),
+  location: zod.string().nullish(),
+  scheduledAt: zod.coerce.date().nullish(),
+  startedAt: zod.coerce.date().nullish(),
+  completedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
  * Pulls Condition (active), MedicationRequest (active), and AllergyIntolerance resources from the configured EHR in parallel and shapes them for a note-prep panel. The patient id parameter is the EHR Patient.id (same value used for /patients/sync).
  * @summary Active problems, medications, and allergies for a patient
  */

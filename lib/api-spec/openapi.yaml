@@ -22,6 +22,8 @@ tags:
     description: Administrative operations (role-gated)
   - name: recordings
     description: Ambient-scribe audio capture + AI structuring pipeline
+  - name: encounters
+    description: Visit envelope for note + billing + orders + tasks
 paths:
   /healthz:
     get:
@@ -683,6 +685,101 @@ paths:
           description: Caller has no ehrPractitionerId set
         "502":
           description: EHR returned an error
+  /encounters:
+    get:
+      operationId: listEncounters
+      tags: [encounters]
+      summary: List encounters in the active organization
+      description: |
+        Returns encounters scoped to the caller's active organization,
+        ordered by createdAt desc. Optional patientId narrows to a
+        single chart. Cap at 200 rows; revisit with cursor pagination if
+        a busy clinic exceeds it.
+      parameters:
+        - name: patientId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of encounters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEncounters200"
+        "401":
+          description: Unauthenticated
+        "409":
+          description: Session has no active organization
+    post:
+      operationId: createEncounter
+      tags: [encounters]
+      summary: Start a new encounter
+      description: |
+        Patient must belong to the active organization. visitType='custom'
+        requires customLabel; any other visitType forbids it. Defaults
+        providerId to the current user when not supplied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEncounterRequest"
+      responses:
+        "201":
+          description: Created encounter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Encounter" }
+        "400":
+          description: Invalid request or custom_label mismatch
+        "404":
+          description: Patient not found in the active organization
+  /encounters/{id}:
+    get:
+      operationId: getEncounter
+      tags: [encounters]
+      summary: Read a single encounter
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Encounter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Encounter" }
+        "404":
+          description: Encounter not found in the active organization
+    patch:
+      operationId: updateEncounter
+      tags: [encounters]
+      summary: Update encounter fields and/or transition status
+      description: |
+        Status transitions are enforced server-side: scheduled →
+        in_progress → completed are the legal forward steps; cancellation
+        is allowed from any non-terminal state. Completed and cancelled
+        are terminal. Auto-stamps startedAt / completedAt timestamps on
+        the matching transition.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEncounterRequest"
+      responses:
+        "200":
+          description: Updated encounter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Encounter" }
+        "400":
+          description: Invalid request
+        "404":
+          description: Encounter not found in the active organization
+        "409":
+          description: Illegal status transition
   /patients/{id}/history:
     get:
       operationId: getPatientHistory
@@ -1332,6 +1429,87 @@ components:
         body:
           type: string
           minLength: 1
+    VisitType:
+      type: string
+      enum:
+        - new_patient
+        - established_patient
+        - follow_up
+        - annual_physical
+        - hospital_follow_up
+        - procedure
+        - telehealth
+        - nursing_facility
+        - custom
+    EncounterStatus:
+      type: string
+      enum:
+        - scheduled
+        - in_progress
+        - completed
+        - cancelled
+    EncounterPriority:
+      type: string
+      enum: [routine, urgent, stat]
+    Encounter:
+      type: object
+      required:
+        - id
+        - organizationId
+        - patientId
+        - visitType
+        - status
+        - isTelehealth
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string }
+        organizationId: { type: string }
+        patientId: { type: string }
+        providerId: { type: string, nullable: true }
+        visitType: { $ref: "#/components/schemas/VisitType" }
+        customLabel: { type: string, nullable: true }
+        status: { $ref: "#/components/schemas/EncounterStatus" }
+        isTelehealth: { type: boolean }
+        location: { type: string, nullable: true }
+        scheduledAt: { type: string, format: date-time, nullable: true }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ListEncounters200:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Encounter" }
+    CreateEncounterRequest:
+      type: object
+      required: [patientId, visitType]
+      properties:
+        patientId: { type: string, minLength: 1 }
+        visitType: { $ref: "#/components/schemas/VisitType" }
+        customLabel: { type: string, minLength: 1, maxLength: 120 }
+        isTelehealth: { type: boolean }
+        location: { type: string, maxLength: 120 }
+        scheduledAt: { type: string, format: date-time }
+        providerId: { type: string, minLength: 1 }
+    UpdateEncounterRequest:
+      type: object
+      description: |
+        All fields optional. Set a field to null to clear it where the
+        column allows null (location, customLabel, scheduledAt,
+        providerId). visitType / status / isTelehealth are non-nullable
+        so null isn't accepted there.
+      properties:
+        visitType: { $ref: "#/components/schemas/VisitType" }
+        customLabel: { type: string, minLength: 1, maxLength: 120, nullable: true }
+        isTelehealth: { type: boolean }
+        location: { type: string, maxLength: 120, nullable: true }
+        status: { $ref: "#/components/schemas/EncounterStatus" }
+        scheduledAt: { type: string, format: date-time, nullable: true }
+        providerId: { type: string, minLength: 1, nullable: true }
     CreatePatientRequest:
       type: object
       required: [firstName, lastName, dateOfBirth, mrn]

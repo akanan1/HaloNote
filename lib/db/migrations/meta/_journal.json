@@ -183,6 +183,13 @@
       "when": 1781633352253,
       "tag": "0025_add_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1781634002875,
+      "tag": "0026_add_tasks",
+      "breakpoints": true
     }
   ]
 }

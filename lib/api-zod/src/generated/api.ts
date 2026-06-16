@@ -746,6 +746,12 @@ export const CreateNoteBody = zod.object({
     .describe(
       "When set, the new note supersedes this one. The original is preserved with status active; downstream EHR pushes carry relatesTo replaces.",
     ),
+  encounterId: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional encounter the note documents. Must belong to the same\npatient and the active organization, or the server returns 404.\nWhen set, the note appears on that encounter's review surface and\nits lifecycle (draft → approved → exported) drives the encounter\nreview workflow.\n",
+    ),
 });
 
 /**

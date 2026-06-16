@@ -62,6 +62,16 @@ function getEhrIdQueryParam(): string | undefined {
   return id?.trim() || undefined;
 }
 
+// When the page is opened from EncounterReview's "Record" CTA (or any
+// other encounter-rooted nav), the encounter id rides on the URL so the
+// autosaved draft can link itself to that encounter. The server verifies
+// patient + tenant; we just pass it through.
+function getEncounterIdQueryParam(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const id = new URLSearchParams(window.location.search).get("encounterId");
+  return id?.trim() || undefined;
+}
+
 // True when the page was opened from a "Start note" tap on the Today
 // schedule. The schedule row navigates here with `?autostart=1` so the
 // RecordingPanel kicks off `getUserMedia` immediately — the provider
@@ -106,6 +116,9 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   const ehrPatientId = useMemo(() => getEhrIdQueryParam(), []);
   // ?autostart=1 from the Today "Start note" tap → kick the mic on mount.
   const autoStartRecording = useMemo(() => getAutoStartQueryParam(), []);
+  // ?encounterId=enc_… — links the resulting draft to a specific encounter
+  // so the EncounterReview page surfaces it without any extra wiring.
+  const encounterId = useMemo(() => getEncounterIdQueryParam(), []);
 
   // When amending, fetch the predecessor via the bare client (not the
   // generated hook — its option types require a queryKey that we'd have
@@ -147,6 +160,7 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
     body,
     patientId,
     replacesNoteId,
+    encounterId,
     enabled: !isBusyState && sendState.phase !== "sent",
   });
 

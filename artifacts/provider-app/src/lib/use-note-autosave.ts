@@ -12,6 +12,13 @@ export interface UseNoteAutosaveParams {
   body: string;
   patientId: string;
   replacesNoteId?: string;
+  /**
+   * When the new-note composer is rooted in an encounter (the provider
+   * navigated from EncounterReview / clicked Start encounter), pass the
+   * encounter id so the autosaved draft is linked to it. The server
+   * verifies the encounter belongs to the same patient and tenant.
+   */
+  encounterId?: string;
   enabled?: boolean;
   debounceMs?: number;
 }
@@ -39,8 +46,14 @@ export interface UseNoteAutosaveResult {
 export function useNoteAutosave(
   params: UseNoteAutosaveParams,
 ): UseNoteAutosaveResult {
-  const { body, patientId, replacesNoteId, enabled = true, debounceMs = 1500 } =
-    params;
+  const {
+    body,
+    patientId,
+    replacesNoteId,
+    encounterId,
+    enabled = true,
+    debounceMs = 1500,
+  } = params;
   const queryClient = useQueryClient();
   const createNote = useCreateNote();
   const updateNote = useUpdateNote();
@@ -91,6 +104,7 @@ export function useNoteAutosave(
               patientId,
               body,
               ...(replacesNoteId ? { replacesNoteId } : {}),
+              ...(encounterId ? { encounterId } : {}),
             },
           });
           draftIdRef.current = note.id;
@@ -112,10 +126,10 @@ export function useNoteAutosave(
 
     inFlightRef.current = promise;
     return promise;
-    // body/patientId/replacesNoteId are captured fresh each call; createNote
-    // / updateNote are stable react-query mutation handles.
+    // body/patientId/replacesNoteId/encounterId are captured fresh each call;
+    // createNote / updateNote are stable react-query mutation handles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [body, patientId, replacesNoteId]);
+  }, [body, patientId, replacesNoteId, encounterId]);
 
   // Schedule a debounced save whenever the body changes (and differs from
   // the last persisted content).

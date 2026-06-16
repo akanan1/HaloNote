@@ -592,6 +592,8 @@ export function EncounterReviewPage({ patientId, encounterId }: Props) {
         note={noteQuery.data ?? null}
         loading={noteQuery.isPending}
         onChanged={() => invalidateAll()}
+        patientId={patientId}
+        encounterId={encounterId}
       />
 
       <BillingPanel
@@ -716,10 +718,14 @@ function NotePanel({
   note,
   loading,
   onChanged,
+  patientId,
+  encounterId,
 }: {
   note: Note | null;
   loading: boolean;
   onChanged: () => void;
+  patientId: string;
+  encounterId: string;
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -736,6 +742,13 @@ function NotePanel({
       setBusy(false);
     }
   };
+
+  // Where the "Record / write note" button goes — the NewNote page reads
+  // ?encounterId from the URL and threads it through useNoteAutosave so
+  // the resulting draft is linked back to this encounter. autostart=1
+  // tells RecordingPanel to fire getUserMedia immediately (the click on
+  // this link is the user gesture the browser wants).
+  const recordHref = `/patients/${patientId}/notes/new?encounterId=${encodeURIComponent(encounterId)}&autostart=1`;
 
   return (
     <Card className="space-y-3 p-5">
@@ -761,12 +774,21 @@ function NotePanel({
             Approve & sign
           </Button>
         ) : null}
+        {!loading && !note ? (
+          <Link href={recordHref}>
+            <Button size="sm">
+              <FileText className="h-4 w-4" aria-hidden="true" />
+              Start note
+            </Button>
+          </Link>
+        ) : null}
       </div>
       {loading ? (
         <p className="text-sm text-(--color-muted-foreground)">Loading note…</p>
       ) : !note ? (
         <p className="text-sm text-(--color-muted-foreground)">
-          No note linked to this encounter yet.
+          No note linked to this encounter yet. Start one to record audio and
+          generate a SOAP draft.
         </p>
       ) : (
         <>

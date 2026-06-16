@@ -222,17 +222,11 @@ router.post("/notes", async (req, res) => {
     }
   }
 
-  // Optional encounter linkage. Accepted as a raw field on the request
-  // body because the OpenAPI-generated `CreateNoteBody` doesn't carry
-  // it yet (will be added in a polish pass that regenerates the client
-  // + Zod). Until then, manually extract + validate.
-  const rawEncounterId =
-    typeof req.body === "object" &&
-    req.body !== null &&
-    typeof (req.body as { encounterId?: unknown }).encounterId === "string"
-      ? (req.body as { encounterId: string }).encounterId
-      : null;
-  if (rawEncounterId) {
+  // Optional encounter linkage now carried by the OpenAPI-generated
+  // CreateNoteBody. Verify the encounter belongs to the same tenant and
+  // patient — same 404-not-403 semantics as the patient check above.
+  const encounterId = parsed.data.encounterId ?? null;
+  if (encounterId) {
     const [enc] = await getDb()
       .select({
         id: encountersTable.id,
@@ -240,7 +234,7 @@ router.post("/notes", async (req, res) => {
         patientId: encountersTable.patientId,
       })
       .from(encountersTable)
-      .where(eq(encountersTable.id, rawEncounterId))
+      .where(eq(encountersTable.id, encounterId))
       .limit(1);
     if (!enc || enc.organizationId !== orgId) {
       res.status(404).json({ error: "encounter_not_found" });
@@ -260,7 +254,7 @@ router.post("/notes", async (req, res) => {
         patientId: parsed.data.patientId,
         body: parsed.data.body,
         authorId: author.id,
-        ...(rawEncounterId ? { encounterId: rawEncounterId } : {}),
+        ...(encounterId ? { encounterId } : {}),
         ...(parsed.data.replacesNoteId
           ? { replacesNoteId: parsed.data.replacesNoteId }
           : {}),

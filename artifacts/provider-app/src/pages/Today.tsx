@@ -27,6 +27,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { NeedsYourActionSection } from "@/components/NeedsYourActionSection";
 import { RecentEncountersSection } from "@/components/RecentEncountersSection";
 import {
   claimAppointment,
@@ -457,6 +458,12 @@ export function TodayPage() {
           })}
         </ul>
       )}
+
+      {/* The provider's home-page dashboard moment. Surfaces the
+          author's draft notes + overdue / due-today tasks across all
+          patients so the daily 'where do I start' question is answered
+          before they scroll. Hides itself when the inbox is clean. */}
+      <NeedsYourActionSection />
 
       {/* Recent encounters across all patients — surfaces ongoing work
           captured in HaloNote (independent of the EHR-driven schedule

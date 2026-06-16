@@ -143,10 +143,42 @@ router.get("/notes", async (req, res) => {
   const before = parseIsoDate(req.query["before"]);
   const limit = clampLimit(req.query["limit"]);
 
+  // Optional status filter for the Today action queue. Allowed values
+  // line up 1:1 with the note status union. Unknown values are silently
+  // ignored so a stale frontend sending the old 'active' / new
+  // 'approved' against a mismatched server doesn't get an error.
+  const statusRaw =
+    typeof req.query["status"] === "string"
+      ? req.query["status"].trim()
+      : undefined;
+  const ALLOWED_STATUSES = new Set([
+    "draft",
+    "approved",
+    "exported",
+    "entered-in-error",
+    "active",
+  ]);
+  const status =
+    statusRaw && ALLOWED_STATUSES.has(statusRaw) ? statusRaw : undefined;
+
+  // Optional authorId filter so the Today widget can show only the
+  // current provider's drafts. "me" shorthand resolves on the server.
+  const authorRaw =
+    typeof req.query["authorId"] === "string"
+      ? req.query["authorId"].trim()
+      : undefined;
+  const authorId =
+    authorRaw === "me" ? req.user?.id : authorRaw || undefined;
+
   // Tenant scope is always-on. Additional filters narrow within the org.
   const conditions = [eq(notesTable.organizationId, orgId)];
   if (patientId) conditions.push(eq(notesTable.patientId, patientId));
   if (before) conditions.push(lt(notesTable.createdAt, before));
+  if (status)
+    conditions.push(
+      eq(notesTable.status, status as typeof notesTable.$inferSelect.status),
+    );
+  if (authorId) conditions.push(eq(notesTable.authorId, authorId));
 
   // Fetch limit+1 to know if there's another page without a separate
   // count query.

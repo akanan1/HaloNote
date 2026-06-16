@@ -3,9 +3,13 @@
   "configurations": [
     {
       "name": "provider-app",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["-e", "console.log('attach to existing vite on 8081'); setInterval(()=>{}, 1e9);"],
-      "port": 8081
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/provider-app", "run", "dev"],
+      "port": 8081,
+      "env": {
+        "PORT": "8081",
+        "API_PROXY_TARGET": "http://localhost:8080"
+      }
     }
   ]
 }

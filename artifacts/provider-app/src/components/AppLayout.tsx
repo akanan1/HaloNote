@@ -4,6 +4,7 @@ import {
   Calendar,
   ContactRound,
   Crown,
+  ListChecks,
   LogOut,
   Menu,
   ScrollText,
@@ -41,6 +42,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   // /patients, /patients/new, /patients/:id, /patients/:id/notes/* all
   // belong to the Patients tab on mobile.
   const isPatientsActive = location.startsWith("/patients");
+  const isTasksActive = location.startsWith("/tasks");
   const isSettingsActive = location === "/settings";
   const isUsersActive = location === "/admin/users";
   const isAuditActive = location === "/audit-log";
@@ -95,6 +97,12 @@ export function AppLayout({ children }: AppLayoutProps) {
                   active={isPatientsActive}
                   icon={ContactRound}
                   label="Patients"
+                />
+                <TopNavLink
+                  href="/tasks"
+                  active={isTasksActive}
+                  icon={ListChecks}
+                  label="Tasks"
                 />
                 {isAdmin ? (
                   <>
@@ -193,6 +201,12 @@ export function AppLayout({ children }: AppLayoutProps) {
                 active={isPatientsActive}
                 icon={ContactRound}
                 label="Patients"
+              />
+              <BottomNavLink
+                href="/tasks"
+                active={isTasksActive}
+                icon={ListChecks}
+                label="Tasks"
               />
               <BottomNavLink
                 href="/settings"

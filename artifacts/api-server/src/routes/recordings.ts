@@ -29,6 +29,7 @@ function serializeJob(row: typeof recordingJobsTable.$inferSelect): RecordingJob
     organizationId: row.organizationId,
     userId: row.userId,
     patientId: row.patientId,
+    encounterId: row.encounterId,
     noteId: row.noteId,
     status: row.status,
     transcript: row.transcript,

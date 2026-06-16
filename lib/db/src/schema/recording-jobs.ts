@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { encountersTable } from "./encounters";
 import { organizationsTable } from "./organizations";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
@@ -42,6 +43,15 @@ export const recordingJobsTable = pgTable(
     // before any note row does, and gets linked when the worker
     // produces a structured body and we materialize a draft note.
     noteId: text("note_id").references(() => notesTable.id, {
+      onDelete: "set null",
+    }),
+    // The encounter this recording documents. Nullable for backward
+    // compatibility with legacy capture flows (recordings created
+    // before Phase 1) and for capture-first workflows where the
+    // encounter is selected after recording starts. The recording
+    // pipeline sets this when the encounter is known so the generated
+    // note can inherit it.
+    encounterId: text("encounter_id").references(() => encountersTable.id, {
       onDelete: "set null",
     }),
     status: text("status")

@@ -15,6 +15,7 @@ import legalRouter from "./legal";
 import founderRouter from "./founder";
 import recordingsRouter from "./recordings";
 import ehrOauthRouter from "./ehr-oauth";
+import encountersRouter from "./encounters";
 import devSandboxRouter from "./dev-sandbox";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCsrf } from "../middlewares/require-csrf";
@@ -80,6 +81,7 @@ router.use(founderRouter);
 // ============================================================
 router.use(requireBaa);
 router.use(patientsRouter);
+router.use(encountersRouter);
 router.use(notesRouter);
 router.use(scheduleRouter);
 router.use(recordingsRouter);

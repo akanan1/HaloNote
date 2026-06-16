@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Activity,
   AlertTriangle,
   CheckCircle2,
   ChevronLeft,
@@ -321,6 +322,49 @@ async function refineNote(noteId: string, instruction: string): Promise<RefineRe
     method: "POST",
     body: JSON.stringify({ instruction }),
   });
+}
+
+type VitalConfidence = "low" | "medium" | "high";
+
+interface NumericVital {
+  value: number;
+  source: string;
+  confidence: VitalConfidence;
+}
+
+interface BloodPressureVital {
+  systolic: number;
+  diastolic: number;
+  position?: string | null;
+  source: string;
+  confidence: VitalConfidence;
+}
+
+interface PainVital {
+  score: number | null;
+  source: string;
+  confidence: VitalConfidence;
+}
+
+interface VitalsResponse {
+  bp?: BloodPressureVital;
+  heartRate?: NumericVital;
+  respiratoryRate?: NumericVital;
+  temperatureF?: NumericVital;
+  spo2Percent?: NumericVital;
+  weightLbs?: NumericVital;
+  heightIn?: NumericVital;
+  bmi?: NumericVital;
+  pain?: PainVital;
+  other: { label: string; valueText: string; source: string }[];
+  source: "ai" | "stub";
+}
+
+async function extractVitals(noteId: string): Promise<VitalsResponse> {
+  return customFetch<VitalsResponse>(
+    `/api/notes/${noteId}/extract-vitals`,
+    { method: "POST" },
+  );
 }
 
 type SummaryLanguage = "en" | "es" | "zh" | "vi" | "ko" | "tl" | "ru";
@@ -665,6 +709,8 @@ export function EncounterReviewPage({ patientId, encounterId }: Props) {
         patientId={patientId}
         encounterId={encounterId}
       />
+
+      <VitalsPanel note={noteQuery.data ?? null} />
 
       <PatientSummaryPanel note={noteQuery.data ?? null} />
 
@@ -2306,3 +2352,256 @@ function summaryAsPlainText(s: PatientSummary): string {
   }
   return lines.join("\n").trim();
 }
+
+// ---------------------------------------------------------------------------
+// Vitals panel
+// ---------------------------------------------------------------------------
+
+function VitalsPanel({ note }: { note: Note | null }) {
+  const [vitals, setVitals] = useState<VitalsResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!note) return null;
+
+  const extract = async () => {
+    setBusy(true);
+    try {
+      const v = await extractVitals(note.id);
+      setVitals(v);
+      const count = countExtractedVitals(v);
+      if (count === 0) {
+        toast.message(
+          v.source === "ai"
+            ? "No vitals documented in this note."
+            : "AI is offline; stub returned no vitals.",
+        );
+      } else {
+        toast.success(`Extracted ${count} vital${count === 1 ? "" : "s"}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't extract vitals");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const extractedCount = vitals ? countExtractedVitals(vitals) : 0;
+
+  return (
+    <Card className="space-y-3 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Activity
+            className="h-5 w-5 text-(--color-muted-foreground)"
+            aria-hidden="true"
+          />
+          <h2 className="text-lg font-medium">Vitals</h2>
+          {vitals ? (
+            <span className="text-xs uppercase tracking-wide text-(--color-muted-foreground)">
+              {vitals.source === "ai" ? "AI" : "stub"}
+              {extractedCount > 0 ? ` · ${extractedCount} value${extractedCount === 1 ? "" : "s"}` : ""}
+            </span>
+          ) : null}
+        </div>
+        <Button
+          size="sm"
+          variant={vitals ? "outline" : "default"}
+          onClick={() => void extract()}
+          disabled={busy}
+        >
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+          )}
+          {vitals ? "Re-extract" : "Extract vitals"}
+        </Button>
+      </div>
+      {!vitals ? (
+        <p className="text-sm text-(--color-muted-foreground)">
+          Click to extract structured vital signs (BP, HR, temp, SpO₂…) from
+          the note. Each value shows the verbatim source phrase so you can
+          fact-check the extraction.
+        </p>
+      ) : extractedCount === 0 ? (
+        <p className="rounded-md bg-(--color-muted)/30 px-3 py-2 text-sm text-(--color-muted-foreground)">
+          {vitals.source === "ai"
+            ? "No vitals were documented in this note."
+            : "AI extractor is offline (ANTHROPIC_API_KEY not configured). No vitals returned."}
+        </p>
+      ) : (
+        <VitalsGrid vitals={vitals} />
+      )}
+    </Card>
+  );
+}
+
+function countExtractedVitals(v: VitalsResponse): number {
+  let n = 0;
+  if (v.bp) n++;
+  if (v.heartRate) n++;
+  if (v.respiratoryRate) n++;
+  if (v.temperatureF) n++;
+  if (v.spo2Percent) n++;
+  if (v.weightLbs) n++;
+  if (v.heightIn) n++;
+  if (v.bmi) n++;
+  if (v.pain) n++;
+  n += v.other.length;
+  return n;
+}
+
+const CONFIDENCE_DOT: Record<VitalConfidence, string> = {
+  high: "bg-emerald-500",
+  medium: "bg-amber-500",
+  low: "bg-red-500",
+};
+
+function VitalsGrid({ vitals }: { vitals: VitalsResponse }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      {vitals.bp ? (
+        <VitalTile
+          label="BP"
+          value={`${vitals.bp.systolic}/${vitals.bp.diastolic}`}
+          unit="mmHg"
+          source={vitals.bp.source}
+          confidence={vitals.bp.confidence}
+          extra={vitals.bp.position ?? undefined}
+        />
+      ) : null}
+      {vitals.heartRate ? (
+        <VitalTile
+          label="HR"
+          value={String(vitals.heartRate.value)}
+          unit="bpm"
+          source={vitals.heartRate.source}
+          confidence={vitals.heartRate.confidence}
+        />
+      ) : null}
+      {vitals.respiratoryRate ? (
+        <VitalTile
+          label="RR"
+          value={String(vitals.respiratoryRate.value)}
+          unit="bpm"
+          source={vitals.respiratoryRate.source}
+          confidence={vitals.respiratoryRate.confidence}
+        />
+      ) : null}
+      {vitals.temperatureF ? (
+        <VitalTile
+          label="Temp"
+          value={String(vitals.temperatureF.value)}
+          unit="°F"
+          source={vitals.temperatureF.source}
+          confidence={vitals.temperatureF.confidence}
+        />
+      ) : null}
+      {vitals.spo2Percent ? (
+        <VitalTile
+          label="SpO₂"
+          value={`${vitals.spo2Percent.value}`}
+          unit="%"
+          source={vitals.spo2Percent.source}
+          confidence={vitals.spo2Percent.confidence}
+        />
+      ) : null}
+      {vitals.weightLbs ? (
+        <VitalTile
+          label="Weight"
+          value={String(vitals.weightLbs.value)}
+          unit="lbs"
+          source={vitals.weightLbs.source}
+          confidence={vitals.weightLbs.confidence}
+        />
+      ) : null}
+      {vitals.heightIn ? (
+        <VitalTile
+          label="Height"
+          value={String(vitals.heightIn.value)}
+          unit="in"
+          source={vitals.heightIn.source}
+          confidence={vitals.heightIn.confidence}
+        />
+      ) : null}
+      {vitals.bmi ? (
+        <VitalTile
+          label="BMI"
+          value={String(vitals.bmi.value)}
+          unit=""
+          source={vitals.bmi.source}
+          confidence={vitals.bmi.confidence}
+        />
+      ) : null}
+      {vitals.pain ? (
+        <VitalTile
+          label="Pain"
+          value={vitals.pain.score != null ? `${vitals.pain.score}/10` : "—"}
+          unit=""
+          source={vitals.pain.source}
+          confidence={vitals.pain.confidence}
+        />
+      ) : null}
+      {vitals.other.map((o, i) => (
+        <VitalTile
+          key={`${o.label}-${i}`}
+          label={o.label}
+          value={o.valueText}
+          unit=""
+          source={o.source}
+          confidence="medium"
+        />
+      ))}
+    </div>
+  );
+}
+
+// Single vital "tile". Tabular numbers + confidence dot + verbatim
+// source line below. title attribute carries the full source so a long
+// quote isn't truncated invisibly.
+function VitalTile({
+  label,
+  value,
+  unit,
+  source,
+  confidence,
+  extra,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  source: string;
+  confidence: VitalConfidence;
+  extra?: string;
+}) {
+  return (
+    <div className="rounded-md border border-(--color-border) bg-(--color-card) p-3">
+      <div className="flex items-start justify-between gap-1">
+        <p className="text-xs uppercase tracking-wide text-(--color-muted-foreground)">
+          {label}
+        </p>
+        <span
+          aria-label={`Confidence: ${confidence}`}
+          title={`Confidence: ${confidence}`}
+          className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${CONFIDENCE_DOT[confidence]}`}
+        />
+      </div>
+      <div className="mt-0.5 flex items-baseline gap-1">
+        <p className="text-xl font-semibold tabular-nums">{value}</p>
+        {unit ? (
+          <p className="text-xs text-(--color-muted-foreground)">{unit}</p>
+        ) : null}
+      </div>
+      {extra ? (
+        <p className="text-xs text-(--color-muted-foreground)">{extra}</p>
+      ) : null}
+      <p
+        className="mt-1 truncate text-xs italic text-(--color-muted-foreground)"
+        title={source}
+      >
+        &ldquo;{source}&rdquo;
+      </p>
+    </div>
+  );
+}
+

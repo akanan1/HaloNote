@@ -19,6 +19,7 @@ import {
   type SummaryLanguage,
 } from "../lib/patient-summary-generator";
 import { refineNote } from "../lib/note-refiner";
+import { extractVitals } from "../lib/vital-extractor";
 import { z } from "@workspace/api-zod";
 
 // Statuses that lock the note body from further direct edits. Once a
@@ -808,6 +809,46 @@ router.post("/notes/:id/refine", async (req, res) => {
     req.log.error({ err, noteId }, "Failed to persist refined note");
     res.status(500).json({ error: "persistence_failed" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/extract-vitals — AI extracts structured vitals (BP, HR,
+// temp, SpO2, weight, etc.) from the note body. Read-only — the panel
+// renders the result inline and provider can fact-check against the
+// note via the verbatim source excerpt on each field. v2 will persist
+// + push along with the note to the EHR.
+// ---------------------------------------------------------------------------
+router.post("/notes/:id/extract-vitals", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  if (note.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+
+  const { result, source } = await extractVitals({
+    noteId: note.id,
+    noteBody: note.body,
+  });
+  res.json({ ...result, source });
 });
 
 router.post("/notes/:id/send-to-ehr", async (req, res) => {

@@ -7,7 +7,12 @@ import {
   RequestPasswordResetBody,
   SignupBody,
 } from "@workspace/api-zod";
-import { getDb, usersTable } from "@workspace/db";
+import {
+  getDb,
+  organizationMembersTable,
+  organizationsTable,
+  usersTable,
+} from "@workspace/db";
 import {
   createSession,
   destroySession,
@@ -119,16 +124,43 @@ router.post(
 
     try {
       const passwordHash = await hashPassword(parsed.data.password);
-      const [user] = await getDb()
-        .insert(usersTable)
-        .values({
-          id: `usr_${randomUUID()}`,
-          email,
-          displayName,
-          passwordHash,
-        })
-        .returning();
-      if (!user) throw new Error("Insert returned no row");
+
+      // Atomic: user, their personal organization, and their owner
+      // membership are created together. A signup must never produce
+      // a user with no org (which would 409 every subsequent PHI
+      // request via getActiveOrgId). The org defaults to a generic
+      // name + slug — the user can rename it from Settings later.
+      const orgId = `org_${randomUUID()}`;
+      const orgSlug = `org-${orgId.slice(4, 12)}`;
+      const orgName = `${displayName}'s Organization`;
+
+      const user = await getDb().transaction(async (tx) => {
+        const [u] = await tx
+          .insert(usersTable)
+          .values({
+            id: `usr_${randomUUID()}`,
+            email,
+            displayName,
+            passwordHash,
+          })
+          .returning();
+        if (!u) throw new Error("User insert returned no row");
+
+        await tx.insert(organizationsTable).values({
+          id: orgId,
+          name: orgName,
+          slug: orgSlug,
+        });
+
+        await tx.insert(organizationMembersTable).values({
+          organizationId: orgId,
+          userId: u.id,
+          role: "owner",
+          joinedAt: new Date(),
+        });
+
+        return u;
+      });
 
       // Welcome email — fire-and-forget. Signup must not fail if the
       // email provider is degraded; the user already has an account

@@ -55,6 +55,12 @@ export const auditLog: RequestHandler = (req, res, next) => {
   const resourceType = inferResourceType(req.path);
   const resourceId = inferResourceId(req.path);
   const userId = req.user?.id ?? null;
+  // Tenant scope. Null is acceptable for authenticated requests that
+  // haven't selected an org yet (fresh signup mid-flow) and for system
+  // events (cron, seed). Routes that touch PHI gate on the org being
+  // non-null via getActiveOrgId — so any audit row attached to a PHI
+  // mutation already has a real org by the time we get here.
+  const organizationId = req.activeOrganizationId ?? null;
 
   res.on("close", () => {
     // Only log meaningful outcomes — skip aborted requests with no status.
@@ -64,6 +70,7 @@ export const auditLog: RequestHandler = (req, res, next) => {
     getDb()
       .insert(auditLogTable)
       .values({
+        organizationId,
         userId,
         action,
         resourceType,

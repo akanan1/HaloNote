@@ -30,7 +30,14 @@ const DAILY_SERIES_DAYS = 30;
 
 const router: IRouter = Router();
 
-router.use(requireFounder);
+// Path-scoped so this gate only fires for the /founder/* surface. The
+// founder router is mounted at the root in routes/index.ts (because
+// every individual route here is already prefixed with /founder/...),
+// which means a path-agnostic `router.use(requireFounder)` would block
+// every downstream route in the chain — including the EHR OAuth router
+// non-founder providers need to connect Athena. Same gotcha the admin
+// sub-routers document in routes/index.ts.
+router.use("/founder", requireFounder);
 
 interface AnalyticsTotals {
   users: number;

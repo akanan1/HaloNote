@@ -37,10 +37,14 @@ ON CONFLICT ("id") DO NOTHING;
 --    If there is no founder, the oldest user is promoted to owner so
 --    the default org always has an owner.)
 -- ----------------------------------------------------------------------
+-- gen_random_uuid() is in core Postgres since 13. The 'om_' prefix
+-- matches the id pattern $defaultFn applies at the TS layer; downstream
+-- code that pattern-matches on the prefix keeps working.
 INSERT INTO "organization_members" (
-    "organization_id", "user_id", "role", "is_active", "joined_at", "created_at", "updated_at"
+    "id", "organization_id", "user_id", "role", "is_active", "joined_at", "created_at", "updated_at"
 )
 SELECT
+    'om_' || gen_random_uuid()::text,
     'org_default',
     u."id",
     CASE

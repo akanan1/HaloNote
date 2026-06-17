@@ -8,7 +8,8 @@
     "create-test-db": "tsx --env-file=../.env ./src/create-test-db.ts",
     "reset-dev-db": "tsx --env-file=../.env ./src/reset-dev-db.ts",
     "athena-sandbox-smoke": "tsx --env-file=../.env ./src/athena-sandbox-smoke.ts",
-    "athena-write-probe": "tsx --env-file=../.env ./src/athena-write-probe.ts"
+    "athena-write-probe": "tsx --env-file=../.env ./src/athena-write-probe.ts",
+    "backfill-ehr-patient-ids": "tsx --env-file=../.env ./src/backfill-ehr-patient-ids.ts"
   },
   "dependencies": {
     "@workspace/ehr": "workspace:*",

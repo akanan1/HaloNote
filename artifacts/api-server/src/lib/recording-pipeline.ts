@@ -21,7 +21,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient as createDeepgramClient } from "@deepgram/sdk";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import {
   getDb,
   noteTemplatesTable,
@@ -185,7 +185,12 @@ class PlaceholderPipeline implements RecordingPipeline {
 // the next request, so don't edit casually.
 const ANTHROPIC_MODEL = "claude-opus-4-7";
 const MAX_OUTPUT_TOKENS = 4096;
-const RECENT_NOTES_LIMIT = 3;
+// Number of prior notes we surface to the structuring prompt. Bumped
+// from 3 in Phase 30: a chronic patient's most relevant history
+// usually sits in visits 4–6 (med titration, last lab review, recent
+// referral). 8 stays well within the prompt budget while covering ~3
+// months of typical primary-care visits.
+const RECENT_NOTES_LIMIT = 8;
 
 // Frozen system prompt. Stays at the front of every request, gets a
 // cache_control breakpoint, and is the single largest cacheable block.
@@ -246,10 +251,71 @@ const SYSTEM_PROMPT = [
   "   headers and their bodies, and nothing else.",
 ].join("\n");
 
+// Compact vitals snapshot the structuring prompt sees per prior note.
+// Pulls directly from notes.extracted_vitals — same shape as Phase 17's
+// VitalsResult; we only forward the dimensions a clinician scans at a
+// glance and skip the long-tail "other[]" array.
+interface PriorVitalsSnapshot {
+  bp?: { systolic: number | null; diastolic: number | null };
+  heartRate?: number | null;
+  respiratoryRate?: number | null;
+  temperatureF?: number | null;
+  spo2Percent?: number | null;
+  weightLbs?: number | null;
+}
+
+interface PriorNoteContext {
+  createdAt: Date;
+  body: string;
+  vitals: PriorVitalsSnapshot | null;
+}
+
 interface PatientContext {
   firstName: string;
   age: number | null;
-  priorNotes: Array<{ createdAt: Date; body: string }>;
+  priorNotes: PriorNoteContext[];
+}
+
+// Narrow jsonb → typed snapshot. Falls back to null on any shape
+// mismatch — better to drop a malformed row than crash the pipeline.
+function pickVitalsSnapshot(raw: unknown): PriorVitalsSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out: PriorVitalsSnapshot = {};
+  if (r["bp"] && typeof r["bp"] === "object") {
+    const bp = r["bp"] as Record<string, unknown>;
+    const sys = typeof bp["systolic"] === "number" ? bp["systolic"] : null;
+    const dia = typeof bp["diastolic"] === "number" ? bp["diastolic"] : null;
+    if (sys != null || dia != null) {
+      out.bp = { systolic: sys, diastolic: dia };
+    }
+  }
+  for (const k of [
+    "heartRate",
+    "respiratoryRate",
+    "temperatureF",
+    "spo2Percent",
+    "weightLbs",
+  ] as const) {
+    const v = r[k];
+    if (typeof v === "number") {
+      out[k] = v;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function formatVitalsLine(v: PriorVitalsSnapshot): string {
+  const parts: string[] = [];
+  if (v.bp && (v.bp.systolic != null || v.bp.diastolic != null)) {
+    parts.push(`BP ${v.bp.systolic ?? "?"}/${v.bp.diastolic ?? "?"}`);
+  }
+  if (v.heartRate != null) parts.push(`HR ${v.heartRate}`);
+  if (v.respiratoryRate != null) parts.push(`RR ${v.respiratoryRate}`);
+  if (v.temperatureF != null) parts.push(`T ${v.temperatureF}°F`);
+  if (v.spo2Percent != null) parts.push(`SpO₂ ${v.spo2Percent}%`);
+  if (v.weightLbs != null) parts.push(`Wt ${v.weightLbs} lb`);
+  return parts.join(" · ");
 }
 
 // What we send to Claude for cue/visit-type matching. The full template
@@ -473,10 +539,24 @@ class DeepgramClaudePipeline implements RecordingPipeline {
       .limit(1);
     if (!p) return null;
 
+    // Only signed notes feed the prompt: drafts haven't been
+    // provider-reviewed (and may carry hallucinations), and
+    // entered-in-error notes were explicitly withdrawn — including
+    // either would leak unreviewed or retracted clinical assertions
+    // into the next note.
     const priorNotes = await getDb()
-      .select({ body: notesTable.body, createdAt: notesTable.createdAt })
+      .select({
+        body: notesTable.body,
+        createdAt: notesTable.createdAt,
+        extractedVitals: notesTable.extractedVitals,
+      })
       .from(notesTable)
-      .where(eq(notesTable.patientId, patientId))
+      .where(
+        and(
+          eq(notesTable.patientId, patientId),
+          inArray(notesTable.status, ["approved", "exported"]),
+        ),
+      )
       .orderBy(desc(notesTable.createdAt))
       .limit(RECENT_NOTES_LIMIT);
 
@@ -484,7 +564,14 @@ class DeepgramClaudePipeline implements RecordingPipeline {
       firstName: p.firstName,
       age: computeAge(p.dateOfBirth),
       // Reverse so the prompt reads chronologically (oldest → newest).
-      priorNotes: priorNotes.slice().reverse(),
+      priorNotes: priorNotes
+        .slice()
+        .reverse()
+        .map((n) => ({
+          createdAt: n.createdAt,
+          body: n.body,
+          vitals: pickVitalsSnapshot(n.extractedVitals),
+        })),
     };
   }
 
@@ -733,6 +820,23 @@ function renderPatientContextBlock(p: PatientContext | null): string {
   const lines: string[] = [];
   const ageStr = p.age != null ? `${p.age}-year-old` : "patient";
   lines.push(`Patient: ${p.firstName}, ${ageStr}.`);
+
+  // Vitals trend block: pulled from each prior note's extracted_vitals
+  // (Phase 17). Oldest → newest matches the prior-notes ordering so
+  // the AI can see whether BP/HR are trending up, down, or stable
+  // without having to re-read each note body for the numbers.
+  const notesWithVitals = p.priorNotes.filter((n) => n.vitals);
+  if (notesWithVitals.length > 0) {
+    lines.push("");
+    lines.push("Vital signs trend across visits (oldest first):");
+    for (const n of notesWithVitals) {
+      const line = formatVitalsLine(n.vitals!);
+      if (line) {
+        lines.push(`  ${n.createdAt.toISOString().slice(0, 10)}: ${line}`);
+      }
+    }
+  }
+
   if (p.priorNotes.length > 0) {
     lines.push("");
     lines.push(
@@ -741,13 +845,15 @@ function renderPatientContextBlock(p: PatientContext | null): string {
     );
     for (const n of p.priorNotes) {
       lines.push("");
-      lines.push(`--- Note from ${n.createdAt.toISOString().slice(0, 10)} ---`);
+      const dateStr = n.createdAt.toISOString().slice(0, 10);
+      const vitalsTag = n.vitals ? ` · ${formatVitalsLine(n.vitals)}` : "";
+      lines.push(`--- Note from ${dateStr}${vitalsTag} ---`);
       lines.push(n.body);
     }
     lines.push("");
     lines.push("--- End of prior notes ---");
   } else {
-    lines.push("No prior notes on file for this patient.");
+    lines.push("No prior signed notes on file for this patient.");
   }
   return lines.join("\n");
 }

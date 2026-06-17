@@ -748,6 +748,16 @@ export interface ApprovedBillingCode {
   billerApprovedAt: string | null;
   /** @nullable */
   exportedAt: string | null;
+  /**
+   * Resource ref returned by the charge system after a successful push.
+   * @nullable
+   */
+  ehrDocumentRef?: string | null;
+  /**
+   * Last EHR push error, if any. Cleared on success.
+   * @nullable
+   */
+  ehrError?: string | null;
 }
 
 export interface BillingResponse {
@@ -762,6 +772,24 @@ export const BillingSuggestSource = {
   ai: "ai",
   stub: "stub",
 } as const;
+
+export type EhrPushOutcomeProvider =
+  (typeof EhrPushOutcomeProvider)[keyof typeof EhrPushOutcomeProvider];
+
+export const EhrPushOutcomeProvider = {
+  athenahealth: "athenahealth",
+  epic: "epic",
+  mock: "mock",
+} as const;
+
+export interface EhrPushOutcome {
+  provider: EhrPushOutcomeProvider;
+  /** FHIR-style "ResourceType/id" reference returned by the upstream after a successful push (or a synthetic "mock-<localId>" identifier in mock mode). */
+  ehrDocumentRef: string;
+  pushedAt: string;
+  /** True when the push was a no-op against the mock backend. */
+  mock: boolean;
+}
 
 export type BillingSuggestResponse = BillingResponse & {
   source: BillingSuggestSource;
@@ -880,6 +908,16 @@ export type ApprovedOrder = OrderCommon & {
   exportReadyAt: string | null;
   /** @nullable */
   exportedAt: string | null;
+  /**
+   * Resource ref returned by the EHR after a successful push.
+   * @nullable
+   */
+  ehrDocumentRef?: string | null;
+  /**
+   * Last EHR push error, if any. Cleared on success.
+   * @nullable
+   */
+  ehrError?: string | null;
 };
 
 export interface OrdersResponse {

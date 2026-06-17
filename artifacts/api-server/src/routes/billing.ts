@@ -13,6 +13,8 @@ import {
 } from "@workspace/db";
 import { suggestBillingCodes } from "../lib/billing-suggester";
 import { getActiveOrgId } from "../lib/active-org";
+import { pushBillingCodeToEhr } from "../lib/ehr-push-billing";
+import { EhrPushError } from "../lib/ehr-push";
 
 const router: IRouter = Router();
 
@@ -50,6 +52,8 @@ function serializeApproved(row: ApprovedBillingCode) {
     billerApprovedAt: row.billerApprovedAt?.toISOString() ?? null,
     billerApprovedByUserId: row.billerApprovedByUserId,
     exportedAt: row.exportedAt?.toISOString() ?? null,
+    ehrDocumentRef: row.ehrDocumentRef,
+    ehrError: row.ehrError,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -480,6 +484,108 @@ router.post("/billing/codes/:id/biller-approve", async (req, res) => {
       );
   }
   res.json(serializeApproved(updated));
+});
+
+// ---------------------------------------------------------------------------
+// POST /billing/codes/:id/send-to-ehr — push a biller-approved code to
+// the EHR / charge system. Gates on biller_approved_at != null (biller
+// sign-off is the export-readiness signal for billing — distinct from
+// orders, which use status='export_ready'). On success flips exportedAt
+// + ehrDocumentRef; on failure persists ehrError for retry.
+// ---------------------------------------------------------------------------
+router.post("/billing/codes/:id/send-to-ehr", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const codeId = req.params.id;
+  const db = getDb();
+
+  const [code] = await db
+    .select()
+    .from(approvedBillingCodesTable)
+    .where(
+      and(
+        eq(approvedBillingCodesTable.id, codeId),
+        eq(approvedBillingCodesTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  if (!code) {
+    res.status(404).json({ error: "code_not_found" });
+    return;
+  }
+  if (!code.billerApprovedAt) {
+    res.status(409).json({ error: "code_not_biller_approved" });
+    return;
+  }
+  // Allow idempotent retry of already-exported codes — the mock layer
+  // returns a stable synthetic id; real-mode upstreams should treat
+  // create-with-existing-identifier as upsert.
+
+  try {
+    const outcome = await pushBillingCodeToEhr({
+      billingCode: {
+        id: code.id,
+        codeSystem: code.codeSystem,
+        code: code.code,
+        description: code.description,
+      },
+      encounterEhrRef: null,
+      ...(req.user?.id ? { userId: req.user.id } : {}),
+    });
+
+    await db
+      .update(approvedBillingCodesTable)
+      .set({
+        exportedAt: outcome.pushedAt,
+        ehrDocumentRef: outcome.ehrDocumentRef,
+        ehrError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(approvedBillingCodesTable.id, codeId),
+          eq(approvedBillingCodesTable.organizationId, orgId),
+        ),
+      );
+
+    // Mirror onto the source suggestion so the queue sees the export.
+    if (code.sourceSuggestionId) {
+      await db
+        .update(billingSuggestionsTable)
+        .set({ status: "exported", updatedAt: new Date() })
+        .where(
+          and(
+            eq(billingSuggestionsTable.id, code.sourceSuggestionId),
+            eq(billingSuggestionsTable.organizationId, orgId),
+          ),
+        );
+    }
+
+    res.json({
+      provider: outcome.provider,
+      ehrDocumentRef: outcome.ehrDocumentRef,
+      pushedAt: outcome.pushedAt,
+      mock: outcome.mock,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err, codeId }, "EHR billing push failed");
+    await db
+      .update(approvedBillingCodesTable)
+      .set({ ehrError: message, updatedAt: new Date() })
+      .where(
+        and(
+          eq(approvedBillingCodesTable.id, codeId),
+          eq(approvedBillingCodesTable.organizationId, orgId),
+        ),
+      )
+      .catch(() => {});
+    if (err instanceof EhrPushError) {
+      res.status(err.status).json({ error: "ehr_push_failed", message });
+      return;
+    }
+    res.status(500).json({ error: "ehr_push_failed", message });
+  }
 });
 
 export default router;

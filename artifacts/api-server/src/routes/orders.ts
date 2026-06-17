@@ -15,6 +15,9 @@ import {
 } from "@workspace/db";
 import { normalizeOrder, suggestOrders } from "../lib/order-suggester";
 import { getActiveOrgId } from "../lib/active-org";
+import { findPatient } from "../lib/patients";
+import { pushOrderToEhr } from "../lib/ehr-push-order";
+import { EhrPushError } from "../lib/ehr-push";
 
 const router: IRouter = Router();
 
@@ -92,6 +95,8 @@ function serializeApproved(row: ApprovedOrder) {
     approvedByUserId: row.approvedByUserId,
     exportReadyAt: row.exportReadyAt?.toISOString() ?? null,
     exportedAt: row.exportedAt?.toISOString() ?? null,
+    ehrDocumentRef: row.ehrDocumentRef,
+    ehrError: row.ehrError,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -787,6 +792,133 @@ router.post("/orders/:id/mark-export-ready", async (req, res) => {
     return;
   }
   res.json(serializeApproved(updated));
+});
+
+// ---------------------------------------------------------------------------
+// POST /orders/:id/send-to-ehr — push the export_ready order to the EHR.
+// Gates on status === "export_ready"; on success flips to "exported" and
+// stamps exported_at + ehrDocumentRef. Push failures persist ehrError so
+// the UI can surface the message + offer retry.
+// ---------------------------------------------------------------------------
+router.post("/orders/:id/send-to-ehr", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const id = req.params.id;
+  const db = getDb();
+
+  const [order] = await db
+    .select()
+    .from(approvedOrdersTable)
+    .where(
+      and(
+        eq(approvedOrdersTable.id, id),
+        eq(approvedOrdersTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  if (!order) {
+    res.status(404).json({ error: "order_not_found" });
+    return;
+  }
+  if (order.status !== "export_ready" && order.status !== "exported") {
+    // exported is allowed for idempotent retry (re-push after a
+    // partial network failure is safe — the mock layer returns the
+    // same synthetic id and real-mode upstreams treat the create as
+    // an update on matching identifier).
+    res
+      .status(409)
+      .json({ error: "order_not_export_ready", status: order.status });
+    return;
+  }
+
+  // Look up patient via the encounter, since approved_orders doesn't
+  // carry patientId directly. Same lookup pattern as notes/send-to-ehr.
+  const [enc] = await db
+    .select({ patientId: encountersTable.patientId })
+    .from(encountersTable)
+    .where(
+      and(
+        eq(encountersTable.id, order.encounterId),
+        eq(encountersTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  if (!enc) {
+    res.status(404).json({ error: "encounter_not_found" });
+    return;
+  }
+  const patient = await findPatient(enc.patientId, orgId);
+  if (!patient) {
+    res.status(404).json({ error: "patient_not_found" });
+    return;
+  }
+
+  try {
+    const outcome = await pushOrderToEhr({
+      order: {
+        id: order.id,
+        orderType: order.orderType,
+        name: order.name,
+        indication: order.indication,
+        indicationDiagnosisCode: order.indicationDiagnosisCode,
+        priority: order.priority,
+        instructions: order.instructions,
+        frequency: order.frequency,
+        duration: order.duration,
+        medicationName: order.medicationName,
+        medicationDose: order.medicationDose,
+        medicationRoute: order.medicationRoute,
+        medicationFrequency: order.medicationFrequency,
+        medicationDuration: order.medicationDuration,
+        medicationQuantity: order.medicationQuantity,
+        medicationRefills: order.medicationRefills,
+      },
+      patient,
+      encounterEhrRef: null,
+      ...(req.user?.id ? { userId: req.user.id } : {}),
+    });
+
+    await db
+      .update(approvedOrdersTable)
+      .set({
+        status: "exported",
+        exportedAt: outcome.pushedAt,
+        ehrDocumentRef: outcome.ehrDocumentRef,
+        ehrError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(approvedOrdersTable.id, id),
+          eq(approvedOrdersTable.organizationId, orgId),
+        ),
+      );
+
+    res.json({
+      provider: outcome.provider,
+      ehrDocumentRef: outcome.ehrDocumentRef,
+      pushedAt: outcome.pushedAt,
+      mock: outcome.mock,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err, orderId: id }, "EHR order push failed");
+    await db
+      .update(approvedOrdersTable)
+      .set({ ehrError: message, updatedAt: new Date() })
+      .where(
+        and(
+          eq(approvedOrdersTable.id, id),
+          eq(approvedOrdersTable.organizationId, orgId),
+        ),
+      )
+      .catch(() => {});
+    if (err instanceof EhrPushError) {
+      res.status(err.status).json({ error: "ehr_push_failed", message });
+      return;
+    }
+    res.status(500).json({ error: "ehr_push_failed", message });
+  }
 });
 
 // ---------------------------------------------------------------------------

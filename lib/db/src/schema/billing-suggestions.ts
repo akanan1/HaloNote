@@ -215,6 +215,11 @@ export const approvedBillingCodesTable = pgTable(
       mode: "date",
       withTimezone: true,
     }),
+    // EHR-side reference returned after a successful push (FHIR Claim
+    // or charge-row identifier). Same shape as notes.ehrDocumentRef.
+    ehrDocumentRef: text("ehr_document_ref"),
+    // Most recent push error. Surfaced in the billing UI for retry.
+    ehrError: text("ehr_error"),
 
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()

@@ -237,6 +237,14 @@ export const approvedOrdersTable = pgTable(
       mode: "date",
       withTimezone: true,
     }),
+    // EHR-side reference returned by the upstream after a successful
+    // push (FHIR resource reference for medication orders, lab orders,
+    // etc.). Mirrors notes.ehrDocumentRef shape so the UI can render
+    // a uniform "Exported · <ref>" pill across surfaces.
+    ehrDocumentRef: text("ehr_document_ref"),
+    // Most recent push error. Surfaced verbatim in the orders UI so
+    // the provider knows what to fix on retry. Cleared on success.
+    ehrError: text("ehr_error"),
 
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()

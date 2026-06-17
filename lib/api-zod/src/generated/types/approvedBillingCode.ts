@@ -20,4 +20,14 @@ export interface ApprovedBillingCode {
   billerApprovedAt: Date | null;
   /** @nullable */
   exportedAt: Date | null;
+  /**
+   * Resource ref returned by the charge system after a successful push.
+   * @nullable
+   */
+  ehrDocumentRef?: string | null;
+  /**
+   * Last EHR push error, if any. Cleared on success.
+   * @nullable
+   */
+  ehrError?: string | null;
 }

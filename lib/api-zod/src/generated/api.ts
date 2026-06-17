@@ -1784,6 +1784,16 @@ export const GetEncounterBillingResponse = zod.object({
       approvedAt: zod.coerce.date().nullable(),
       billerApprovedAt: zod.coerce.date().nullable(),
       exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe(
+          "Resource ref returned by the charge system after a successful push.",
+        ),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
     }),
   ),
 });
@@ -1840,6 +1850,16 @@ export const SuggestEncounterBillingResponse = zod
         approvedAt: zod.coerce.date().nullable(),
         billerApprovedAt: zod.coerce.date().nullable(),
         exportedAt: zod.coerce.date().nullable(),
+        ehrDocumentRef: zod
+          .string()
+          .nullish()
+          .describe(
+            "Resource ref returned by the charge system after a successful push.",
+          ),
+        ehrError: zod
+          .string()
+          .nullish()
+          .describe("Last EHR push error, if any. Cleared on success."),
       }),
     ),
   })
@@ -1865,6 +1885,16 @@ export const ApproveBillingSuggestionResponse = zod.object({
   approvedAt: zod.coerce.date().nullable(),
   billerApprovedAt: zod.coerce.date().nullable(),
   exportedAt: zod.coerce.date().nullable(),
+  ehrDocumentRef: zod
+    .string()
+    .nullish()
+    .describe(
+      "Resource ref returned by the charge system after a successful push.",
+    ),
+  ehrError: zod
+    .string()
+    .nullish()
+    .describe("Last EHR push error, if any. Cleared on success."),
 });
 
 /**
@@ -1927,6 +1957,37 @@ export const BillerApproveBillingCodeResponse = zod.object({
   approvedAt: zod.coerce.date().nullable(),
   billerApprovedAt: zod.coerce.date().nullable(),
   exportedAt: zod.coerce.date().nullable(),
+  ehrDocumentRef: zod
+    .string()
+    .nullish()
+    .describe(
+      "Resource ref returned by the charge system after a successful push.",
+    ),
+  ehrError: zod
+    .string()
+    .nullish()
+    .describe("Last EHR push error, if any. Cleared on success."),
+});
+
+/**
+ * Gates on biller_approved_at != null. Idempotent on re-push (mock layer returns a stable synthetic id). Real-mode wiring is per-provider follow-up.
+ * @summary Push a biller-approved code to the EHR / charge system
+ */
+export const SendBillingCodeToEhrParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SendBillingCodeToEhrResponse = zod.object({
+  provider: zod.enum(["athenahealth", "epic", "mock"]),
+  ehrDocumentRef: zod
+    .string()
+    .describe(
+      'FHIR-style \"ResourceType\/id\" reference returned by the upstream after a successful push (or a synthetic \"mock-<localId>\" identifier in mock mode).',
+    ),
+  pushedAt: zod.coerce.date(),
+  mock: zod
+    .boolean()
+    .describe("True when the push was a no-op against the mock backend."),
 });
 
 /**
@@ -2041,6 +2102,16 @@ export const GetEncounterOrdersResponse = zod.object({
           approvedAt: zod.coerce.date().nullable(),
           exportReadyAt: zod.coerce.date().nullable(),
           exportedAt: zod.coerce.date().nullable(),
+          ehrDocumentRef: zod
+            .string()
+            .nullish()
+            .describe(
+              "Resource ref returned by the EHR after a successful push.",
+            ),
+          ehrError: zod
+            .string()
+            .nullish()
+            .describe("Last EHR push error, if any. Cleared on success."),
         }),
       ),
   ),
@@ -2162,6 +2233,14 @@ export const ApproveOrderSuggestionResponse = zod
       approvedAt: zod.coerce.date().nullable(),
       exportReadyAt: zod.coerce.date().nullable(),
       exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
     }),
   );
 
@@ -2430,6 +2509,14 @@ export const UpdateOrderResponse = zod
       approvedAt: zod.coerce.date().nullable(),
       exportReadyAt: zod.coerce.date().nullable(),
       exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
     }),
   );
 
@@ -2485,8 +2572,37 @@ export const MarkOrderExportReadyResponse = zod
       approvedAt: zod.coerce.date().nullable(),
       exportReadyAt: zod.coerce.date().nullable(),
       exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
     }),
   );
+
+/**
+ * Gates on status == export_ready (or exported, for idempotent retry). On success the order flips to status=exported with exported_at + ehr_document_ref set. Push failures persist ehr_error and 502.
+ * @summary Push an export-ready order to the EHR
+ */
+export const SendOrderToEhrParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SendOrderToEhrResponse = zod.object({
+  provider: zod.enum(["athenahealth", "epic", "mock"]),
+  ehrDocumentRef: zod
+    .string()
+    .describe(
+      'FHIR-style \"ResourceType\/id\" reference returned by the upstream after a successful push (or a synthetic \"mock-<localId>\" identifier in mock mode).',
+    ),
+  pushedAt: zod.coerce.date(),
+  mock: zod
+    .boolean()
+    .describe("True when the push was a no-op against the mock backend."),
+});
 
 /**
  * @summary Cancel an approved order
@@ -2546,6 +2662,14 @@ export const CancelOrderResponse = zod
       approvedAt: zod.coerce.date().nullable(),
       exportReadyAt: zod.coerce.date().nullable(),
       exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
     }),
   );
 

@@ -45,6 +45,8 @@ export * from "./createVerbalCueRequest";
 export * from "./dailyCount";
 export * from "./ehrConnectionStatus";
 export * from "./ehrProviderConnection";
+export * from "./ehrPushOutcome";
+export * from "./ehrPushOutcomeProvider";
 export * from "./ehrPushResult";
 export * from "./encounter";
 export * from "./encounterPriority";

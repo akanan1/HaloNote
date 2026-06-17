@@ -136,6 +136,8 @@ interface ApprovedBillingCode {
   approvedAt: string | null;
   billerApprovedAt: string | null;
   exportedAt: string | null;
+  ehrDocumentRef: string | null;
+  ehrError: string | null;
 }
 
 interface BillingResponse {
@@ -523,6 +525,26 @@ async function markOrderExportReady(id: string): Promise<ApprovedOrder> {
   return customFetch<ApprovedOrder>(`/api/orders/${id}/mark-export-ready`, {
     method: "POST",
   });
+}
+
+interface EhrPushOutcome {
+  provider: "athenahealth" | "epic" | "mock";
+  ehrDocumentRef: string;
+  pushedAt: string;
+  mock: boolean;
+}
+
+async function sendOrderToEhr(id: string): Promise<EhrPushOutcome> {
+  return customFetch<EhrPushOutcome>(`/api/orders/${id}/send-to-ehr`, {
+    method: "POST",
+  });
+}
+
+async function sendBillingCodeToEhr(id: string): Promise<EhrPushOutcome> {
+  return customFetch<EhrPushOutcome>(
+    `/api/billing/codes/${id}/send-to-ehr`,
+    { method: "POST" },
+  );
 }
 
 // ---- Tasks ----------------------------------------------------------------
@@ -1215,6 +1237,23 @@ function BillingPanel({
       toast.error(err instanceof Error ? err.message : "Suggest failed"),
   });
 
+  async function handleSendCodeToEhr(codeId: string) {
+    setBusyId(codeId);
+    try {
+      const outcome = await sendBillingCodeToEhr(codeId);
+      toast.success(
+        outcome.mock
+          ? "Sent to EHR (mock)"
+          : `Sent to ${outcome.provider}`,
+      );
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "EHR push failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleApprove(s: BillingSuggestion) {
     const blockers = s.documentationGaps.filter((g) => g.severity === "block");
     let ack = false;
@@ -1356,6 +1395,29 @@ function BillingPanel({
                       ? "Biller approved"
                       : "Provider approved"}
                 </span>
+                {a.billerApprovedAt ? (
+                  <Button
+                    size="sm"
+                    variant={a.exportedAt ? "outline" : undefined}
+                    onClick={() => void handleSendCodeToEhr(a.id)}
+                    disabled={busyId === a.id}
+                  >
+                    {busyId === a.id ? (
+                      <Loader2
+                        className="h-3 w-3 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Send className="h-3 w-3" aria-hidden="true" />
+                    )}
+                    {a.exportedAt ? "Re-send" : "Send to EHR"}
+                  </Button>
+                ) : null}
+                {a.ehrError ? (
+                  <span className="basis-full text-xs text-(--color-destructive)">
+                    Last push: {a.ehrError}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -1773,6 +1835,21 @@ function ApprovedOrderRow({
     }
   }
 
+  async function handleSendToEhr() {
+    setBusyId(ord.id);
+    try {
+      const outcome = await sendOrderToEhr(ord.id);
+      toast.success(
+        outcome.mock ? "Sent to EHR (mock)" : `Sent to ${outcome.provider}`,
+      );
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "EHR push failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <li>
       <div className="space-y-2 rounded-md border border-(--color-border) bg-(--color-card) p-3">
@@ -1820,6 +1897,17 @@ function ApprovedOrderRow({
               >
                 <Send className="h-4 w-4" aria-hidden="true" />
                 Mark export-ready
+              </Button>
+            ) : null}
+            {ord.status === "export_ready" || ord.status === "exported" ? (
+              <Button
+                size="sm"
+                variant={ord.status === "exported" ? "outline" : undefined}
+                onClick={() => void handleSendToEhr()}
+                disabled={busy}
+              >
+                <Send className="h-4 w-4" aria-hidden="true" />
+                {ord.status === "exported" ? "Re-send" : "Send to EHR"}
               </Button>
             ) : null}
           </div>

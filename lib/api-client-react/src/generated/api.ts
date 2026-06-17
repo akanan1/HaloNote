@@ -40,6 +40,7 @@ import type {
   CreateTemplateRequest,
   CreateVerbalCueRequest,
   EhrConnectionStatus,
+  EhrPushOutcome,
   EhrPushResult,
   Encounter,
   FounderAnalytics,
@@ -4864,6 +4865,91 @@ export const useBillerApproveBillingCode = <
 };
 
 /**
+ * Gates on biller_approved_at != null. Idempotent on re-push (mock layer returns a stable synthetic id). Real-mode wiring is per-provider follow-up.
+ * @summary Push a biller-approved code to the EHR / charge system
+ */
+export const getSendBillingCodeToEhrUrl = (id: string) => {
+  return `/api/billing/codes/${id}/send-to-ehr`;
+};
+
+export const sendBillingCodeToEhr = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EhrPushOutcome> => {
+  return customFetch<EhrPushOutcome>(getSendBillingCodeToEhrUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendBillingCodeToEhrMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendBillingCodeToEhr>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendBillingCodeToEhr>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["sendBillingCodeToEhr"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendBillingCodeToEhr>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return sendBillingCodeToEhr(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendBillingCodeToEhrMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendBillingCodeToEhr>>
+>;
+
+export type SendBillingCodeToEhrMutationError = ErrorType<void>;
+
+/**
+ * @summary Push a biller-approved code to the EHR / charge system
+ */
+export const useSendBillingCodeToEhr = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendBillingCodeToEhr>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendBillingCodeToEhr>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getSendBillingCodeToEhrMutationOptions(options));
+};
+
+/**
  * @summary List order suggestions + approved orders for an encounter
  */
 export const getGetEncounterOrdersUrl = (id: string) => {
@@ -5461,6 +5547,91 @@ export const useMarkOrderExportReady = <
   TContext
 > => {
   return useMutation(getMarkOrderExportReadyMutationOptions(options));
+};
+
+/**
+ * Gates on status == export_ready (or exported, for idempotent retry). On success the order flips to status=exported with exported_at + ehr_document_ref set. Push failures persist ehr_error and 502.
+ * @summary Push an export-ready order to the EHR
+ */
+export const getSendOrderToEhrUrl = (id: string) => {
+  return `/api/orders/${id}/send-to-ehr`;
+};
+
+export const sendOrderToEhr = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EhrPushOutcome> => {
+  return customFetch<EhrPushOutcome>(getSendOrderToEhrUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendOrderToEhrMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendOrderToEhr>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendOrderToEhr>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["sendOrderToEhr"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendOrderToEhr>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return sendOrderToEhr(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendOrderToEhrMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendOrderToEhr>>
+>;
+
+export type SendOrderToEhrMutationError = ErrorType<void>;
+
+/**
+ * @summary Push an export-ready order to the EHR
+ */
+export const useSendOrderToEhr = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendOrderToEhr>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendOrderToEhr>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getSendOrderToEhrMutationOptions(options));
 };
 
 /**

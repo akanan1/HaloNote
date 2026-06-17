@@ -18,4 +18,14 @@ export type ApprovedOrder = OrderCommon & {
   exportReadyAt: Date | null;
   /** @nullable */
   exportedAt: Date | null;
+  /**
+   * Resource ref returned by the EHR after a successful push.
+   * @nullable
+   */
+  ehrDocumentRef?: string | null;
+  /**
+   * Last EHR push error, if any. Cleared on success.
+   * @nullable
+   */
+  ehrError?: string | null;
 };

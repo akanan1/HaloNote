@@ -1309,6 +1309,30 @@ paths:
                 $ref: "#/components/schemas/ApprovedBillingCode"
         "404":
           description: Code not found
+  /billing/codes/{id}/send-to-ehr:
+    post:
+      operationId: sendBillingCodeToEhr
+      tags: [billing]
+      summary: Push a biller-approved code to the EHR / charge system
+      description: >-
+        Gates on biller_approved_at != null. Idempotent on re-push
+        (mock layer returns a stable synthetic id). Real-mode wiring
+        is per-provider follow-up.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Pushed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EhrPushOutcome"
+        "404":
+          description: Code not found
+        "409":
+          description: Code not yet biller-approved
+        "502":
+          description: Upstream EHR push failed
   /encounters/{id}/orders:
     get:
       operationId: getEncounterOrders
@@ -1447,6 +1471,31 @@ paths:
           description: Order not found
         "409":
           description: Order in a non-promotable state
+  /orders/{id}/send-to-ehr:
+    post:
+      operationId: sendOrderToEhr
+      tags: [orders]
+      summary: Push an export-ready order to the EHR
+      description: >-
+        Gates on status == export_ready (or exported, for idempotent
+        retry). On success the order flips to status=exported with
+        exported_at + ehr_document_ref set. Push failures persist
+        ehr_error and 502.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Pushed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EhrPushOutcome"
+        "404":
+          description: Order, encounter, or patient not found
+        "409":
+          description: Order is not in an exportable state
+        "502":
+          description: Upstream EHR push failed
   /orders/{id}/cancel:
     post:
       operationId: cancelOrder
@@ -2775,6 +2824,12 @@ components:
         exportedAt:
           type: ["string", "null"]
           format: date-time
+        ehrDocumentRef:
+          type: ["string", "null"]
+          description: Resource ref returned by the charge system after a successful push.
+        ehrError:
+          type: ["string", "null"]
+          description: Last EHR push error, if any. Cleared on success.
     BillingResponse:
       type: object
       required: [suggestions, approvedCodes]
@@ -2788,6 +2843,25 @@ components:
     BillingSuggestSource:
       type: string
       enum: [ai, stub]
+    EhrPushOutcome:
+      type: object
+      required: [provider, ehrDocumentRef, pushedAt, mock]
+      properties:
+        provider:
+          type: string
+          enum: [athenahealth, epic, mock]
+        ehrDocumentRef:
+          type: string
+          description: >-
+            FHIR-style "ResourceType/id" reference returned by the
+            upstream after a successful push (or a synthetic
+            "mock-<localId>" identifier in mock mode).
+        pushedAt:
+          type: string
+          format: date-time
+        mock:
+          type: boolean
+          description: True when the push was a no-op against the mock backend.
     BillingSuggestResponse:
       allOf:
         - $ref: "#/components/schemas/BillingResponse"
@@ -2908,6 +2982,12 @@ components:
             exportedAt:
               type: ["string", "null"]
               format: date-time
+            ehrDocumentRef:
+              type: ["string", "null"]
+              description: Resource ref returned by the EHR after a successful push.
+            ehrError:
+              type: ["string", "null"]
+              description: Last EHR push error, if any. Cleared on success.
     OrdersResponse:
       type: object
       required: [suggestions, approvedOrders]

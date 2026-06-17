@@ -239,6 +239,13 @@
       "when": 1781702411575,
       "tag": "0033_add_verbal_cues_and_live_transcript",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781704518547,
+      "tag": "0034_add_ehr_push_columns_to_orders_billing",
+      "breakpoints": true
     }
   ]
 }

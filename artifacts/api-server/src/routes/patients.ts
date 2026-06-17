@@ -209,6 +209,7 @@ router.post("/patients/sync", async (req, res) => {
       const updated = await db
         .update(patientsTable)
         .set({
+          ehrPatientId: fields.ehrPatientId,
           firstName: fields.firstName,
           lastName: fields.lastName,
           dateOfBirth: fields.dateOfBirth,
@@ -233,6 +234,7 @@ router.post("/patients/sync", async (req, res) => {
       .values({
         id: `pt_${randomUUID()}`,
         organizationId: orgId,
+        ehrPatientId: fields.ehrPatientId,
         firstName: fields.firstName,
         lastName: fields.lastName,
         dateOfBirth: fields.dateOfBirth,

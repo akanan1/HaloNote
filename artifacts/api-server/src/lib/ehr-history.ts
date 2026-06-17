@@ -3,6 +3,7 @@ import {
   type AllergyIntolerance as FhirAllergyIntolerance,
   type Bundle,
   type Condition as FhirCondition,
+  type DocumentReference as FhirDocumentReference,
   type FhirClient,
   type MedicationRequest as FhirMedicationRequest,
 } from "@workspace/ehr";
@@ -239,5 +240,191 @@ function buildMockHistory(ehrPatientId: string): PatientHistory {
       };
     default:
       return { problems: [], medications: [], allergies: [] };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prior chart notes — Phase 33
+//
+// The recording-pipeline used to only see notes HaloNote itself
+// generated. For a freshly-onboarded patient (or a doctor's first
+// week on the platform) that meant zero prior context, even though
+// the EHR's chart was full of history. Pulling the patient's
+// DocumentReferences from Athena/Epic/Cerner closes the gap.
+//
+// We deliberately keep this in its own function (rather than folding
+// into getPatientHistory) so the pipeline can decide to skip it on
+// patients with abundant local notes — the LLM prompt budget is the
+// constraint, not the FHIR call cost.
+// ---------------------------------------------------------------------------
+
+export interface PriorChartNote {
+  /** EHR-side DocumentReference.id. */
+  id: string;
+  /** ISO 8601 datetime; "1970-01-01" sentinel when the EHR omitted date. */
+  date: string;
+  /** Best-effort title from DocumentReference.type/description. */
+  title: string;
+  /** Decoded inline text — only set when the EHR returned attachment.data
+   *  and the contentType is text-like. PDFs, images, or url-only refs
+   *  resolve to null and the caller surfaces a stub. */
+  body: string | null;
+}
+
+export async function fetchPriorChartNotes(
+  ehrPatientId: string,
+  userId?: string,
+  limit = 20,
+): Promise<PriorChartNote[]> {
+  if (userId) {
+    const cernerClient = await getCernerClientForUser(userId);
+    if (cernerClient) {
+      return runDocRefFetch(cernerClient.fhir, ehrPatientId, limit);
+    }
+    const athenaClient = await getAthenahealthClientForUser(userId);
+    if (athenaClient) {
+      return runDocRefFetch(athenaClient.fhir, ehrPatientId, limit);
+    }
+  }
+  const provider = resolveProvider();
+  if (provider === "mock") {
+    return buildMockChartNotes(ehrPatientId, limit);
+  }
+  const client =
+    provider === "athenahealth" ? getAthenahealthClient() : getEpicClient();
+  return runDocRefFetch(client.fhir, ehrPatientId, limit);
+}
+
+async function runDocRefFetch(
+  fhir: FhirClient,
+  ehrPatientId: string,
+  limit: number,
+): Promise<PriorChartNote[]> {
+  try {
+    // _sort=-date (descending) so the most recent notes are at the
+    // top of the bundle. status=current excludes superseded /
+    // entered-in-error rows — same shape filter notes.ts applies on
+    // our own side.
+    const bundle = await fhir.search<FhirDocumentReference>(
+      "DocumentReference",
+      {
+        patient: ehrPatientId,
+        status: "current",
+        _sort: "-date",
+        _count: limit,
+      },
+    );
+    return extractChartNotes(bundle);
+  } catch (err) {
+    if (err instanceof FhirError) {
+      // Don't propagate — the pipeline should still produce a note
+      // even if the EHR's chart history is unreachable. Log the
+      // status so a downstream observability dashboard can flag
+      // repeat failures.
+      logger.warn(
+        { err, ehrPatientId, status: err.status },
+        "chart-note fetch failed; pipeline will use local notes only",
+      );
+      return [];
+    }
+    throw err;
+  }
+}
+
+function extractChartNotes(
+  bundle: Bundle<FhirDocumentReference>,
+): PriorChartNote[] {
+  const out: PriorChartNote[] = [];
+  for (const entry of bundle.entry ?? []) {
+    const d = entry.resource;
+    if (d?.resourceType !== "DocumentReference") continue;
+    if (!d.id) continue;
+    const title =
+      d.type?.text ??
+      d.type?.coding?.[0]?.display ??
+      d.description ??
+      "Chart note";
+    const date = d.date ?? "1970-01-01";
+    const body = decodeInlineText(d);
+    out.push({ id: d.id, date, title, body });
+  }
+  return out;
+}
+
+// DocumentReference content is a list of attachments. We pick the
+// first text-like one and base64-decode its `data` field. Returns
+// null when nothing decodable is present — the caller turns that
+// into a placeholder line in the prompt rather than a blank body.
+function decodeInlineText(d: FhirDocumentReference): string | null {
+  for (const c of d.content ?? []) {
+    const att = c.attachment;
+    if (!att?.data) continue;
+    const ct = (att.contentType ?? "").toLowerCase();
+    // Accept text/plain, text/html (stripped below in the pipeline if
+    // needed), and the catch-all "text/*". Skip pdf/image — decoding
+    // those into useful prompt context needs OCR we don't ship.
+    if (!ct.startsWith("text/")) continue;
+    try {
+      return Buffer.from(att.data, "base64").toString("utf8");
+    } catch {
+      // Malformed base64 — skip this attachment, try the next.
+      continue;
+    }
+  }
+  return null;
+}
+
+// Per-patient chart-note stubs so the pipeline path is testable in
+// dev without a sandbox connection. Generates dates relative to a
+// fixed "now" so the snapshots are stable across local runs.
+function buildMockChartNotes(
+  ehrPatientId: string,
+  limit: number,
+): PriorChartNote[] {
+  logger.info({ ehrPatientId }, "chart notes (mock)");
+  switch (ehrPatientId) {
+    case "pt_001":
+      return [
+        {
+          id: "mock-pt001-2026-04-12",
+          date: "2026-04-12T15:30:00Z",
+          title: "Office Visit — Hypertension follow-up",
+          body:
+            "Subjective: Marisol reports adherence to lisinopril. Home BP " +
+            "log shows readings around 138/86. No chest pain, no edema.\n" +
+            "Objective: BP 144/86 in office. HR 80. Weight 165 lb.\n" +
+            "Assessment/Plan: HTN trending down on lisinopril 20 mg. " +
+            "Continue current regimen. DM follow-up scheduled separately.",
+        },
+        {
+          id: "mock-pt001-2026-03-21",
+          date: "2026-03-21T09:00:00Z",
+          title: "Office Visit — A1c review",
+          body:
+            "A1c 7.4% (down from 7.9 in December). Metformin 1g BID continued. " +
+            "Discussed diet, exercise. F/u 3 months.",
+        },
+        {
+          id: "mock-pt001-2026-02-14",
+          date: "2026-02-14T10:15:00Z",
+          title: "Office Visit — BP titration",
+          body:
+            "BP 158/94 in office. Increased lisinopril from 10 mg to 20 mg. " +
+            "Recheck in 4-6 weeks.",
+        },
+      ].slice(0, limit);
+    case "pt_003":
+      return [
+        {
+          id: "mock-pt003-2026-05-05",
+          date: "2026-05-05T13:00:00Z",
+          title: "Office Visit — Neuropathy",
+          body:
+            "Burning sensation in both feet, worse at night. Trial of gabapentin " +
+            "300 mg TID. Monitor.",
+        },
+      ].slice(0, limit);
+    default:
+      return [];
   }
 }

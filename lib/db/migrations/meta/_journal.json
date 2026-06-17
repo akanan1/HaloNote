@@ -253,6 +253,13 @@
       "when": 1781712526337,
       "tag": "0035_add_auto_push_orders_meds",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781715077139,
+      "tag": "0036_add_ehr_patient_id",
+      "breakpoints": true
     }
   ]
 }

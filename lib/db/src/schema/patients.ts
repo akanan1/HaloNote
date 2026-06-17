@@ -21,6 +21,13 @@ export const patientsTable = pgTable(
     // different clinics. Uniqueness is now scoped to (organization_id, mrn);
     // see the unique index below.
     mrn: text("mrn").notNull(),
+    // EHR-side Patient.id, populated by /patients/sync. Used by the
+    // recording pipeline (Phase 33) to pull DocumentReference chart
+    // notes for context. Nullable: patients created manually (POST
+    // /patients) won't have one until a sync runs against them, and
+    // legacy rows pre-Phase 33 are NULL by default. The pipeline
+    // gracefully degrades to local-only memory when this is unset.
+    ehrPatientId: text("ehr_patient_id"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),

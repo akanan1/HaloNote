@@ -16,6 +16,9 @@ const DEMO_PATIENTS: Array<Omit<Patient, "createdAt">> = [
   {
     id: "pt_001",
     organizationId: DEFAULT_ORG_ID,
+    // Demo seed: the ehrPatientId matches the local id so mock-mode
+    // chart-note fetches (Phase 33) resolve against the same key.
+    ehrPatientId: "pt_001",
     firstName: "Marisol",
     lastName: "Aguirre",
     dateOfBirth: "1958-07-22",
@@ -24,6 +27,7 @@ const DEMO_PATIENTS: Array<Omit<Patient, "createdAt">> = [
   {
     id: "pt_002",
     organizationId: DEFAULT_ORG_ID,
+    ehrPatientId: "pt_002",
     firstName: "Daniel",
     lastName: "Okafor",
     dateOfBirth: "1991-02-14",
@@ -32,6 +36,7 @@ const DEMO_PATIENTS: Array<Omit<Patient, "createdAt">> = [
   {
     id: "pt_003",
     organizationId: DEFAULT_ORG_ID,
+    ehrPatientId: "pt_003",
     firstName: "Priya",
     lastName: "Bhattacharya",
     dateOfBirth: "1976-11-03",
@@ -40,6 +45,7 @@ const DEMO_PATIENTS: Array<Omit<Patient, "createdAt">> = [
   {
     id: "pt_004",
     organizationId: DEFAULT_ORG_ID,
+    ehrPatientId: "pt_004",
     firstName: "Wesley",
     lastName: "Tran",
     dateOfBirth: "2002-05-30",

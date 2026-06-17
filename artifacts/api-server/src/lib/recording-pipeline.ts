@@ -44,6 +44,7 @@ import {
   refreshStyleProfileInBackground,
 } from "./style-profile";
 import { finalizeAndPushTranscribedNote } from "./auto-push";
+import { fetchPriorChartNotes, type PriorChartNote } from "./ehr-history";
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -268,6 +269,16 @@ interface PriorNoteContext {
   createdAt: Date;
   body: string;
   vitals: PriorVitalsSnapshot | null;
+  /** "halonote" — note this provider authored through HaloNote.
+   *  "chart"    — note pulled from the EHR's DocumentReference
+   *               history (could be from another provider, prior to
+   *               HaloNote adoption, etc.).
+   *  The prompt labels chart notes explicitly so the AI doesn't
+   *  attribute their writing style to the current provider. */
+  source: "halonote" | "chart";
+  /** Display title — for chart notes pulled from DocumentReference.type;
+   *  null for HaloNote-local notes which don't carry a separate title. */
+  title: string | null;
 }
 
 interface PatientContext {
@@ -381,7 +392,9 @@ class DeepgramClaudePipeline implements RecordingPipeline {
       if (segments.length === 0) throw new Error("no_segments_uploaded");
 
       const [patient, providerCtx] = await Promise.all([
-        job.patientId ? this.loadPatientContext(job.patientId) : null,
+        job.patientId
+          ? this.loadPatientContext(job.patientId, job.userId)
+          : null,
         this.loadProviderContext(job.userId),
       ]);
 
@@ -531,6 +544,7 @@ class DeepgramClaudePipeline implements RecordingPipeline {
 
   private async loadPatientContext(
     patientId: string,
+    userId: string,
   ): Promise<PatientContext | null> {
     const [p] = await getDb()
       .select()
@@ -544,7 +558,7 @@ class DeepgramClaudePipeline implements RecordingPipeline {
     // entered-in-error notes were explicitly withdrawn — including
     // either would leak unreviewed or retracted clinical assertions
     // into the next note.
-    const priorNotes = await getDb()
+    const localNotesPromise = getDb()
       .select({
         body: notesTable.body,
         createdAt: notesTable.createdAt,
@@ -560,18 +574,54 @@ class DeepgramClaudePipeline implements RecordingPipeline {
       .orderBy(desc(notesTable.createdAt))
       .limit(RECENT_NOTES_LIMIT);
 
+    // Phase 33: pull EHR-side DocumentReferences in parallel when the
+    // patient is mapped to an EHR Patient.id. A fresh HaloNote account
+    // for a long-standing patient inherits zero local notes; without
+    // this, the AI saw "no prior context" even though the chart was
+    // full of it. fetchPriorChartNotes never throws — failure
+    // degrades to local-only memory, the pipeline keeps running.
+    const chartNotesPromise = p.ehrPatientId
+      ? fetchPriorChartNotes(p.ehrPatientId, userId, RECENT_NOTES_LIMIT)
+      : Promise.resolve<PriorChartNote[]>([]);
+
+    const [localNotes, chartNotes] = await Promise.all([
+      localNotesPromise,
+      chartNotesPromise,
+    ]);
+
+    // Normalize both sides into PriorNoteContext, then merge by date.
+    // Local notes win when dates tie — they carry richer structure
+    // (vitals extraction) and are more recent in the workflow.
+    const normalized: PriorNoteContext[] = [
+      ...localNotes.map<PriorNoteContext>((n) => ({
+        createdAt: n.createdAt,
+        body: n.body,
+        vitals: pickVitalsSnapshot(n.extractedVitals),
+        source: "halonote",
+        title: null,
+      })),
+      ...chartNotes
+        // Drop attachment-less rows: the prompt would just show a
+        // header with no body, costing tokens for no signal.
+        .filter((c) => c.body && c.body.trim().length > 0)
+        .map<PriorNoteContext>((c) => ({
+          createdAt: new Date(c.date),
+          body: c.body!,
+          vitals: null,
+          source: "chart",
+          title: c.title,
+        })),
+    ];
+
+    // Newest first, then keep the top N, then reverse so the prompt
+    // reads chronologically (oldest → newest).
+    normalized.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const topN = normalized.slice(0, RECENT_NOTES_LIMIT).reverse();
+
     return {
       firstName: p.firstName,
       age: computeAge(p.dateOfBirth),
-      // Reverse so the prompt reads chronologically (oldest → newest).
-      priorNotes: priorNotes
-        .slice()
-        .reverse()
-        .map((n) => ({
-          createdAt: n.createdAt,
-          body: n.body,
-          vitals: pickVitalsSnapshot(n.extractedVitals),
-        })),
+      priorNotes: topN,
     };
   }
 
@@ -838,22 +888,32 @@ function renderPatientContextBlock(p: PatientContext | null): string {
   }
 
   if (p.priorNotes.length > 0) {
+    const chartCount = p.priorNotes.filter(
+      (n) => n.source === "chart",
+    ).length;
+    const localCount = p.priorNotes.length - chartCount;
     lines.push("");
     lines.push(
-      `Prior notes for this patient (${p.priorNotes.length}, oldest first) — ` +
-        "use them for clinical continuity and to match the provider's writing style:",
+      `Prior notes for this patient (${p.priorNotes.length}, oldest first; ` +
+        `${localCount} HaloNote, ${chartCount} from EHR chart) — use them ` +
+        "for clinical continuity. Match writing style ONLY from the " +
+        "HaloNote rows (chart-history notes may be from other authors).",
     );
     for (const n of p.priorNotes) {
       lines.push("");
       const dateStr = n.createdAt.toISOString().slice(0, 10);
       const vitalsTag = n.vitals ? ` · ${formatVitalsLine(n.vitals)}` : "";
-      lines.push(`--- Note from ${dateStr}${vitalsTag} ---`);
+      const sourceTag = n.source === "chart" ? " (chart)" : " (HaloNote)";
+      const titleTag = n.title ? ` — ${n.title}` : "";
+      lines.push(
+        `--- Note from ${dateStr}${sourceTag}${titleTag}${vitalsTag} ---`,
+      );
       lines.push(n.body);
     }
     lines.push("");
     lines.push("--- End of prior notes ---");
   } else {
-    lines.push("No prior signed notes on file for this patient.");
+    lines.push("No prior notes on file for this patient (local or chart).");
   }
   return lines.join("\n");
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -43,10 +43,14 @@ import {
   type WorkflowStatus,
 } from "@/lib/schedule-workflow";
 
-// Schedule refetch cadence. The product spec asks for 60–120s; 90s is
-// the middle of the band. Polling only fires while the user is looking
-// at today — past/future days are read-once.
-const SCHEDULE_POLL_MS = 90 * 1000;
+// Schedule refetch cadence. Tightened from 90s in Phase 31: same-day
+// add-ons (walk-ins, urgent squeeze-ins) need to surface within a
+// visit-prep window, not a tab-switch window. 30s feels live without
+// hammering Athena's rate budget (a typical 8-hour clinic day at 30s
+// is ~960 calls; well under any vendor's per-user/day cap). Polling
+// only fires while the user is looking at today — past/future days
+// are read-once.
+const SCHEDULE_POLL_MS = 30 * 1000;
 // How many recent notes to pull for correlation. Notes on a given day
 // for a busy clinic shouldn't exceed ~30; 100 leaves comfortable slack
 // without paginating.
@@ -170,6 +174,80 @@ export function TodayPage() {
     scheduleQuery.dataUpdatedAt > 0
       ? `Last synced ${formatTime(new Date(scheduleQuery.dataUpdatedAt))}`
       : "Syncing…";
+
+  // Add-on detection. Compare the set of appointmentIds we saw on the
+  // previous refetch to the current set; any id that just appeared is a
+  // same-day add-on (walk-in, urgent squeeze, etc.). The first response
+  // after a mount seeds the baseline silently — no toast for the
+  // already-on-the-board roster. Highlight state is keyed by
+  // appointmentId and auto-clears after 8s so the visual nudge fades
+  // before the next refetch.
+  const seenIdsRef = useRef<Set<string> | null>(null);
+  const [highlightedIds, setHighlightedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const scheduleAppointments = useMemo(
+    () => scheduleQuery.data?.data ?? [],
+    [scheduleQuery.data],
+  );
+  useEffect(() => {
+    if (!isToday) {
+      // Skip add-on detection on past/future days — the "Last synced"
+      // pill is fixed anyway.
+      seenIdsRef.current = null;
+      return;
+    }
+    // Only act on a successful, non-pending refetch — error states
+    // (cached stale data + isError=true) would re-toast the same ids.
+    if (scheduleQuery.isPending || scheduleQuery.isError) return;
+    const currentIds = new Set(
+      scheduleAppointments.map((a) => a.appointmentId),
+    );
+    const previous = seenIdsRef.current;
+    if (previous == null) {
+      // Baseline seed on the very first response after mount/day-flip.
+      seenIdsRef.current = currentIds;
+      return;
+    }
+    const newOnes = scheduleAppointments.filter(
+      (a) => !previous.has(a.appointmentId),
+    );
+    seenIdsRef.current = currentIds;
+    if (newOnes.length === 0) return;
+
+    for (const a of newOnes) {
+      const who = a.patient?.display ?? "New appointment";
+      const when = formatTime(new Date(a.start));
+      toast.info(`Added to schedule: ${when} — ${who}`, {
+        // 8s lines up with the row highlight fade below.
+        duration: 8000,
+      });
+    }
+    // Bump the highlight set. A new add-on arriving while another is
+    // still highlighted joins the same set; the timer below clears
+    // the whole batch — close-enough behavior given typical clinic
+    // pacing (rare to see overlapping add-ons in the same 30s).
+    setHighlightedIds((prev) => {
+      const next = new Set(prev);
+      for (const a of newOnes) next.add(a.appointmentId);
+      return next;
+    });
+  }, [
+    isToday,
+    scheduleAppointments,
+    scheduleQuery.isPending,
+    scheduleQuery.isError,
+  ]);
+
+  // Fade the highlight ~8s after it lands.
+  useEffect(() => {
+    if (highlightedIds.size === 0) return;
+    const t = window.setTimeout(
+      () => setHighlightedIds(new Set()),
+      8000,
+    );
+    return () => window.clearTimeout(t);
+  }, [highlightedIds]);
 
   // Per-appointment workflow derivation. Cheap; rebuilt on every render
   // because both inputs (schedule list, notes list) are cache-stable
@@ -448,6 +526,7 @@ export function TodayPage() {
                 note={note}
                 actions={actions}
                 busy={busy}
+                justAdded={highlightedIds.has(appt.appointmentId)}
                 onStart={() => void startNote(appt)}
                 onOpenNote={() => note && openNote(note)}
                 onSend={() =>
@@ -480,6 +559,9 @@ interface AppointmentCardProps {
   note: Note | null;
   actions: readonly WorkflowAction[];
   busy: boolean;
+  /** True when the appointment showed up between polls — drives a
+   *  brief amber ring + "Just added" pill on the card. */
+  justAdded: boolean;
   onStart: () => void;
   onOpenNote: () => void;
   onSend: () => void;
@@ -505,6 +587,7 @@ function AppointmentCard({
   note,
   actions,
   busy,
+  justAdded,
   onStart,
   onOpenNote,
   onSend,
@@ -518,11 +601,25 @@ function AppointmentCard({
 
   return (
     <li>
-      <Card className="relative overflow-hidden transition-colors hover:bg-(--color-muted)/40">
+      <Card
+        className={`relative overflow-hidden transition-colors hover:bg-(--color-muted)/40 ${
+          justAdded
+            ? "ring-2 ring-amber-400 ring-offset-1 ring-offset-(--color-background)"
+            : ""
+        }`}
+      >
         <span
           aria-hidden="true"
           className={`absolute inset-y-0 left-0 w-1 ${rail}`}
         />
+        {justAdded ? (
+          <span
+            className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 ring-1 ring-amber-300"
+            aria-label="Just added to today's schedule"
+          >
+            Just added
+          </span>
+        ) : null}
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <div className="min-w-[4rem] text-center">
             <div className="text-base font-semibold tabular-nums">

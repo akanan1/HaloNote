@@ -17,4 +17,6 @@ export interface UpdateMeRequest {
    * @maximum 600
    */
   silenceAutoStopSec?: number;
+  autoPushOrders?: boolean;
+  autoPushMedications?: boolean;
 }

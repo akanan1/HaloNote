@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EhrConnectionSection } from "@/components/EhrConnectionSection";
 import { AutoPushSection } from "@/components/AutoPushSection";
+import { OrdersAutoPushSection } from "@/components/OrdersAutoPushSection";
 import { SilenceAutoStopSection } from "@/components/SilenceAutoStopSection";
 import { VerbalCuesSection } from "@/components/VerbalCuesSection";
 import { TemplatesSection } from "@/components/TemplatesSection";
@@ -49,6 +50,8 @@ export function SettingsPage() {
       <EhrConnectionSection />
 
       <AutoPushSection />
+
+      <OrdersAutoPushSection />
 
       <SilenceAutoStopSection />
 

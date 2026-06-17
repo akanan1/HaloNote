@@ -76,6 +76,20 @@ export const usersTable = pgTable("users", {
   // Default 0 — the provider opts in via Settings rather than having
   // recordings cut off unexpectedly. Typical opt-in value is 45.
   silenceAutoStopSec: integer("silence_auto_stop_sec").notNull().default(0),
+  // When true, /orders/:id/mark-export-ready fires the EHR push
+  // inline so a non-medication order ships to the chart in one tap.
+  // Push failure persists ehrError + leaves the order in
+  // export_ready; the manual Send to EHR button can retry. Off by
+  // default; medication orders are governed by a separate flag
+  // (autoPushMedications) since they carry higher safety stakes.
+  autoPushOrders: boolean("auto_push_orders").notNull().default(false),
+  // Same semantics as autoPushOrders but specifically for orders
+  // with orderType='medication'. Independent toggle on purpose:
+  // a provider may want auto-push for labs and imaging but still
+  // hand-confirm every script.
+  autoPushMedications: boolean("auto_push_medications")
+    .notNull()
+    .default(false),
   // Founder-tier access flag. A super-admin permission on top of the
   // existing admin/member role — gates the cross-tenant Founder
   // dashboard (analytics, per-user legal acceptance status, etc.).

@@ -791,6 +791,109 @@ router.post("/orders/:id/mark-export-ready", async (req, res) => {
     res.status(404).json({ error: "order_not_found" });
     return;
   }
+
+  // Phase 32: auto-push at mark-export-ready when the user has opted
+  // in. Medications use a separate toggle from other order types so
+  // a provider can auto-push labs + imaging while still hand-
+  // confirming every script. Push failure does NOT roll back the
+  // export-ready transition — the order stays in export_ready with
+  // ehrError set, and the manual Send to EHR button can retry.
+  const shouldAutoPush =
+    updated.orderType === "medication"
+      ? Boolean(req.user?.autoPushMedications)
+      : Boolean(req.user?.autoPushOrders);
+  if (shouldAutoPush && req.user) {
+    const [enc] = await db
+      .select({ patientId: encountersTable.patientId })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, updated.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    const patient = enc ? await findPatient(enc.patientId, orgId) : null;
+    if (patient) {
+      try {
+        const outcome = await pushOrderToEhr({
+          order: {
+            id: updated.id,
+            orderType: updated.orderType,
+            name: updated.name,
+            indication: updated.indication,
+            indicationDiagnosisCode: updated.indicationDiagnosisCode,
+            priority: updated.priority,
+            instructions: updated.instructions,
+            frequency: updated.frequency,
+            duration: updated.duration,
+            medicationName: updated.medicationName,
+            medicationDose: updated.medicationDose,
+            medicationRoute: updated.medicationRoute,
+            medicationFrequency: updated.medicationFrequency,
+            medicationDuration: updated.medicationDuration,
+            medicationQuantity: updated.medicationQuantity,
+            medicationRefills: updated.medicationRefills,
+          },
+          patient,
+          encounterEhrRef: null,
+          userId: req.user.id,
+        });
+        const [exported] = await db
+          .update(approvedOrdersTable)
+          .set({
+            status: "exported",
+            exportedAt: outcome.pushedAt,
+            ehrDocumentRef: outcome.ehrDocumentRef,
+            ehrError: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(approvedOrdersTable.id, id),
+              eq(approvedOrdersTable.organizationId, orgId),
+            ),
+          )
+          .returning();
+        if (exported) {
+          res.json(serializeApproved(exported));
+          return;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        req.log.error(
+          { err, orderId: id },
+          "Phase 32 auto-push failed",
+        );
+        await db
+          .update(approvedOrdersTable)
+          .set({ ehrError: message, updatedAt: new Date() })
+          .where(
+            and(
+              eq(approvedOrdersTable.id, id),
+              eq(approvedOrdersTable.organizationId, orgId),
+            ),
+          )
+          .catch(() => {});
+        // Re-read so the response carries the persisted ehrError.
+        const [withErr] = await db
+          .select()
+          .from(approvedOrdersTable)
+          .where(
+            and(
+              eq(approvedOrdersTable.id, id),
+              eq(approvedOrdersTable.organizationId, orgId),
+            ),
+          )
+          .limit(1);
+        if (withErr) {
+          res.json(serializeApproved(withErr));
+          return;
+        }
+      }
+    }
+  }
+
   res.json(serializeApproved(updated));
 });
 

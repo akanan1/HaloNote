@@ -90,6 +90,18 @@ export const ConfirmPasswordResetResponse = zod.object({
     .describe(
       "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
     ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
 });
 
 /**
@@ -139,6 +151,18 @@ export const LoginResponse = zod.object({
     .describe(
       "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
     ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
 });
 
 /**
@@ -182,6 +206,18 @@ export const GetCurrentUserResponse = zod.object({
     .describe(
       "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
     ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
 });
 
 /**
@@ -200,6 +236,8 @@ export const UpdateMeBody = zod
       .min(updateMeBodySilenceAutoStopSecMin)
       .max(updateMeBodySilenceAutoStopSecMax)
       .optional(),
+    autoPushOrders: zod.boolean().optional(),
+    autoPushMedications: zod.boolean().optional(),
   })
   .describe(
     "Partial self-update of the signed-in user's preferences. Only fields present in the body are touched.",
@@ -242,6 +280,18 @@ export const UpdateMeResponse = zod.object({
     .optional()
     .describe(
       "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
     ),
 });
 
@@ -629,6 +679,18 @@ export const CompleteOnboardingResponse = zod.object({
     .optional()
     .describe(
       "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
     ),
 });
 

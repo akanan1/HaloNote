@@ -494,6 +494,8 @@ function serializeMe(user: typeof usersTable.$inferSelect) {
     isFounder: Boolean(user.isFounder),
     autoPushMode: user.autoPushMode,
     silenceAutoStopSec: user.silenceAutoStopSec,
+    autoPushOrders: Boolean(user.autoPushOrders),
+    autoPushMedications: Boolean(user.autoPushMedications),
   };
 }
 
@@ -533,6 +535,12 @@ router.patch("/auth/me", requireAuth, async (req, res) => {
   }
   if (parsed.data.silenceAutoStopSec !== undefined) {
     updates.silenceAutoStopSec = parsed.data.silenceAutoStopSec;
+  }
+  if (parsed.data.autoPushOrders !== undefined) {
+    updates.autoPushOrders = parsed.data.autoPushOrders;
+  }
+  if (parsed.data.autoPushMedications !== undefined) {
+    updates.autoPushMedications = parsed.data.autoPushMedications;
   }
   if (Object.keys(updates).length === 0) {
     // No-op patch — just echo the current state. Saves a write but

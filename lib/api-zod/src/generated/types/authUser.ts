@@ -27,4 +27,8 @@ export interface AuthUser {
    * @maximum 600
    */
   silenceAutoStopSec?: number;
+  /** When true, /orders/:id/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead. */
+  autoPushOrders?: boolean;
+  /** When true, /orders/:id/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab/imaging auto-push while still hand-confirming every prescription. */
+  autoPushMedications?: boolean;
 }

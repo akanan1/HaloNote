@@ -2241,6 +2241,20 @@ components:
           description: >-
             Seconds of continuous silence before the recorder
             auto-stops. 0 disables. Typical opt-in value is 45.
+        autoPushOrders:
+          type: boolean
+          description: >-
+            When true, /orders/:id/mark-export-ready also pushes
+            non-medication orders to the EHR inline. Medication
+            orders are governed by autoPushMedications instead.
+        autoPushMedications:
+          type: boolean
+          description: >-
+            When true, /orders/:id/mark-export-ready also pushes
+            orders with orderType=medication to the EHR inline.
+            Independent from autoPushOrders so a provider can
+            opt into lab/imaging auto-push while still
+            hand-confirming every prescription.
     UpdateMeRequest:
       type: object
       description: >-
@@ -2254,6 +2268,10 @@ components:
           type: integer
           minimum: 0
           maximum: 600
+        autoPushOrders:
+          type: boolean
+        autoPushMedications:
+          type: boolean
     LoginRequest:
       type: object
       required: [email, password]

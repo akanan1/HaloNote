@@ -246,6 +246,13 @@
       "when": 1781704518547,
       "tag": "0034_add_ehr_push_columns_to_orders_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1781712526337,
+      "tag": "0035_add_auto_push_orders_meds",
+      "breakpoints": true
     }
   ]
 }

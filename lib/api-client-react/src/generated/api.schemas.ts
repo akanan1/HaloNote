@@ -671,6 +671,468 @@ export interface UpdateNoteDefaultRequest {
   rule?: string;
 }
 
+export type BillingCodeSystem =
+  (typeof BillingCodeSystem)[keyof typeof BillingCodeSystem];
+
+export const BillingCodeSystem = {
+  icd10: "icd10",
+  cpt: "cpt",
+  em: "em",
+  modifier: "modifier",
+} as const;
+
+export type SuggestionConfidence =
+  (typeof SuggestionConfidence)[keyof typeof SuggestionConfidence];
+
+export const SuggestionConfidence = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+} as const;
+
+export type BillingSuggestionStatus =
+  (typeof BillingSuggestionStatus)[keyof typeof BillingSuggestionStatus];
+
+export const BillingSuggestionStatus = {
+  ai_suggested: "ai_suggested",
+  needs_review: "needs_review",
+  provider_approved: "provider_approved",
+  biller_approved: "biller_approved",
+  rejected: "rejected",
+  exported: "exported",
+} as const;
+
+export interface BillingSupportingExcerpt {
+  text: string;
+  locationHint?: string;
+}
+
+export type BillingDocumentationGapSeverity =
+  (typeof BillingDocumentationGapSeverity)[keyof typeof BillingDocumentationGapSeverity];
+
+export const BillingDocumentationGapSeverity = {
+  info: "info",
+  warn: "warn",
+  block: "block",
+} as const;
+
+export interface BillingDocumentationGap {
+  field: string;
+  message: string;
+  severity: BillingDocumentationGapSeverity;
+}
+
+export interface BillingSuggestion {
+  id: string;
+  codeSystem: BillingCodeSystem;
+  code: string;
+  description: string;
+  rationale: string;
+  supportingExcerpts: BillingSupportingExcerpt[];
+  documentationGaps: BillingDocumentationGap[];
+  confidence: SuggestionConfidence;
+  status: BillingSuggestionStatus;
+  createdByAi: boolean;
+}
+
+export interface ApprovedBillingCode {
+  id: string;
+  codeSystem: BillingCodeSystem;
+  code: string;
+  description: string;
+  /** @nullable */
+  sourceSuggestionId: string | null;
+  /** @nullable */
+  approvedAt: string | null;
+  /** @nullable */
+  billerApprovedAt: string | null;
+  /** @nullable */
+  exportedAt: string | null;
+}
+
+export interface BillingResponse {
+  suggestions: BillingSuggestion[];
+  approvedCodes: ApprovedBillingCode[];
+}
+
+export type BillingSuggestSource =
+  (typeof BillingSuggestSource)[keyof typeof BillingSuggestSource];
+
+export const BillingSuggestSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export type BillingSuggestResponse = BillingResponse & {
+  source: BillingSuggestSource;
+};
+
+export interface RejectBillingSuggestionRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export type OrderType = (typeof OrderType)[keyof typeof OrderType];
+
+export const OrderType = {
+  lab: "lab",
+  imaging: "imaging",
+  referral: "referral",
+  medication: "medication",
+  procedure: "procedure",
+  followup: "followup",
+  instruction: "instruction",
+  dme: "dme",
+  therapy: "therapy",
+  nursing: "nursing",
+} as const;
+
+export type OrderPriority = (typeof OrderPriority)[keyof typeof OrderPriority];
+
+export const OrderPriority = {
+  routine: "routine",
+  urgent: "urgent",
+  stat: "stat",
+} as const;
+
+export type OrderSuggestionStatus =
+  (typeof OrderSuggestionStatus)[keyof typeof OrderSuggestionStatus];
+
+export const OrderSuggestionStatus = {
+  ai_suggested: "ai_suggested",
+  needs_review: "needs_review",
+  approved: "approved",
+  rejected: "rejected",
+  exported: "exported",
+} as const;
+
+export type ApprovedOrderStatus =
+  (typeof ApprovedOrderStatus)[keyof typeof ApprovedOrderStatus];
+
+export const ApprovedOrderStatus = {
+  approved: "approved",
+  export_ready: "export_ready",
+  exported: "exported",
+  cancelled: "cancelled",
+} as const;
+
+export type OrderSafetyWarningSeverity =
+  (typeof OrderSafetyWarningSeverity)[keyof typeof OrderSafetyWarningSeverity];
+
+export const OrderSafetyWarningSeverity = {
+  info: "info",
+  warn: "warn",
+  block: "block",
+} as const;
+
+export interface OrderSafetyWarning {
+  kind: string;
+  message: string;
+  severity: OrderSafetyWarningSeverity;
+}
+
+export interface OrderCommon {
+  id: string;
+  orderType: OrderType;
+  name: string;
+  /** @nullable */
+  indication: string | null;
+  /** @nullable */
+  indicationDiagnosisCode: string | null;
+  priority: OrderPriority;
+  /** @nullable */
+  instructions: string | null;
+  /** @nullable */
+  frequency: string | null;
+  /** @nullable */
+  duration: string | null;
+  /** @nullable */
+  medicationName: string | null;
+  /** @nullable */
+  medicationDose: string | null;
+  /** @nullable */
+  medicationRoute: string | null;
+  /** @nullable */
+  medicationFrequency: string | null;
+  /** @nullable */
+  medicationDuration: string | null;
+  /** @nullable */
+  medicationQuantity: number | null;
+  /** @nullable */
+  medicationRefills: number | null;
+  isComplete: boolean;
+  safetyWarnings: OrderSafetyWarning[];
+}
+
+export type OrderSuggestion = OrderCommon & {
+  rationale: string;
+  status: OrderSuggestionStatus;
+  createdByAi: boolean;
+};
+
+export type ApprovedOrder = OrderCommon & {
+  /** @nullable */
+  sourceSuggestionId: string | null;
+  status: ApprovedOrderStatus;
+  /** @nullable */
+  approvedAt: string | null;
+  /** @nullable */
+  exportReadyAt: string | null;
+  /** @nullable */
+  exportedAt: string | null;
+};
+
+export interface OrdersResponse {
+  suggestions: OrderSuggestion[];
+  approvedOrders: ApprovedOrder[];
+}
+
+export type OrderSuggestResponseSource =
+  (typeof OrderSuggestResponseSource)[keyof typeof OrderSuggestResponseSource];
+
+export const OrderSuggestResponseSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export interface OrderSuggestResponse {
+  data: OrderSuggestion[];
+  source: OrderSuggestResponseSource;
+}
+
+export interface RejectOrderSuggestionRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export interface CreateOrderRequest {
+  encounterId: string;
+  orderType: OrderType;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  name: string;
+  /** @maxLength 500 */
+  indication?: string;
+  /** @maxLength 20 */
+  indicationDiagnosisCode?: string;
+  priority?: OrderPriority;
+  /** @maxLength 2000 */
+  instructions?: string;
+  /** @maxLength 100 */
+  frequency?: string;
+  /** @maxLength 100 */
+  duration?: string;
+  /** @maxLength 200 */
+  medicationName?: string;
+  /** @maxLength 50 */
+  medicationDose?: string;
+  /** @maxLength 50 */
+  medicationRoute?: string;
+  /** @maxLength 100 */
+  medicationFrequency?: string;
+  /** @maxLength 100 */
+  medicationDuration?: string;
+  /** @minimum 0 */
+  medicationQuantity?: number;
+  /** @minimum 0 */
+  medicationRefills?: number;
+}
+
+/**
+ * Partial update — only fields present in the body are touched. Allowed fields mirror CreateOrderRequest (no encounterId or orderType; those are immutable post-creation).
+ */
+export interface UpdateOrderRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  name?: string;
+  /**
+   * @maxLength 500
+   * @nullable
+   */
+  indication?: string | null;
+  /**
+   * @maxLength 20
+   * @nullable
+   */
+  indicationDiagnosisCode?: string | null;
+  priority?: OrderPriority;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
+  instructions?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  frequency?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  duration?: string | null;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  medicationName?: string | null;
+  /**
+   * @maxLength 50
+   * @nullable
+   */
+  medicationDose?: string | null;
+  /**
+   * @maxLength 50
+   * @nullable
+   */
+  medicationRoute?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  medicationFrequency?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  medicationDuration?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  medicationQuantity?: number | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  medicationRefills?: number | null;
+}
+
+export interface CancelOrderRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export type TaskCategory = (typeof TaskCategory)[keyof typeof TaskCategory];
+
+export const TaskCategory = {
+  call_patient: "call_patient",
+  schedule_followup: "schedule_followup",
+  send_referral: "send_referral",
+  prior_auth: "prior_auth",
+  obtain_records: "obtain_records",
+  repeat_labs: "repeat_labs",
+  nursing_instruction: "nursing_instruction",
+  billing_followup: "billing_followup",
+  patient_instruction: "patient_instruction",
+  other: "other",
+} as const;
+
+export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
+
+export const TaskStatus = {
+  open: "open",
+  in_progress: "in_progress",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type TaskPriority = (typeof TaskPriority)[keyof typeof TaskPriority];
+
+export const TaskPriority = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+} as const;
+
+export type TaskSource = (typeof TaskSource)[keyof typeof TaskSource];
+
+export const TaskSource = {
+  ai: "ai",
+  manual: "manual",
+} as const;
+
+export interface Task {
+  id: string;
+  /** @nullable */
+  encounterId: string | null;
+  category: TaskCategory;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  dueAt: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  isClosed: boolean;
+  source: TaskSource;
+}
+
+export interface TaskListResponse {
+  data: Task[];
+}
+
+export type TaskGenerateResponseSource =
+  (typeof TaskGenerateResponseSource)[keyof typeof TaskGenerateResponseSource];
+
+export const TaskGenerateResponseSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export interface TaskGenerateResponse {
+  data: Task[];
+  source: TaskGenerateResponseSource;
+}
+
+export interface CreateTaskRequest {
+  patientId: string;
+  encounterId?: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  title: string;
+  /** @maxLength 2000 */
+  description?: string;
+  category: TaskCategory;
+  priority?: TaskPriority;
+  dueAt?: string;
+  assignedUserId?: string;
+}
+
+/**
+ * Partial update — only fields present in the body are touched.
+ */
+export interface UpdateTaskRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  title?: string;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
+  description?: string | null;
+  category?: TaskCategory;
+  priority?: TaskPriority;
+  /** @nullable */
+  dueAt?: string | null;
+  /** @nullable */
+  assignedUserId?: string | null;
+  status?: TaskStatus;
+}
+
+export interface CancelTaskRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
 export type FounderAnalyticsCompliance = {
   onboardingCompleted: number;
   onboardingPending: number;
@@ -1066,6 +1528,31 @@ export type ListSmartPhrases200 = {
 export type ListVerbalCues200 = {
   data: VerbalCue[];
 };
+
+export type ListTasksParams = {
+  assignee?: ListTasksAssignee;
+  status?: ListTasksStatus;
+  patientId?: string;
+  encounterId?: string;
+};
+
+export type ListTasksAssignee =
+  (typeof ListTasksAssignee)[keyof typeof ListTasksAssignee];
+
+export const ListTasksAssignee = {
+  me: "me",
+  anyone: "anyone",
+} as const;
+
+export type ListTasksStatus =
+  (typeof ListTasksStatus)[keyof typeof ListTasksStatus];
+
+export const ListTasksStatus = {
+  open: "open",
+  in_progress: "in_progress",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
 
 export type ListNoteDefaults200 = {
   data: NoteDefault[];

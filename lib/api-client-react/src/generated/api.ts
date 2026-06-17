@@ -20,14 +20,23 @@ import type {
   AcceptLegalAgreements200,
   AcceptLegalAgreementsRequest,
   AdminUser,
+  ApprovedBillingCode,
+  ApprovedOrder,
   AuthUser,
+  BillingResponse,
+  BillingSuggestResponse,
+  BillingSuggestion,
+  CancelOrderRequest,
+  CancelTaskRequest,
   CreateEncounterRequest,
   CreateNoteDefaultRequest,
   CreateNoteRequest,
+  CreateOrderRequest,
   CreatePatientRequest,
   CreatePhraseMappingRequest,
   CreateRecordingRequest,
   CreateSmartPhraseRequest,
+  CreateTaskRequest,
   CreateTemplateRequest,
   CreateVerbalCueRequest,
   EhrConnectionStatus,
@@ -50,6 +59,7 @@ import type {
   ListPatients200,
   ListPhraseMappings200,
   ListSmartPhrases200,
+  ListTasksParams,
   ListTemplates200,
   ListUsers200,
   ListVerbalCues200,
@@ -57,6 +67,9 @@ import type {
   Note,
   NoteDefault,
   NoteTemplate,
+  OrderSuggestResponse,
+  OrderSuggestion,
+  OrdersResponse,
   PasswordResetConfirm,
   PasswordResetRequest,
   Patient,
@@ -65,6 +78,8 @@ import type {
   RecordingJob,
   RecordingJobDetail,
   RecordingSegment,
+  RejectBillingSuggestionRequest,
+  RejectOrderSuggestionRequest,
   ReorderTemplates200,
   ReorderTemplatesRequest,
   ResetTemplates200,
@@ -74,12 +89,17 @@ import type {
   StartEhrOauthRequest,
   SyncPatientRequest,
   SyncedPatient,
+  Task,
+  TaskGenerateResponse,
+  TaskListResponse,
   UpdateEncounterRequest,
   UpdateMeRequest,
   UpdateNoteDefaultRequest,
   UpdateNoteRequest,
+  UpdateOrderRequest,
   UpdatePhraseMappingRequest,
   UpdateSmartPhraseRequest,
+  UpdateTaskRequest,
   UpdateTemplateRequest,
   UpdateUserRequest,
   UploadLegalVersionRequest,
@@ -4410,6 +4430,1723 @@ export const useDeleteVerbalCue = <
   TContext
 > => {
   return useMutation(getDeleteVerbalCueMutationOptions(options));
+};
+
+/**
+ * @summary List billing suggestions + approved codes for an encounter
+ */
+export const getGetEncounterBillingUrl = (id: string) => {
+  return `/api/encounters/${id}/billing`;
+};
+
+export const getEncounterBilling = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BillingResponse> => {
+  return customFetch<BillingResponse>(getGetEncounterBillingUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEncounterBillingQueryKey = (id: string) => {
+  return [`/api/encounters/${id}/billing`] as const;
+};
+
+export const getGetEncounterBillingQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEncounterBilling>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounterBilling>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEncounterBillingQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getEncounterBilling>>
+  > = ({ signal }) => getEncounterBilling(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEncounterBilling>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEncounterBillingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEncounterBilling>>
+>;
+export type GetEncounterBillingQueryError = ErrorType<void>;
+
+/**
+ * @summary List billing suggestions + approved codes for an encounter
+ */
+
+export function useGetEncounterBilling<
+  TData = Awaited<ReturnType<typeof getEncounterBilling>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounterBilling>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEncounterBillingQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Inserts new ai_suggested rows, returns the full BillingResponse for the encounter. Safe to call multiple times — prior non-`ai_suggested` rows are preserved.
+ * @summary Run (or rerun) AI billing-code suggestion on the encounter's note
+ */
+export const getSuggestEncounterBillingUrl = (id: string) => {
+  return `/api/encounters/${id}/billing/suggest`;
+};
+
+export const suggestEncounterBilling = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BillingSuggestResponse> => {
+  return customFetch<BillingSuggestResponse>(
+    getSuggestEncounterBillingUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getSuggestEncounterBillingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suggestEncounterBilling>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof suggestEncounterBilling>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["suggestEncounterBilling"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof suggestEncounterBilling>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return suggestEncounterBilling(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SuggestEncounterBillingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof suggestEncounterBilling>>
+>;
+
+export type SuggestEncounterBillingMutationError = ErrorType<void>;
+
+/**
+ * @summary Run (or rerun) AI billing-code suggestion on the encounter's note
+ */
+export const useSuggestEncounterBilling = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suggestEncounterBilling>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof suggestEncounterBilling>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getSuggestEncounterBillingMutationOptions(options));
+};
+
+/**
+ * @summary Provider-approve an AI billing suggestion (promotes to approved_codes)
+ */
+export const getApproveBillingSuggestionUrl = (id: string) => {
+  return `/api/billing/suggestions/${id}/approve`;
+};
+
+export const approveBillingSuggestion = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ApprovedBillingCode> => {
+  return customFetch<ApprovedBillingCode>(getApproveBillingSuggestionUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getApproveBillingSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveBillingSuggestion>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveBillingSuggestion>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["approveBillingSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveBillingSuggestion>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return approveBillingSuggestion(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveBillingSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveBillingSuggestion>>
+>;
+
+export type ApproveBillingSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Provider-approve an AI billing suggestion (promotes to approved_codes)
+ */
+export const useApproveBillingSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveBillingSuggestion>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveBillingSuggestion>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getApproveBillingSuggestionMutationOptions(options));
+};
+
+/**
+ * @summary Provider-reject an AI billing suggestion
+ */
+export const getRejectBillingSuggestionUrl = (id: string) => {
+  return `/api/billing/suggestions/${id}/reject`;
+};
+
+export const rejectBillingSuggestion = async (
+  id: string,
+  rejectBillingSuggestionRequest: RejectBillingSuggestionRequest,
+  options?: RequestInit,
+): Promise<BillingSuggestion> => {
+  return customFetch<BillingSuggestion>(getRejectBillingSuggestionUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(rejectBillingSuggestionRequest),
+  });
+};
+
+export const getRejectBillingSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectBillingSuggestion>>,
+    TError,
+    { id: string; data: BodyType<RejectBillingSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rejectBillingSuggestion>>,
+  TError,
+  { id: string; data: BodyType<RejectBillingSuggestionRequest> },
+  TContext
+> => {
+  const mutationKey = ["rejectBillingSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rejectBillingSuggestion>>,
+    { id: string; data: BodyType<RejectBillingSuggestionRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return rejectBillingSuggestion(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RejectBillingSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rejectBillingSuggestion>>
+>;
+export type RejectBillingSuggestionMutationBody =
+  BodyType<RejectBillingSuggestionRequest>;
+export type RejectBillingSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Provider-reject an AI billing suggestion
+ */
+export const useRejectBillingSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectBillingSuggestion>>,
+    TError,
+    { id: string; data: BodyType<RejectBillingSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rejectBillingSuggestion>>,
+  TError,
+  { id: string; data: BodyType<RejectBillingSuggestionRequest> },
+  TContext
+> => {
+  return useMutation(getRejectBillingSuggestionMutationOptions(options));
+};
+
+/**
+ * @summary Biller secondary approval on an approved billing code (export gate)
+ */
+export const getBillerApproveBillingCodeUrl = (id: string) => {
+  return `/api/billing/codes/${id}/biller-approve`;
+};
+
+export const billerApproveBillingCode = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ApprovedBillingCode> => {
+  return customFetch<ApprovedBillingCode>(getBillerApproveBillingCodeUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getBillerApproveBillingCodeMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof billerApproveBillingCode>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof billerApproveBillingCode>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["billerApproveBillingCode"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof billerApproveBillingCode>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return billerApproveBillingCode(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BillerApproveBillingCodeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof billerApproveBillingCode>>
+>;
+
+export type BillerApproveBillingCodeMutationError = ErrorType<void>;
+
+/**
+ * @summary Biller secondary approval on an approved billing code (export gate)
+ */
+export const useBillerApproveBillingCode = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof billerApproveBillingCode>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof billerApproveBillingCode>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getBillerApproveBillingCodeMutationOptions(options));
+};
+
+/**
+ * @summary List order suggestions + approved orders for an encounter
+ */
+export const getGetEncounterOrdersUrl = (id: string) => {
+  return `/api/encounters/${id}/orders`;
+};
+
+export const getEncounterOrders = async (
+  id: string,
+  options?: RequestInit,
+): Promise<OrdersResponse> => {
+  return customFetch<OrdersResponse>(getGetEncounterOrdersUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEncounterOrdersQueryKey = (id: string) => {
+  return [`/api/encounters/${id}/orders`] as const;
+};
+
+export const getGetEncounterOrdersQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEncounterOrders>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounterOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEncounterOrdersQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getEncounterOrders>>
+  > = ({ signal }) => getEncounterOrders(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEncounterOrders>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEncounterOrdersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEncounterOrders>>
+>;
+export type GetEncounterOrdersQueryError = ErrorType<void>;
+
+/**
+ * @summary List order suggestions + approved orders for an encounter
+ */
+
+export function useGetEncounterOrders<
+  TData = Awaited<ReturnType<typeof getEncounterOrders>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounterOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEncounterOrdersQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Run (or rerun) AI order suggestion on the encounter's note
+ */
+export const getSuggestEncounterOrdersUrl = (id: string) => {
+  return `/api/encounters/${id}/orders/suggest`;
+};
+
+export const suggestEncounterOrders = async (
+  id: string,
+  options?: RequestInit,
+): Promise<OrderSuggestResponse> => {
+  return customFetch<OrderSuggestResponse>(getSuggestEncounterOrdersUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSuggestEncounterOrdersMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suggestEncounterOrders>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof suggestEncounterOrders>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["suggestEncounterOrders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof suggestEncounterOrders>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return suggestEncounterOrders(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SuggestEncounterOrdersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof suggestEncounterOrders>>
+>;
+
+export type SuggestEncounterOrdersMutationError = ErrorType<void>;
+
+/**
+ * @summary Run (or rerun) AI order suggestion on the encounter's note
+ */
+export const useSuggestEncounterOrders = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suggestEncounterOrders>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof suggestEncounterOrders>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getSuggestEncounterOrdersMutationOptions(options));
+};
+
+/**
+ * @summary Clinician-approve an AI order suggestion
+ */
+export const getApproveOrderSuggestionUrl = (id: string) => {
+  return `/api/orders/suggestions/${id}/approve`;
+};
+
+export const approveOrderSuggestion = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ApprovedOrder> => {
+  return customFetch<ApprovedOrder>(getApproveOrderSuggestionUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getApproveOrderSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveOrderSuggestion>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveOrderSuggestion>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["approveOrderSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveOrderSuggestion>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return approveOrderSuggestion(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveOrderSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveOrderSuggestion>>
+>;
+
+export type ApproveOrderSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Clinician-approve an AI order suggestion
+ */
+export const useApproveOrderSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveOrderSuggestion>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveOrderSuggestion>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getApproveOrderSuggestionMutationOptions(options));
+};
+
+/**
+ * @summary Clinician-reject an AI order suggestion
+ */
+export const getRejectOrderSuggestionUrl = (id: string) => {
+  return `/api/orders/suggestions/${id}/reject`;
+};
+
+export const rejectOrderSuggestion = async (
+  id: string,
+  rejectOrderSuggestionRequest: RejectOrderSuggestionRequest,
+  options?: RequestInit,
+): Promise<OrderSuggestion> => {
+  return customFetch<OrderSuggestion>(getRejectOrderSuggestionUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(rejectOrderSuggestionRequest),
+  });
+};
+
+export const getRejectOrderSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectOrderSuggestion>>,
+    TError,
+    { id: string; data: BodyType<RejectOrderSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rejectOrderSuggestion>>,
+  TError,
+  { id: string; data: BodyType<RejectOrderSuggestionRequest> },
+  TContext
+> => {
+  const mutationKey = ["rejectOrderSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rejectOrderSuggestion>>,
+    { id: string; data: BodyType<RejectOrderSuggestionRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return rejectOrderSuggestion(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RejectOrderSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rejectOrderSuggestion>>
+>;
+export type RejectOrderSuggestionMutationBody =
+  BodyType<RejectOrderSuggestionRequest>;
+export type RejectOrderSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Clinician-reject an AI order suggestion
+ */
+export const useRejectOrderSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectOrderSuggestion>>,
+    TError,
+    { id: string; data: BodyType<RejectOrderSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rejectOrderSuggestion>>,
+  TError,
+  { id: string; data: BodyType<RejectOrderSuggestionRequest> },
+  TContext
+> => {
+  return useMutation(getRejectOrderSuggestionMutationOptions(options));
+};
+
+/**
+ * @summary Manually create an approved order (no AI suggestion path)
+ */
+export const getCreateOrderUrl = () => {
+  return `/api/orders`;
+};
+
+export const createOrder = async (
+  createOrderRequest: CreateOrderRequest,
+  options?: RequestInit,
+): Promise<ApprovedOrder> => {
+  return customFetch<ApprovedOrder>(getCreateOrderUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createOrderRequest),
+  });
+};
+
+export const getCreateOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createOrder>>,
+    TError,
+    { data: BodyType<CreateOrderRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createOrder>>,
+  TError,
+  { data: BodyType<CreateOrderRequest> },
+  TContext
+> => {
+  const mutationKey = ["createOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createOrder>>,
+    { data: BodyType<CreateOrderRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createOrder(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createOrder>>
+>;
+export type CreateOrderMutationBody = BodyType<CreateOrderRequest>;
+export type CreateOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Manually create an approved order (no AI suggestion path)
+ */
+export const useCreateOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createOrder>>,
+    TError,
+    { data: BodyType<CreateOrderRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createOrder>>,
+  TError,
+  { data: BodyType<CreateOrderRequest> },
+  TContext
+> => {
+  return useMutation(getCreateOrderMutationOptions(options));
+};
+
+/**
+ * @summary Edit an approved order (medication dose, instructions, etc.)
+ */
+export const getUpdateOrderUrl = (id: string) => {
+  return `/api/orders/${id}`;
+};
+
+export const updateOrder = async (
+  id: string,
+  updateOrderRequest: UpdateOrderRequest,
+  options?: RequestInit,
+): Promise<ApprovedOrder> => {
+  return customFetch<ApprovedOrder>(getUpdateOrderUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateOrderRequest),
+  });
+};
+
+export const getUpdateOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateOrder>>,
+    TError,
+    { id: string; data: BodyType<UpdateOrderRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateOrder>>,
+  TError,
+  { id: string; data: BodyType<UpdateOrderRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateOrder>>,
+    { id: string; data: BodyType<UpdateOrderRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateOrder(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateOrder>>
+>;
+export type UpdateOrderMutationBody = BodyType<UpdateOrderRequest>;
+export type UpdateOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit an approved order (medication dose, instructions, etc.)
+ */
+export const useUpdateOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateOrder>>,
+    TError,
+    { id: string; data: BodyType<UpdateOrderRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateOrder>>,
+  TError,
+  { id: string; data: BodyType<UpdateOrderRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateOrderMutationOptions(options));
+};
+
+/**
+ * @summary Flip an approved order to export_ready (gates EHR push)
+ */
+export const getMarkOrderExportReadyUrl = (id: string) => {
+  return `/api/orders/${id}/mark-export-ready`;
+};
+
+export const markOrderExportReady = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ApprovedOrder> => {
+  return customFetch<ApprovedOrder>(getMarkOrderExportReadyUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkOrderExportReadyMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markOrderExportReady>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markOrderExportReady>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["markOrderExportReady"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markOrderExportReady>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return markOrderExportReady(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkOrderExportReadyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markOrderExportReady>>
+>;
+
+export type MarkOrderExportReadyMutationError = ErrorType<void>;
+
+/**
+ * @summary Flip an approved order to export_ready (gates EHR push)
+ */
+export const useMarkOrderExportReady = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markOrderExportReady>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markOrderExportReady>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getMarkOrderExportReadyMutationOptions(options));
+};
+
+/**
+ * @summary Cancel an approved order
+ */
+export const getCancelOrderUrl = (id: string) => {
+  return `/api/orders/${id}/cancel`;
+};
+
+export const cancelOrder = async (
+  id: string,
+  cancelOrderRequest?: CancelOrderRequest,
+  options?: RequestInit,
+): Promise<ApprovedOrder> => {
+  return customFetch<ApprovedOrder>(getCancelOrderUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(cancelOrderRequest),
+  });
+};
+
+export const getCancelOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelOrder>>,
+    TError,
+    { id: string; data: BodyType<CancelOrderRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelOrder>>,
+  TError,
+  { id: string; data: BodyType<CancelOrderRequest> },
+  TContext
+> => {
+  const mutationKey = ["cancelOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelOrder>>,
+    { id: string; data: BodyType<CancelOrderRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return cancelOrder(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelOrder>>
+>;
+export type CancelOrderMutationBody = BodyType<CancelOrderRequest>;
+export type CancelOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Cancel an approved order
+ */
+export const useCancelOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelOrder>>,
+    TError,
+    { id: string; data: BodyType<CancelOrderRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelOrder>>,
+  TError,
+  { id: string; data: BodyType<CancelOrderRequest> },
+  TContext
+> => {
+  return useMutation(getCancelOrderMutationOptions(options));
+};
+
+/**
+ * @summary List tasks the caller can see, with optional filters
+ */
+export const getListTasksUrl = (params?: ListTasksParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/tasks?${stringifiedParams}`
+    : `/api/tasks`;
+};
+
+export const listTasks = async (
+  params?: ListTasksParams,
+  options?: RequestInit,
+): Promise<TaskListResponse> => {
+  return customFetch<TaskListResponse>(getListTasksUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListTasksQueryKey = (params?: ListTasksParams) => {
+  return [`/api/tasks`, ...(params ? [params] : [])] as const;
+};
+
+export const getListTasksQueryOptions = <
+  TData = Awaited<ReturnType<typeof listTasks>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListTasksParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listTasks>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListTasksQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listTasks>>> = ({
+    signal,
+  }) => listTasks(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listTasks>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListTasksQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listTasks>>
+>;
+export type ListTasksQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List tasks the caller can see, with optional filters
+ */
+
+export function useListTasks<
+  TData = Awaited<ReturnType<typeof listTasks>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListTasksParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listTasks>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListTasksQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a clinical task
+ */
+export const getCreateTaskUrl = () => {
+  return `/api/tasks`;
+};
+
+export const createTask = async (
+  createTaskRequest: CreateTaskRequest,
+  options?: RequestInit,
+): Promise<Task> => {
+  return customFetch<Task>(getCreateTaskUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createTaskRequest),
+  });
+};
+
+export const getCreateTaskMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createTask>>,
+    TError,
+    { data: BodyType<CreateTaskRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createTask>>,
+  TError,
+  { data: BodyType<CreateTaskRequest> },
+  TContext
+> => {
+  const mutationKey = ["createTask"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createTask>>,
+    { data: BodyType<CreateTaskRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createTask(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateTaskMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createTask>>
+>;
+export type CreateTaskMutationBody = BodyType<CreateTaskRequest>;
+export type CreateTaskMutationError = ErrorType<void>;
+
+/**
+ * @summary Create a clinical task
+ */
+export const useCreateTask = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createTask>>,
+    TError,
+    { data: BodyType<CreateTaskRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createTask>>,
+  TError,
+  { data: BodyType<CreateTaskRequest> },
+  TContext
+> => {
+  return useMutation(getCreateTaskMutationOptions(options));
+};
+
+/**
+ * @summary Get a task by id
+ */
+export const getGetTaskUrl = (id: string) => {
+  return `/api/tasks/${id}`;
+};
+
+export const getTask = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Task> => {
+  return customFetch<Task>(getGetTaskUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTaskQueryKey = (id: string) => {
+  return [`/api/tasks/${id}`] as const;
+};
+
+export const getGetTaskQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTask>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getTask>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTaskQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTask>>> = ({
+    signal,
+  }) => getTask(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getTask>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type GetTaskQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTask>>
+>;
+export type GetTaskQueryError = ErrorType<void>;
+
+/**
+ * @summary Get a task by id
+ */
+
+export function useGetTask<
+  TData = Awaited<ReturnType<typeof getTask>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getTask>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTaskQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Edit a task (title, due date, priority, assignee, status)
+ */
+export const getUpdateTaskUrl = (id: string) => {
+  return `/api/tasks/${id}`;
+};
+
+export const updateTask = async (
+  id: string,
+  updateTaskRequest: UpdateTaskRequest,
+  options?: RequestInit,
+): Promise<Task> => {
+  return customFetch<Task>(getUpdateTaskUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateTaskRequest),
+  });
+};
+
+export const getUpdateTaskMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateTask>>,
+    TError,
+    { id: string; data: BodyType<UpdateTaskRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateTask>>,
+  TError,
+  { id: string; data: BodyType<UpdateTaskRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateTask"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateTask>>,
+    { id: string; data: BodyType<UpdateTaskRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateTask(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateTaskMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateTask>>
+>;
+export type UpdateTaskMutationBody = BodyType<UpdateTaskRequest>;
+export type UpdateTaskMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a task (title, due date, priority, assignee, status)
+ */
+export const useUpdateTask = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateTask>>,
+    TError,
+    { id: string; data: BodyType<UpdateTaskRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateTask>>,
+  TError,
+  { id: string; data: BodyType<UpdateTaskRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateTaskMutationOptions(options));
+};
+
+/**
+ * @summary Mark a task complete
+ */
+export const getCompleteTaskUrl = (id: string) => {
+  return `/api/tasks/${id}/complete`;
+};
+
+export const completeTask = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Task> => {
+  return customFetch<Task>(getCompleteTaskUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCompleteTaskMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeTask>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof completeTask>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["completeTask"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof completeTask>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return completeTask(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CompleteTaskMutationResult = NonNullable<
+  Awaited<ReturnType<typeof completeTask>>
+>;
+
+export type CompleteTaskMutationError = ErrorType<void>;
+
+/**
+ * @summary Mark a task complete
+ */
+export const useCompleteTask = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeTask>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof completeTask>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getCompleteTaskMutationOptions(options));
+};
+
+/**
+ * @summary Cancel a task
+ */
+export const getCancelTaskUrl = (id: string) => {
+  return `/api/tasks/${id}/cancel`;
+};
+
+export const cancelTask = async (
+  id: string,
+  cancelTaskRequest?: CancelTaskRequest,
+  options?: RequestInit,
+): Promise<Task> => {
+  return customFetch<Task>(getCancelTaskUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(cancelTaskRequest),
+  });
+};
+
+export const getCancelTaskMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelTask>>,
+    TError,
+    { id: string; data: BodyType<CancelTaskRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelTask>>,
+  TError,
+  { id: string; data: BodyType<CancelTaskRequest> },
+  TContext
+> => {
+  const mutationKey = ["cancelTask"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelTask>>,
+    { id: string; data: BodyType<CancelTaskRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return cancelTask(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelTaskMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelTask>>
+>;
+export type CancelTaskMutationBody = BodyType<CancelTaskRequest>;
+export type CancelTaskMutationError = ErrorType<void>;
+
+/**
+ * @summary Cancel a task
+ */
+export const useCancelTask = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelTask>>,
+    TError,
+    { id: string; data: BodyType<CancelTaskRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelTask>>,
+  TError,
+  { id: string; data: BodyType<CancelTaskRequest> },
+  TContext
+> => {
+  return useMutation(getCancelTaskMutationOptions(options));
+};
+
+/**
+ * @summary Run AI task generation on the encounter's note
+ */
+export const getGenerateEncounterTasksUrl = (id: string) => {
+  return `/api/encounters/${id}/tasks/generate`;
+};
+
+export const generateEncounterTasks = async (
+  id: string,
+  options?: RequestInit,
+): Promise<TaskGenerateResponse> => {
+  return customFetch<TaskGenerateResponse>(getGenerateEncounterTasksUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getGenerateEncounterTasksMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateEncounterTasks>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateEncounterTasks>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["generateEncounterTasks"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateEncounterTasks>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return generateEncounterTasks(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateEncounterTasksMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateEncounterTasks>>
+>;
+
+export type GenerateEncounterTasksMutationError = ErrorType<void>;
+
+/**
+ * @summary Run AI task generation on the encounter's note
+ */
+export const useGenerateEncounterTasks = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateEncounterTasks>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateEncounterTasks>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getGenerateEncounterTasksMutationOptions(options));
 };
 
 /**

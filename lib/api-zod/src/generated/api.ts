@@ -1735,6 +1735,1087 @@ export const DeleteVerbalCueParams = zod.object({
 });
 
 /**
+ * @summary List billing suggestions + approved codes for an encounter
+ */
+export const GetEncounterBillingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterBillingResponse = zod.object({
+  suggestions: zod.array(
+    zod.object({
+      id: zod.string(),
+      codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+      code: zod.string(),
+      description: zod.string(),
+      rationale: zod.string(),
+      supportingExcerpts: zod.array(
+        zod.object({
+          text: zod.string(),
+          locationHint: zod.string().optional(),
+        }),
+      ),
+      documentationGaps: zod.array(
+        zod.object({
+          field: zod.string(),
+          message: zod.string(),
+          severity: zod.enum(["info", "warn", "block"]),
+        }),
+      ),
+      confidence: zod.enum(["low", "medium", "high"]),
+      status: zod.enum([
+        "ai_suggested",
+        "needs_review",
+        "provider_approved",
+        "biller_approved",
+        "rejected",
+        "exported",
+      ]),
+      createdByAi: zod.boolean(),
+    }),
+  ),
+  approvedCodes: zod.array(
+    zod.object({
+      id: zod.string(),
+      codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+      code: zod.string(),
+      description: zod.string(),
+      sourceSuggestionId: zod.string().nullable(),
+      approvedAt: zod.coerce.date().nullable(),
+      billerApprovedAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+    }),
+  ),
+});
+
+/**
+ * Inserts new ai_suggested rows, returns the full BillingResponse for the encounter. Safe to call multiple times — prior non-`ai_suggested` rows are preserved.
+ * @summary Run (or rerun) AI billing-code suggestion on the encounter's note
+ */
+export const SuggestEncounterBillingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SuggestEncounterBillingResponse = zod
+  .object({
+    suggestions: zod.array(
+      zod.object({
+        id: zod.string(),
+        codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+        code: zod.string(),
+        description: zod.string(),
+        rationale: zod.string(),
+        supportingExcerpts: zod.array(
+          zod.object({
+            text: zod.string(),
+            locationHint: zod.string().optional(),
+          }),
+        ),
+        documentationGaps: zod.array(
+          zod.object({
+            field: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+        confidence: zod.enum(["low", "medium", "high"]),
+        status: zod.enum([
+          "ai_suggested",
+          "needs_review",
+          "provider_approved",
+          "biller_approved",
+          "rejected",
+          "exported",
+        ]),
+        createdByAi: zod.boolean(),
+      }),
+    ),
+    approvedCodes: zod.array(
+      zod.object({
+        id: zod.string(),
+        codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+        code: zod.string(),
+        description: zod.string(),
+        sourceSuggestionId: zod.string().nullable(),
+        approvedAt: zod.coerce.date().nullable(),
+        billerApprovedAt: zod.coerce.date().nullable(),
+        exportedAt: zod.coerce.date().nullable(),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      source: zod.enum(["ai", "stub"]),
+    }),
+  );
+
+/**
+ * @summary Provider-approve an AI billing suggestion (promotes to approved_codes)
+ */
+export const ApproveBillingSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ApproveBillingSuggestionResponse = zod.object({
+  id: zod.string(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  sourceSuggestionId: zod.string().nullable(),
+  approvedAt: zod.coerce.date().nullable(),
+  billerApprovedAt: zod.coerce.date().nullable(),
+  exportedAt: zod.coerce.date().nullable(),
+});
+
+/**
+ * @summary Provider-reject an AI billing suggestion
+ */
+export const RejectBillingSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const rejectBillingSuggestionBodyReasonMax = 500;
+
+export const RejectBillingSuggestionBody = zod.object({
+  reason: zod.string().max(rejectBillingSuggestionBodyReasonMax).optional(),
+});
+
+export const RejectBillingSuggestionResponse = zod.object({
+  id: zod.string(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  rationale: zod.string(),
+  supportingExcerpts: zod.array(
+    zod.object({
+      text: zod.string(),
+      locationHint: zod.string().optional(),
+    }),
+  ),
+  documentationGaps: zod.array(
+    zod.object({
+      field: zod.string(),
+      message: zod.string(),
+      severity: zod.enum(["info", "warn", "block"]),
+    }),
+  ),
+  confidence: zod.enum(["low", "medium", "high"]),
+  status: zod.enum([
+    "ai_suggested",
+    "needs_review",
+    "provider_approved",
+    "biller_approved",
+    "rejected",
+    "exported",
+  ]),
+  createdByAi: zod.boolean(),
+});
+
+/**
+ * @summary Biller secondary approval on an approved billing code (export gate)
+ */
+export const BillerApproveBillingCodeParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const BillerApproveBillingCodeResponse = zod.object({
+  id: zod.string(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  sourceSuggestionId: zod.string().nullable(),
+  approvedAt: zod.coerce.date().nullable(),
+  billerApprovedAt: zod.coerce.date().nullable(),
+  exportedAt: zod.coerce.date().nullable(),
+});
+
+/**
+ * @summary List order suggestions + approved orders for an encounter
+ */
+export const GetEncounterOrdersParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterOrdersResponse = zod.object({
+  suggestions: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        orderType: zod.enum([
+          "lab",
+          "imaging",
+          "referral",
+          "medication",
+          "procedure",
+          "followup",
+          "instruction",
+          "dme",
+          "therapy",
+          "nursing",
+        ]),
+        name: zod.string(),
+        indication: zod.string().nullable(),
+        indicationDiagnosisCode: zod.string().nullable(),
+        priority: zod.enum(["routine", "urgent", "stat"]),
+        instructions: zod.string().nullable(),
+        frequency: zod.string().nullable(),
+        duration: zod.string().nullable(),
+        medicationName: zod.string().nullable(),
+        medicationDose: zod.string().nullable(),
+        medicationRoute: zod.string().nullable(),
+        medicationFrequency: zod.string().nullable(),
+        medicationDuration: zod.string().nullable(),
+        medicationQuantity: zod.number().nullable(),
+        medicationRefills: zod.number().nullable(),
+        isComplete: zod.boolean(),
+        safetyWarnings: zod.array(
+          zod.object({
+            kind: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+      })
+      .and(
+        zod.object({
+          rationale: zod.string(),
+          status: zod.enum([
+            "ai_suggested",
+            "needs_review",
+            "approved",
+            "rejected",
+            "exported",
+          ]),
+          createdByAi: zod.boolean(),
+        }),
+      ),
+  ),
+  approvedOrders: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        orderType: zod.enum([
+          "lab",
+          "imaging",
+          "referral",
+          "medication",
+          "procedure",
+          "followup",
+          "instruction",
+          "dme",
+          "therapy",
+          "nursing",
+        ]),
+        name: zod.string(),
+        indication: zod.string().nullable(),
+        indicationDiagnosisCode: zod.string().nullable(),
+        priority: zod.enum(["routine", "urgent", "stat"]),
+        instructions: zod.string().nullable(),
+        frequency: zod.string().nullable(),
+        duration: zod.string().nullable(),
+        medicationName: zod.string().nullable(),
+        medicationDose: zod.string().nullable(),
+        medicationRoute: zod.string().nullable(),
+        medicationFrequency: zod.string().nullable(),
+        medicationDuration: zod.string().nullable(),
+        medicationQuantity: zod.number().nullable(),
+        medicationRefills: zod.number().nullable(),
+        isComplete: zod.boolean(),
+        safetyWarnings: zod.array(
+          zod.object({
+            kind: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+      })
+      .and(
+        zod.object({
+          sourceSuggestionId: zod.string().nullable(),
+          status: zod.enum([
+            "approved",
+            "export_ready",
+            "exported",
+            "cancelled",
+          ]),
+          approvedAt: zod.coerce.date().nullable(),
+          exportReadyAt: zod.coerce.date().nullable(),
+          exportedAt: zod.coerce.date().nullable(),
+        }),
+      ),
+  ),
+});
+
+/**
+ * @summary Run (or rerun) AI order suggestion on the encounter's note
+ */
+export const SuggestEncounterOrdersParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SuggestEncounterOrdersResponse = zod.object({
+  data: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        orderType: zod.enum([
+          "lab",
+          "imaging",
+          "referral",
+          "medication",
+          "procedure",
+          "followup",
+          "instruction",
+          "dme",
+          "therapy",
+          "nursing",
+        ]),
+        name: zod.string(),
+        indication: zod.string().nullable(),
+        indicationDiagnosisCode: zod.string().nullable(),
+        priority: zod.enum(["routine", "urgent", "stat"]),
+        instructions: zod.string().nullable(),
+        frequency: zod.string().nullable(),
+        duration: zod.string().nullable(),
+        medicationName: zod.string().nullable(),
+        medicationDose: zod.string().nullable(),
+        medicationRoute: zod.string().nullable(),
+        medicationFrequency: zod.string().nullable(),
+        medicationDuration: zod.string().nullable(),
+        medicationQuantity: zod.number().nullable(),
+        medicationRefills: zod.number().nullable(),
+        isComplete: zod.boolean(),
+        safetyWarnings: zod.array(
+          zod.object({
+            kind: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+      })
+      .and(
+        zod.object({
+          rationale: zod.string(),
+          status: zod.enum([
+            "ai_suggested",
+            "needs_review",
+            "approved",
+            "rejected",
+            "exported",
+          ]),
+          createdByAi: zod.boolean(),
+        }),
+      ),
+  ),
+  source: zod.enum(["ai", "stub"]),
+});
+
+/**
+ * @summary Clinician-approve an AI order suggestion
+ */
+export const ApproveOrderSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ApproveOrderSuggestionResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+    }),
+  );
+
+/**
+ * @summary Clinician-reject an AI order suggestion
+ */
+export const RejectOrderSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const rejectOrderSuggestionBodyReasonMax = 500;
+
+export const RejectOrderSuggestionBody = zod.object({
+  reason: zod.string().max(rejectOrderSuggestionBodyReasonMax).optional(),
+});
+
+export const RejectOrderSuggestionResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      rationale: zod.string(),
+      status: zod.enum([
+        "ai_suggested",
+        "needs_review",
+        "approved",
+        "rejected",
+        "exported",
+      ]),
+      createdByAi: zod.boolean(),
+    }),
+  );
+
+/**
+ * @summary Manually create an approved order (no AI suggestion path)
+ */
+export const createOrderBodyNameMax = 200;
+
+export const createOrderBodyIndicationMax = 500;
+
+export const createOrderBodyIndicationDiagnosisCodeMax = 20;
+
+export const createOrderBodyInstructionsMax = 2000;
+
+export const createOrderBodyFrequencyMax = 100;
+
+export const createOrderBodyDurationMax = 100;
+
+export const createOrderBodyMedicationNameMax = 200;
+
+export const createOrderBodyMedicationDoseMax = 50;
+
+export const createOrderBodyMedicationRouteMax = 50;
+
+export const createOrderBodyMedicationFrequencyMax = 100;
+
+export const createOrderBodyMedicationDurationMax = 100;
+
+export const createOrderBodyMedicationQuantityMin = 0;
+
+export const createOrderBodyMedicationRefillsMin = 0;
+
+export const CreateOrderBody = zod.object({
+  encounterId: zod.string(),
+  orderType: zod.enum([
+    "lab",
+    "imaging",
+    "referral",
+    "medication",
+    "procedure",
+    "followup",
+    "instruction",
+    "dme",
+    "therapy",
+    "nursing",
+  ]),
+  name: zod.string().min(1).max(createOrderBodyNameMax),
+  indication: zod.string().max(createOrderBodyIndicationMax).optional(),
+  indicationDiagnosisCode: zod
+    .string()
+    .max(createOrderBodyIndicationDiagnosisCodeMax)
+    .optional(),
+  priority: zod.enum(["routine", "urgent", "stat"]).optional(),
+  instructions: zod.string().max(createOrderBodyInstructionsMax).optional(),
+  frequency: zod.string().max(createOrderBodyFrequencyMax).optional(),
+  duration: zod.string().max(createOrderBodyDurationMax).optional(),
+  medicationName: zod.string().max(createOrderBodyMedicationNameMax).optional(),
+  medicationDose: zod.string().max(createOrderBodyMedicationDoseMax).optional(),
+  medicationRoute: zod
+    .string()
+    .max(createOrderBodyMedicationRouteMax)
+    .optional(),
+  medicationFrequency: zod
+    .string()
+    .max(createOrderBodyMedicationFrequencyMax)
+    .optional(),
+  medicationDuration: zod
+    .string()
+    .max(createOrderBodyMedicationDurationMax)
+    .optional(),
+  medicationQuantity: zod
+    .number()
+    .min(createOrderBodyMedicationQuantityMin)
+    .optional(),
+  medicationRefills: zod
+    .number()
+    .min(createOrderBodyMedicationRefillsMin)
+    .optional(),
+});
+
+/**
+ * @summary Edit an approved order (medication dose, instructions, etc.)
+ */
+export const UpdateOrderParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateOrderBodyNameMax = 200;
+
+export const updateOrderBodyIndicationMax = 500;
+
+export const updateOrderBodyIndicationDiagnosisCodeMax = 20;
+
+export const updateOrderBodyInstructionsMax = 2000;
+
+export const updateOrderBodyFrequencyMax = 100;
+
+export const updateOrderBodyDurationMax = 100;
+
+export const updateOrderBodyMedicationNameMax = 200;
+
+export const updateOrderBodyMedicationDoseMax = 50;
+
+export const updateOrderBodyMedicationRouteMax = 50;
+
+export const updateOrderBodyMedicationFrequencyMax = 100;
+
+export const updateOrderBodyMedicationDurationMax = 100;
+
+export const updateOrderBodyMedicationQuantityMin = 0;
+
+export const updateOrderBodyMedicationRefillsMin = 0;
+
+export const UpdateOrderBody = zod
+  .object({
+    name: zod.string().min(1).max(updateOrderBodyNameMax).optional(),
+    indication: zod.string().max(updateOrderBodyIndicationMax).nullish(),
+    indicationDiagnosisCode: zod
+      .string()
+      .max(updateOrderBodyIndicationDiagnosisCodeMax)
+      .nullish(),
+    priority: zod.enum(["routine", "urgent", "stat"]).optional(),
+    instructions: zod.string().max(updateOrderBodyInstructionsMax).nullish(),
+    frequency: zod.string().max(updateOrderBodyFrequencyMax).nullish(),
+    duration: zod.string().max(updateOrderBodyDurationMax).nullish(),
+    medicationName: zod
+      .string()
+      .max(updateOrderBodyMedicationNameMax)
+      .nullish(),
+    medicationDose: zod
+      .string()
+      .max(updateOrderBodyMedicationDoseMax)
+      .nullish(),
+    medicationRoute: zod
+      .string()
+      .max(updateOrderBodyMedicationRouteMax)
+      .nullish(),
+    medicationFrequency: zod
+      .string()
+      .max(updateOrderBodyMedicationFrequencyMax)
+      .nullish(),
+    medicationDuration: zod
+      .string()
+      .max(updateOrderBodyMedicationDurationMax)
+      .nullish(),
+    medicationQuantity: zod
+      .number()
+      .min(updateOrderBodyMedicationQuantityMin)
+      .nullish(),
+    medicationRefills: zod
+      .number()
+      .min(updateOrderBodyMedicationRefillsMin)
+      .nullish(),
+  })
+  .describe(
+    "Partial update — only fields present in the body are touched. Allowed fields mirror CreateOrderRequest (no encounterId or orderType; those are immutable post-creation).",
+  );
+
+export const UpdateOrderResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+    }),
+  );
+
+/**
+ * @summary Flip an approved order to export_ready (gates EHR push)
+ */
+export const MarkOrderExportReadyParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const MarkOrderExportReadyResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+    }),
+  );
+
+/**
+ * @summary Cancel an approved order
+ */
+export const CancelOrderParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const cancelOrderBodyReasonMax = 500;
+
+export const CancelOrderBody = zod.object({
+  reason: zod.string().max(cancelOrderBodyReasonMax).optional(),
+});
+
+export const CancelOrderResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+    }),
+  );
+
+/**
+ * @summary List tasks the caller can see, with optional filters
+ */
+export const ListTasksQueryParams = zod.object({
+  assignee: zod.enum(["me", "anyone"]).optional(),
+  status: zod
+    .enum(["open", "in_progress", "completed", "cancelled"])
+    .optional(),
+  patientId: zod.coerce.string().optional(),
+  encounterId: zod.coerce.string().optional(),
+});
+
+export const ListTasksResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      encounterId: zod.string().nullable(),
+      category: zod.enum([
+        "call_patient",
+        "schedule_followup",
+        "send_referral",
+        "prior_auth",
+        "obtain_records",
+        "repeat_labs",
+        "nursing_instruction",
+        "billing_followup",
+        "patient_instruction",
+        "other",
+      ]),
+      title: zod.string(),
+      description: zod.string().nullable(),
+      dueAt: zod.coerce.date().nullable(),
+      priority: zod.enum(["low", "normal", "high"]),
+      status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+      isClosed: zod.boolean(),
+      source: zod.enum(["ai", "manual"]),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a clinical task
+ */
+export const createTaskBodyTitleMax = 200;
+
+export const createTaskBodyDescriptionMax = 2000;
+
+export const CreateTaskBody = zod.object({
+  patientId: zod.string(),
+  encounterId: zod.string().optional(),
+  title: zod.string().min(1).max(createTaskBodyTitleMax),
+  description: zod.string().max(createTaskBodyDescriptionMax).optional(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  priority: zod.enum(["low", "normal", "high"]).optional(),
+  dueAt: zod.coerce.date().optional(),
+  assignedUserId: zod.string().optional(),
+});
+
+/**
+ * @summary Get a task by id
+ */
+export const GetTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Edit a task (title, due date, priority, assignee, status)
+ */
+export const UpdateTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateTaskBodyTitleMax = 200;
+
+export const updateTaskBodyDescriptionMax = 2000;
+
+export const UpdateTaskBody = zod
+  .object({
+    title: zod.string().min(1).max(updateTaskBodyTitleMax).optional(),
+    description: zod.string().max(updateTaskBodyDescriptionMax).nullish(),
+    category: zod
+      .enum([
+        "call_patient",
+        "schedule_followup",
+        "send_referral",
+        "prior_auth",
+        "obtain_records",
+        "repeat_labs",
+        "nursing_instruction",
+        "billing_followup",
+        "patient_instruction",
+        "other",
+      ])
+      .optional(),
+    priority: zod.enum(["low", "normal", "high"]).optional(),
+    dueAt: zod.coerce.date().nullish(),
+    assignedUserId: zod.string().nullish(),
+    status: zod
+      .enum(["open", "in_progress", "completed", "cancelled"])
+      .optional(),
+  })
+  .describe("Partial update — only fields present in the body are touched.");
+
+export const UpdateTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Mark a task complete
+ */
+export const CompleteTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const CompleteTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Cancel a task
+ */
+export const CancelTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const cancelTaskBodyReasonMax = 500;
+
+export const CancelTaskBody = zod.object({
+  reason: zod.string().max(cancelTaskBodyReasonMax).optional(),
+});
+
+export const CancelTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Run AI task generation on the encounter's note
+ */
+export const GenerateEncounterTasksParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GenerateEncounterTasksResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      encounterId: zod.string().nullable(),
+      category: zod.enum([
+        "call_patient",
+        "schedule_followup",
+        "send_referral",
+        "prior_auth",
+        "obtain_records",
+        "repeat_labs",
+        "nursing_instruction",
+        "billing_followup",
+        "patient_instruction",
+        "other",
+      ]),
+      title: zod.string(),
+      description: zod.string().nullable(),
+      dueAt: zod.coerce.date().nullable(),
+      priority: zod.enum(["low", "normal", "high"]),
+      status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+      isClosed: zod.boolean(),
+      source: zod.enum(["ai", "manual"]),
+    }),
+  ),
+  source: zod.enum(["ai", "stub"]),
+});
+
+/**
  * Per-provider "always apply" assumptions the AI bakes into every generated note (e.g. "14-point ROS negative unless stated").
  * @summary List the signed-in provider's encounter defaults
  */

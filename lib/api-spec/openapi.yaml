@@ -28,6 +28,12 @@ tags:
     description: Per-provider dot-phrase expansions used by the note editor
   - name: verbal-cues
     description: Per-provider phrases that auto-stop the streaming recorder
+  - name: billing
+    description: AI billing-code suggestions + provider/biller approval flow
+  - name: orders
+    description: AI order suggestions + clinician approval, lifecycle, cancellation
+  - name: tasks
+    description: Clinical task generation + assignment workflow
 paths:
   /healthz:
     get:
@@ -1209,6 +1215,393 @@ paths:
           description: Cue deleted
         "404":
           description: Cue not found (or not owned by caller)
+  /encounters/{id}/billing:
+    get:
+      operationId: getEncounterBilling
+      tags: [billing]
+      summary: List billing suggestions + approved codes for an encounter
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Billing payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingResponse"
+        "404":
+          description: Encounter not found
+  /encounters/{id}/billing/suggest:
+    post:
+      operationId: suggestEncounterBilling
+      tags: [billing]
+      summary: Run (or rerun) AI billing-code suggestion on the encounter's note
+      description: >-
+        Inserts new ai_suggested rows, returns the full BillingResponse
+        for the encounter. Safe to call multiple times — prior
+        non-`ai_suggested` rows are preserved.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Suggestion run complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSuggestResponse"
+        "404":
+          description: Encounter not found
+        "409":
+          description: Encounter has no associated note yet
+  /billing/suggestions/{id}/approve:
+    post:
+      operationId: approveBillingSuggestion
+      tags: [billing]
+      summary: Provider-approve an AI billing suggestion (promotes to approved_codes)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedBillingCode"
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion in a non-approvable state (already rejected, etc.)
+  /billing/suggestions/{id}/reject:
+    post:
+      operationId: rejectBillingSuggestion
+      tags: [billing]
+      summary: Provider-reject an AI billing suggestion
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectBillingSuggestionRequest"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSuggestion"
+        "404":
+          description: Suggestion not found
+  /billing/codes/{id}/biller-approve:
+    post:
+      operationId: billerApproveBillingCode
+      tags: [billing]
+      summary: Biller secondary approval on an approved billing code (export gate)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Biller-approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedBillingCode"
+        "404":
+          description: Code not found
+  /encounters/{id}/orders:
+    get:
+      operationId: getEncounterOrders
+      tags: [orders]
+      summary: List order suggestions + approved orders for an encounter
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Orders payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrdersResponse"
+        "404":
+          description: Encounter not found
+  /encounters/{id}/orders/suggest:
+    post:
+      operationId: suggestEncounterOrders
+      tags: [orders]
+      summary: Run (or rerun) AI order suggestion on the encounter's note
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Suggestion run complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderSuggestResponse"
+        "404":
+          description: Encounter not found
+        "409":
+          description: Encounter has no associated note yet
+  /orders/suggestions/{id}/approve:
+    post:
+      operationId: approveOrderSuggestion
+      tags: [orders]
+      summary: Clinician-approve an AI order suggestion
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedOrder"
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion in a non-approvable state or safety block
+  /orders/suggestions/{id}/reject:
+    post:
+      operationId: rejectOrderSuggestion
+      tags: [orders]
+      summary: Clinician-reject an AI order suggestion
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectOrderSuggestionRequest"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderSuggestion"
+        "404":
+          description: Suggestion not found
+  /orders:
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Manually create an approved order (no AI suggestion path)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedOrder"
+        "404":
+          description: Encounter or patient not found
+        "409":
+          description: Safety block triggered (e.g. drug allergy)
+  /orders/{id}:
+    patch:
+      operationId: updateOrder
+      tags: [orders]
+      summary: Edit an approved order (medication dose, instructions, etc.)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrderRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedOrder"
+        "404":
+          description: Order not found
+        "409":
+          description: Order in a non-editable state
+  /orders/{id}/mark-export-ready:
+    post:
+      operationId: markOrderExportReady
+      tags: [orders]
+      summary: Flip an approved order to export_ready (gates EHR push)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Marked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedOrder"
+        "404":
+          description: Order not found
+        "409":
+          description: Order in a non-promotable state
+  /orders/{id}/cancel:
+    post:
+      operationId: cancelOrder
+      tags: [orders]
+      summary: Cancel an approved order
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelOrderRequest"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovedOrder"
+        "404":
+          description: Order not found
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List tasks the caller can see, with optional filters
+      parameters:
+        - { name: assignee, in: query, required: false, schema: { type: string, enum: [me, anyone] } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [open, in_progress, completed, cancelled] } }
+        - { name: patientId, in: query, required: false, schema: { type: string } }
+        - { name: encounterId, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create a clinical task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: Patient or encounter not found
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get a task by id
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: Task not found
+    patch:
+      operationId: updateTask
+      tags: [tasks]
+      summary: Edit a task (title, due date, priority, assignee, status)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: Task not found
+  /tasks/{id}/complete:
+    post:
+      operationId: completeTask
+      tags: [tasks]
+      summary: Mark a task complete
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Task completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: Task not found
+        "409":
+          description: Task already closed
+  /tasks/{id}/cancel:
+    post:
+      operationId: cancelTask
+      tags: [tasks]
+      summary: Cancel a task
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelTaskRequest"
+      responses:
+        "200":
+          description: Task cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: Task not found
+        "409":
+          description: Task already closed
+  /encounters/{id}/tasks/generate:
+    post:
+      operationId: generateEncounterTasks
+      tags: [tasks]
+      summary: Run AI task generation on the encounter's note
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskGenerateResponse"
+        "404":
+          description: Encounter not found
+        "409":
+          description: Encounter has no associated note yet
   /note-defaults:
     get:
       operationId: listNoteDefaults
@@ -2294,6 +2687,416 @@ components:
           type: string
           minLength: 1
           maxLength: 1000
+    # ------------------------------------------------------------
+    # Billing / Orders / Tasks — backfilled in Phase 28.
+    # ------------------------------------------------------------
+    BillingCodeSystem:
+      type: string
+      enum: [icd10, cpt, em, modifier]
+    SuggestionConfidence:
+      type: string
+      enum: [low, medium, high]
+    BillingSuggestionStatus:
+      type: string
+      enum:
+        - ai_suggested
+        - needs_review
+        - provider_approved
+        - biller_approved
+        - rejected
+        - exported
+    BillingSupportingExcerpt:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        locationHint: { type: string }
+    BillingDocumentationGap:
+      type: object
+      required: [field, message, severity]
+      properties:
+        field: { type: string }
+        message: { type: string }
+        severity:
+          type: string
+          enum: [info, warn, block]
+    BillingSuggestion:
+      type: object
+      required:
+        - id
+        - codeSystem
+        - code
+        - description
+        - rationale
+        - supportingExcerpts
+        - documentationGaps
+        - confidence
+        - status
+        - createdByAi
+      properties:
+        id: { type: string }
+        codeSystem: { $ref: "#/components/schemas/BillingCodeSystem" }
+        code: { type: string }
+        description: { type: string }
+        rationale: { type: string }
+        supportingExcerpts:
+          type: array
+          items: { $ref: "#/components/schemas/BillingSupportingExcerpt" }
+        documentationGaps:
+          type: array
+          items: { $ref: "#/components/schemas/BillingDocumentationGap" }
+        confidence: { $ref: "#/components/schemas/SuggestionConfidence" }
+        status: { $ref: "#/components/schemas/BillingSuggestionStatus" }
+        createdByAi: { type: boolean }
+    ApprovedBillingCode:
+      type: object
+      required:
+        - id
+        - codeSystem
+        - code
+        - description
+        - sourceSuggestionId
+        - approvedAt
+        - billerApprovedAt
+        - exportedAt
+      properties:
+        id: { type: string }
+        codeSystem: { $ref: "#/components/schemas/BillingCodeSystem" }
+        code: { type: string }
+        description: { type: string }
+        sourceSuggestionId:
+          type: ["string", "null"]
+        approvedAt:
+          type: ["string", "null"]
+          format: date-time
+        billerApprovedAt:
+          type: ["string", "null"]
+          format: date-time
+        exportedAt:
+          type: ["string", "null"]
+          format: date-time
+    BillingResponse:
+      type: object
+      required: [suggestions, approvedCodes]
+      properties:
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/BillingSuggestion" }
+        approvedCodes:
+          type: array
+          items: { $ref: "#/components/schemas/ApprovedBillingCode" }
+    BillingSuggestSource:
+      type: string
+      enum: [ai, stub]
+    BillingSuggestResponse:
+      allOf:
+        - $ref: "#/components/schemas/BillingResponse"
+        - type: object
+          required: [source]
+          properties:
+            source: { $ref: "#/components/schemas/BillingSuggestSource" }
+    RejectBillingSuggestionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+
+    OrderType:
+      type: string
+      enum:
+        - lab
+        - imaging
+        - referral
+        - medication
+        - procedure
+        - followup
+        - instruction
+        - dme
+        - therapy
+        - nursing
+    OrderPriority:
+      type: string
+      enum: [routine, urgent, stat]
+    OrderSuggestionStatus:
+      type: string
+      enum: [ai_suggested, needs_review, approved, rejected, exported]
+    ApprovedOrderStatus:
+      type: string
+      enum: [approved, export_ready, exported, cancelled]
+    OrderSafetyWarning:
+      type: object
+      required: [kind, message, severity]
+      properties:
+        kind: { type: string }
+        message: { type: string }
+        severity:
+          type: string
+          enum: [info, warn, block]
+    OrderCommon:
+      type: object
+      required:
+        - id
+        - orderType
+        - name
+        - indication
+        - indicationDiagnosisCode
+        - priority
+        - instructions
+        - frequency
+        - duration
+        - medicationName
+        - medicationDose
+        - medicationRoute
+        - medicationFrequency
+        - medicationDuration
+        - medicationQuantity
+        - medicationRefills
+        - isComplete
+        - safetyWarnings
+      properties:
+        id: { type: string }
+        orderType: { $ref: "#/components/schemas/OrderType" }
+        name: { type: string }
+        indication: { type: ["string", "null"] }
+        indicationDiagnosisCode: { type: ["string", "null"] }
+        priority: { $ref: "#/components/schemas/OrderPriority" }
+        instructions: { type: ["string", "null"] }
+        frequency: { type: ["string", "null"] }
+        duration: { type: ["string", "null"] }
+        medicationName: { type: ["string", "null"] }
+        medicationDose: { type: ["string", "null"] }
+        medicationRoute: { type: ["string", "null"] }
+        medicationFrequency: { type: ["string", "null"] }
+        medicationDuration: { type: ["string", "null"] }
+        medicationQuantity:
+          type: ["integer", "null"]
+        medicationRefills:
+          type: ["integer", "null"]
+        isComplete: { type: boolean }
+        safetyWarnings:
+          type: array
+          items: { $ref: "#/components/schemas/OrderSafetyWarning" }
+    OrderSuggestion:
+      allOf:
+        - $ref: "#/components/schemas/OrderCommon"
+        - type: object
+          required: [rationale, status, createdByAi]
+          properties:
+            rationale: { type: string }
+            status: { $ref: "#/components/schemas/OrderSuggestionStatus" }
+            createdByAi: { type: boolean }
+    ApprovedOrder:
+      allOf:
+        - $ref: "#/components/schemas/OrderCommon"
+        - type: object
+          required:
+            - sourceSuggestionId
+            - status
+            - approvedAt
+            - exportReadyAt
+            - exportedAt
+          properties:
+            sourceSuggestionId: { type: ["string", "null"] }
+            status: { $ref: "#/components/schemas/ApprovedOrderStatus" }
+            approvedAt:
+              type: ["string", "null"]
+              format: date-time
+            exportReadyAt:
+              type: ["string", "null"]
+              format: date-time
+            exportedAt:
+              type: ["string", "null"]
+              format: date-time
+    OrdersResponse:
+      type: object
+      required: [suggestions, approvedOrders]
+      properties:
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/OrderSuggestion" }
+        approvedOrders:
+          type: array
+          items: { $ref: "#/components/schemas/ApprovedOrder" }
+    OrderSuggestResponse:
+      type: object
+      required: [data, source]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/OrderSuggestion" }
+        source:
+          type: string
+          enum: [ai, stub]
+    RejectOrderSuggestionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+    CreateOrderRequest:
+      type: object
+      required: [encounterId, orderType, name]
+      properties:
+        encounterId: { type: string }
+        orderType: { $ref: "#/components/schemas/OrderType" }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        indication: { type: string, maxLength: 500 }
+        indicationDiagnosisCode: { type: string, maxLength: 20 }
+        priority: { $ref: "#/components/schemas/OrderPriority" }
+        instructions: { type: string, maxLength: 2000 }
+        frequency: { type: string, maxLength: 100 }
+        duration: { type: string, maxLength: 100 }
+        medicationName: { type: string, maxLength: 200 }
+        medicationDose: { type: string, maxLength: 50 }
+        medicationRoute: { type: string, maxLength: 50 }
+        medicationFrequency: { type: string, maxLength: 100 }
+        medicationDuration: { type: string, maxLength: 100 }
+        medicationQuantity:
+          type: integer
+          minimum: 0
+        medicationRefills:
+          type: integer
+          minimum: 0
+    UpdateOrderRequest:
+      type: object
+      description: >-
+        Partial update — only fields present in the body are touched.
+        Allowed fields mirror CreateOrderRequest (no encounterId or
+        orderType; those are immutable post-creation).
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        indication: { type: ["string", "null"], maxLength: 500 }
+        indicationDiagnosisCode: { type: ["string", "null"], maxLength: 20 }
+        priority: { $ref: "#/components/schemas/OrderPriority" }
+        instructions: { type: ["string", "null"], maxLength: 2000 }
+        frequency: { type: ["string", "null"], maxLength: 100 }
+        duration: { type: ["string", "null"], maxLength: 100 }
+        medicationName: { type: ["string", "null"], maxLength: 200 }
+        medicationDose: { type: ["string", "null"], maxLength: 50 }
+        medicationRoute: { type: ["string", "null"], maxLength: 50 }
+        medicationFrequency: { type: ["string", "null"], maxLength: 100 }
+        medicationDuration: { type: ["string", "null"], maxLength: 100 }
+        medicationQuantity:
+          type: ["integer", "null"]
+          minimum: 0
+        medicationRefills:
+          type: ["integer", "null"]
+          minimum: 0
+    CancelOrderRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+
+    TaskCategory:
+      type: string
+      enum:
+        - call_patient
+        - schedule_followup
+        - send_referral
+        - prior_auth
+        - obtain_records
+        - repeat_labs
+        - nursing_instruction
+        - billing_followup
+        - patient_instruction
+        - other
+    TaskStatus:
+      type: string
+      enum: [open, in_progress, completed, cancelled]
+    TaskPriority:
+      type: string
+      enum: [low, normal, high]
+    Task:
+      type: object
+      required:
+        - id
+        - encounterId
+        - category
+        - title
+        - description
+        - dueAt
+        - priority
+        - status
+        - isClosed
+        - source
+      properties:
+        id: { type: string }
+        encounterId: { type: ["string", "null"] }
+        category: { $ref: "#/components/schemas/TaskCategory" }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        dueAt:
+          type: ["string", "null"]
+          format: date-time
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        isClosed: { type: boolean }
+        source:
+          type: string
+          enum: [ai, manual]
+    TaskListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+    TaskGenerateResponse:
+      type: object
+      required: [data, source]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        source:
+          type: string
+          enum: [ai, stub]
+    CreateTaskRequest:
+      type: object
+      required: [patientId, title, category]
+      properties:
+        patientId: { type: string }
+        encounterId: { type: string }
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description: { type: string, maxLength: 2000 }
+        category: { $ref: "#/components/schemas/TaskCategory" }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        dueAt:
+          type: string
+          format: date-time
+        assignedUserId: { type: string }
+    UpdateTaskRequest:
+      type: object
+      description: Partial update — only fields present in the body are touched.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description: { type: ["string", "null"], maxLength: 2000 }
+        category: { $ref: "#/components/schemas/TaskCategory" }
+        priority: { $ref: "#/components/schemas/TaskPriority" }
+        dueAt:
+          type: ["string", "null"]
+          format: date-time
+        assignedUserId:
+          type: ["string", "null"]
+        status: { $ref: "#/components/schemas/TaskStatus" }
+    CancelTaskRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
     FounderAnalytics:
       type: object
       required: [totals, dailySeries, compliance, users]

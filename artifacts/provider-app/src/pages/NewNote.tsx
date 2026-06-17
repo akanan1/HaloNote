@@ -44,6 +44,7 @@ import { useAuth } from "@/lib/auth";
 import { useStreamingTranscript } from "@/lib/use-streaming-transcript";
 import { LiveTranscriptRibbon } from "@/components/LiveTranscriptRibbon";
 import { LiveBillingPanel } from "@/components/LiveBillingPanel";
+import { LiveNudgesPanel } from "@/components/LiveNudgesPanel";
 
 interface NewNotePageProps {
   patientId: string;
@@ -334,6 +335,8 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
       <LiveTranscriptRibbon state={liveTranscript} />
 
       <LiveBillingPanel suggestions={liveTranscript.billingSuggestions} />
+
+      <LiveNudgesPanel nudges={liveTranscript.nudges} />
 
       <RecordingPanel
         disabled={isBusy}

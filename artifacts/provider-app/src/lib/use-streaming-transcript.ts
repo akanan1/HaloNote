@@ -10,6 +10,21 @@ export interface LiveBillingCode {
   confidence: "low" | "medium" | "high";
 }
 
+// Mirrors the server's LiveNudge shape.
+export interface LiveDocNudge {
+  category:
+    | "hpi"
+    | "ros"
+    | "exam"
+    | "assessment"
+    | "plan"
+    | "meds"
+    | "allergies"
+    | "social"
+    | "other";
+  message: string;
+}
+
 // Events the api-server bridge sends back over the WebSocket.
 type ServerEvent =
   | { type: "ready" }
@@ -17,6 +32,7 @@ type ServerEvent =
   | { type: "final"; text: string }
   | { type: "auto_stop"; reason: "verbal_cue"; cue: string }
   | { type: "billing_suggestion"; codes: LiveBillingCode[] }
+  | { type: "nudge"; nudges: LiveDocNudge[] }
   | { type: "error"; message: string };
 
 export interface StreamingTranscriptState {
@@ -33,6 +49,9 @@ export interface StreamingTranscriptState {
   /** Billing suggestions surfaced during the visit so far. Append-only
    *  within a single session; cleared on stream teardown. */
   billingSuggestions: LiveBillingCode[];
+  /** Documentation-completeness nudges surfaced during the visit so
+   *  far. Same lifecycle as billingSuggestions. */
+  nudges: LiveDocNudge[];
 }
 
 export interface UseStreamingTranscriptParams {
@@ -85,6 +104,7 @@ export function useStreamingTranscript({
   const [billingSuggestions, setBillingSuggestions] = useState<
     LiveBillingCode[]
   >([]);
+  const [nudges, setNudges] = useState<LiveDocNudge[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -139,6 +159,7 @@ export function useStreamingTranscript({
       setEndCue(null);
       setError(null);
       setBillingSuggestions([]);
+      setNudges([]);
       return;
     }
 
@@ -177,6 +198,9 @@ export function useStreamingTranscript({
             return;
           case "billing_suggestion":
             setBillingSuggestions((cur) => [...cur, ...parsed.codes]);
+            return;
+          case "nudge":
+            setNudges((cur) => [...cur, ...parsed.nudges]);
             return;
           case "error":
             setStatus("error");
@@ -265,5 +289,13 @@ export function useStreamingTranscript({
     };
   }, [stream, teardown]);
 
-  return { finals, partial, status, error, endCue, billingSuggestions };
+  return {
+    finals,
+    partial,
+    status,
+    error,
+    endCue,
+    billingSuggestions,
+    nudges,
+  };
 }

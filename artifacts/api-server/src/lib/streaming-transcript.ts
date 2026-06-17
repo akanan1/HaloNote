@@ -14,6 +14,7 @@ import {
 import { SESSION_COOKIE, lookupSession } from "./auth";
 import { logger } from "./logger";
 import { suggestLiveCodes, type LiveCode } from "./live-billing-suggester";
+import { suggestLiveNudges, type LiveNudge } from "./live-nudges";
 
 // Default list of phrases that end a visit. Matched case-insensitively
 // against each `is_final` transcript event. The match is *substring* —
@@ -40,6 +41,7 @@ type ServerEvent =
   | { type: "final"; text: string }
   | { type: "auto_stop"; reason: "verbal_cue"; cue: string }
   | { type: "billing_suggestion"; codes: LiveCode[] }
+  | { type: "nudge"; nudges: LiveNudge[] }
   | { type: "error"; message: string };
 
 // Run a live-billing pass every Nth new final line. Higher = fewer
@@ -179,6 +181,11 @@ function attachBridge(
   let billingInFlight = false;
   let linesSinceLastBilling = 0;
   const alreadySuggested: { codeSystem: string; code: string }[] = [];
+  // Live nudge state — same debounce cadence as billing, runs in
+  // parallel against the same transcript snapshot.
+  let nudgesInFlight = false;
+  let linesSinceLastNudge = 0;
+  const alreadyNudged: { category: string; message: string }[] = [];
 
   function send(event: ServerEvent): void {
     if (browserWs.readyState === browserWs.OPEN) {
@@ -203,6 +210,43 @@ function attachBridge(
       send({ type: "final", text });
       finalLines.push(text);
       linesSinceLastBilling++;
+      linesSinceLastNudge++;
+      if (
+        !nudgesInFlight &&
+        linesSinceLastNudge >= LIVE_BILLING_LINES_PER_PASS
+      ) {
+        linesSinceLastNudge = 0;
+        nudgesInFlight = true;
+        const snapshot = finalLines.join("\n");
+        const knownNudges = alreadyNudged.slice();
+        void suggestLiveNudges({
+          transcript: snapshot,
+          alreadyNudged: knownNudges,
+        })
+          .then((nudges) => {
+            // Strict dedupe against (category, message) so a retry
+            // of the same nudge doesn't repaint the panel.
+            const fresh = nudges.filter(
+              (n) =>
+                !alreadyNudged.some(
+                  (k) =>
+                    k.category === n.category && k.message === n.message,
+                ),
+            );
+            if (fresh.length > 0) {
+              for (const n of fresh) {
+                alreadyNudged.push({
+                  category: n.category,
+                  message: n.message,
+                });
+              }
+              send({ type: "nudge", nudges: fresh });
+            }
+          })
+          .finally(() => {
+            nudgesInFlight = false;
+          });
+      }
       if (
         !billingInFlight &&
         linesSinceLastBilling >= LIVE_BILLING_LINES_PER_PASS

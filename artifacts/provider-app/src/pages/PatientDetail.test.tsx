@@ -5,10 +5,30 @@ import { renderWithProviders } from "@/test-utils/render";
 const listPatientsMock = vi.fn();
 const listNotesMock = vi.fn();
 
-vi.mock("@workspace/api-client-react", () => ({
-  useListPatients: () => listPatientsMock(),
-  useListNotes: (params: { patientId: string }) => listNotesMock(params),
-}));
+// Partial mock so value-level exports the page tree depends on
+// (notably the `VisitType` enum used by PatientEncountersSection)
+// flow through from the real generated module. Stub only the hooks
+// this test touches; the encounters hooks are stubbed too so the
+// component renders its empty state instead of attempting a fetch.
+vi.mock("@workspace/api-client-react", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@workspace/api-client-react")>();
+  return {
+    ...actual,
+    useListPatients: () => listPatientsMock(),
+    useListNotes: (params: { patientId: string }) => listNotesMock(params),
+    useListEncounters: () => ({
+      data: { data: [] },
+      isPending: false,
+      isError: false,
+    }),
+    useCreateEncounter: () => ({
+      mutateAsync: vi.fn(),
+      isPending: false,
+      error: null,
+    }),
+  };
+});
 
 import { PatientDetailPage } from "./PatientDetail";
 

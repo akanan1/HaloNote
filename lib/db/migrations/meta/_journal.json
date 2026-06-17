@@ -232,6 +232,13 @@
       "when": 1781700534892,
       "tag": "0032_add_auto_pushed_without_review",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781702411575,
+      "tag": "0033_add_verbal_cues_and_live_transcript",
+      "breakpoints": true
     }
   ]
 }

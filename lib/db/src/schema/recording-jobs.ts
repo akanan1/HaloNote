@@ -61,6 +61,13 @@ export const recordingJobsTable = pgTable(
     // Raw transcript from the ASR step. Populated when status passes
     // through "transcribing" → "structuring".
     transcript: text("transcript"),
+    // Accumulated `is_final` transcript captured from the streaming
+    // bridge during the visit. Distinct from `transcript` (above),
+    // which comes from the prerecorded batch transcribe after the
+    // segments upload. Useful for audit: if an auto-stop fires on a
+    // verbal cue, this column has the exact text that triggered it.
+    // Nullable — only populated when the streaming pipeline was used.
+    liveTranscript: text("live_transcript"),
     // Structured clinical-note body produced by the LLM step. This is
     // what eventually lands in the NewNote textarea.
     structuredBody: text("structured_body"),

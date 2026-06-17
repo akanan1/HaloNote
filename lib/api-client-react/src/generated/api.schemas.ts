@@ -605,6 +605,26 @@ export interface UpdateSmartPhraseRequest {
   description?: string | null;
 }
 
+export interface VerbalCue {
+  id: string;
+  /**
+   * End-of-visit phrase. Matched case-insensitively as a substring against streaming Deepgram is_final events.
+   * @minLength 1
+   * @maxLength 120
+   */
+  phrase: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateVerbalCueRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  phrase: string;
+}
+
 export interface NoteDefault {
   id: string;
   /**
@@ -919,6 +939,11 @@ export interface RecordingJob {
   /** @nullable */
   transcript?: string | null;
   /**
+   * Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.
+   * @nullable
+   */
+  liveTranscript?: string | null;
+  /**
    * AI-generated clinical note body; populated when status == done
    * @nullable
    */
@@ -1036,6 +1061,10 @@ export type ListPhraseMappings200 = {
 
 export type ListSmartPhrases200 = {
   data: SmartPhrase[];
+};
+
+export type ListVerbalCues200 = {
+  data: VerbalCue[];
 };
 
 export type ListNoteDefaults200 = {

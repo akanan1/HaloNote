@@ -5,6 +5,12 @@ import {
   type ListenLiveClient,
 } from "@deepgram/sdk";
 import { WebSocketServer, type WebSocket } from "ws";
+import { eq } from "drizzle-orm";
+import {
+  getDb,
+  providerVerbalCuesTable,
+  recordingJobsTable,
+} from "@workspace/db";
 import { SESSION_COOKIE, lookupSession } from "./auth";
 import { logger } from "./logger";
 
@@ -73,14 +79,55 @@ async function authenticateUpgrade(req: IncomingMessage): Promise<{
   }
 }
 
+async function loadCues(userId: string): Promise<readonly string[]> {
+  try {
+    const rows = await getDb()
+      .select({ phrase: providerVerbalCuesTable.phrase })
+      .from(providerVerbalCuesTable)
+      .where(eq(providerVerbalCuesTable.userId, userId));
+    if (rows.length === 0) return DEFAULT_END_CUES;
+    return rows.map((r) => r.phrase.toLowerCase());
+  } catch (err) {
+    logger.warn(
+      { err, userId },
+      "streaming: cue load failed; using defaults",
+    );
+    return DEFAULT_END_CUES;
+  }
+}
+
+async function persistLiveTranscript(
+  jobId: string,
+  text: string,
+): Promise<void> {
+  if (!text.trim()) return;
+  try {
+    await getDb()
+      .update(recordingJobsTable)
+      .set({ liveTranscript: text })
+      .where(eq(recordingJobsTable.id, jobId));
+  } catch (err) {
+    logger.warn({ err, jobId }, "streaming: live transcript persist failed");
+  }
+}
+
 /**
  * Per-browser-connection bridge: pipe audio frames to Deepgram, push
  * transcripts back. Cue detection runs on the server so the verbal
  * end-phrase decision stays inside the perimeter (and so a future
  * tamper-resistant audit can prove the auto-stop was triggered by a
  * specific transcript word).
+ *
+ * When a `jobId` is provided (the browser passes it as a query param
+ * on the upgrade URL), accumulated `is_final` lines are flushed to
+ * recording_jobs.live_transcript on close — useful for audit and for
+ * confirming which exact phrase triggered the auto-stop.
  */
-function attachBridge(browserWs: WebSocket, userId: string): void {
+function attachBridge(
+  browserWs: WebSocket,
+  userId: string,
+  jobId: string | null,
+): void {
   const apiKey = process.env["DEEPGRAM_API_KEY"];
   if (!apiKey) {
     browserWs.send(
@@ -110,10 +157,16 @@ function attachBridge(browserWs: WebSocket, userId: string): void {
     endpointing: 300,
   });
 
-  // Cue list lookup. Currently the global default; per-user
-  // customization is queued for the next phase.
-  const cues = DEFAULT_END_CUES;
+  // Cue list. Starts with defaults — replaced by the user's curated
+  // list once loadCues resolves. Race-safe: if a cue match happens
+  // before the load completes, it just checks against defaults.
+  let cues: readonly string[] = DEFAULT_END_CUES;
+  void loadCues(userId).then((list) => {
+    cues = list;
+  });
   let cueTriggered = false;
+  // Append every `is_final` line here so we can flush on close.
+  const finalLines: string[] = [];
 
   function send(event: ServerEvent): void {
     if (browserWs.readyState === browserWs.OPEN) {
@@ -136,6 +189,7 @@ function attachBridge(browserWs: WebSocket, userId: string): void {
     if (!text) return;
     if (m.is_final) {
       send({ type: "final", text });
+      finalLines.push(text);
       if (!cueTriggered) {
         const lower = text.toLowerCase();
         const hit = cues.find((c) => lower.includes(c));
@@ -202,6 +256,9 @@ function attachBridge(browserWs: WebSocket, userId: string): void {
   browserWs.on("close", () => {
     live?.requestClose();
     live = null;
+    if (jobId && finalLines.length > 0) {
+      void persistLiveTranscript(jobId, finalLines.join("\n"));
+    }
   });
 
   browserWs.on("error", (err) => {
@@ -229,14 +286,21 @@ export function attachStreamingTranscriptHandler(server: HttpServer): void {
       socket.destroy();
       return;
     }
-    // Strip query string before matching so future params (e.g.
-    // ?jobId=...) don't break the route.
-    const path = req.url.split("?")[0];
+    // Parse out path + query. The browser passes ?jobId=rec_… so the
+    // bridge can persist the streamed transcript onto the matching
+    // recording_jobs row when the session ends.
+    const [path, query] = req.url.split("?");
     if (path !== STREAM_PATH) {
       // Not our endpoint — leave the socket alone. Some other handler
       // (none today) may pick it up; otherwise it'll time out.
       return;
     }
+    const jobIdRaw = query
+      ? new URLSearchParams(query).get("jobId")
+      : null;
+    const jobId = jobIdRaw && /^rec_[a-zA-Z0-9-]+$/.test(jobIdRaw)
+      ? jobIdRaw
+      : null;
     void authenticateUpgrade(req).then((auth) => {
       if (!auth) {
         socket.write(
@@ -246,7 +310,7 @@ export function attachStreamingTranscriptHandler(server: HttpServer): void {
         return;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
-        attachBridge(ws, auth.userId);
+        attachBridge(ws, auth.userId, jobId);
       });
     });
   });

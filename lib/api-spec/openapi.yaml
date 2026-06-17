@@ -26,6 +26,8 @@ tags:
     description: Visit envelope for note + billing + orders + tasks
   - name: smart-phrases
     description: Per-provider dot-phrase expansions used by the note editor
+  - name: verbal-cues
+    description: Per-provider phrases that auto-stop the streaming recorder
 paths:
   /healthz:
     get:
@@ -1151,6 +1153,62 @@ paths:
           description: Usage recorded
         "404":
           description: Smart phrase not found (or not owned by caller)
+  /verbal-cues:
+    get:
+      operationId: listVerbalCues
+      tags: [verbal-cues]
+      summary: List the signed-in provider's verbal end-cues
+      description: >-
+        Per-provider phrases the streaming bridge watches for. Empty
+        list means the bridge falls back to a hardcoded default set.
+      responses:
+        "200":
+          description: Verbal cues
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VerbalCue"
+    post:
+      operationId: createVerbalCue
+      tags: [verbal-cues]
+      summary: Create a new verbal end-cue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVerbalCueRequest"
+      responses:
+        "201":
+          description: Verbal cue created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerbalCue"
+        "409":
+          description: phrase already in the caller's list
+  /verbal-cues/{id}:
+    delete:
+      operationId: deleteVerbalCue
+      tags: [verbal-cues]
+      summary: Delete a verbal end-cue
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Cue deleted
+        "404":
+          description: Cue not found (or not owned by caller)
   /note-defaults:
     get:
       operationId: listNoteDefaults
@@ -2155,6 +2213,33 @@ components:
         description:
           type: ["string", "null"]
           maxLength: 200
+    VerbalCue:
+      type: object
+      required: [id, phrase, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        phrase:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: >-
+            End-of-visit phrase. Matched case-insensitively as a
+            substring against streaming Deepgram is_final events.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateVerbalCueRequest:
+      type: object
+      required: [phrase]
+      properties:
+        phrase:
+          type: string
+          minLength: 1
+          maxLength: 120
     NoteDefault:
       type: object
       required:
@@ -2585,6 +2670,14 @@ components:
             - cancelled
         transcript:
           type: ["string", "null"]
+        liveTranscript:
+          type: ["string", "null"]
+          description: >-
+            Accumulated `is_final` lines captured by the streaming
+            transcript bridge, joined with newlines. Distinct from
+            `transcript` (set by the batch transcribe step after
+            segments upload). Useful for audit + reproducing what an
+            auto-stop fired on.
         structuredBody:
           type: ["string", "null"]
           description: AI-generated clinical note body; populated when status == done

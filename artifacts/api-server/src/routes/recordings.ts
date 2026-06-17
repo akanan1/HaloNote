@@ -33,6 +33,7 @@ function serializeJob(row: typeof recordingJobsTable.$inferSelect): RecordingJob
     noteId: row.noteId,
     status: row.status,
     transcript: row.transcript,
+    liveTranscript: row.liveTranscript,
     structuredBody: row.structuredBody,
     errorMessage: row.errorMessage,
     createdAt: row.createdAt,

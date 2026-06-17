@@ -20,6 +20,11 @@ export interface RecordingJob {
   /** @nullable */
   transcript?: string | null;
   /**
+   * Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.
+   * @nullable
+   */
+  liveTranscript?: string | null;
+  /**
    * AI-generated clinical note body; populated when status == done
    * @nullable
    */

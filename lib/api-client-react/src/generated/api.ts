@@ -29,6 +29,7 @@ import type {
   CreateRecordingRequest,
   CreateSmartPhraseRequest,
   CreateTemplateRequest,
+  CreateVerbalCueRequest,
   EhrConnectionStatus,
   EhrPushResult,
   Encounter,
@@ -51,6 +52,7 @@ import type {
   ListSmartPhrases200,
   ListTemplates200,
   ListUsers200,
+  ListVerbalCues200,
   LoginRequest,
   Note,
   NoteDefault,
@@ -82,6 +84,7 @@ import type {
   UpdateUserRequest,
   UploadLegalVersionRequest,
   UploadLegalVersionResult,
+  VerbalCue,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -4161,6 +4164,252 @@ export const useMarkSmartPhraseUsed = <
   TContext
 > => {
   return useMutation(getMarkSmartPhraseUsedMutationOptions(options));
+};
+
+/**
+ * Per-provider phrases the streaming bridge watches for. Empty list means the bridge falls back to a hardcoded default set.
+ * @summary List the signed-in provider's verbal end-cues
+ */
+export const getListVerbalCuesUrl = () => {
+  return `/api/verbal-cues`;
+};
+
+export const listVerbalCues = async (
+  options?: RequestInit,
+): Promise<ListVerbalCues200> => {
+  return customFetch<ListVerbalCues200>(getListVerbalCuesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListVerbalCuesQueryKey = () => {
+  return [`/api/verbal-cues`] as const;
+};
+
+export const getListVerbalCuesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listVerbalCues>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listVerbalCues>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListVerbalCuesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listVerbalCues>>> = ({
+    signal,
+  }) => listVerbalCues({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listVerbalCues>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListVerbalCuesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listVerbalCues>>
+>;
+export type ListVerbalCuesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the signed-in provider's verbal end-cues
+ */
+
+export function useListVerbalCues<
+  TData = Awaited<ReturnType<typeof listVerbalCues>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listVerbalCues>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListVerbalCuesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a new verbal end-cue
+ */
+export const getCreateVerbalCueUrl = () => {
+  return `/api/verbal-cues`;
+};
+
+export const createVerbalCue = async (
+  createVerbalCueRequest: CreateVerbalCueRequest,
+  options?: RequestInit,
+): Promise<VerbalCue> => {
+  return customFetch<VerbalCue>(getCreateVerbalCueUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createVerbalCueRequest),
+  });
+};
+
+export const getCreateVerbalCueMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createVerbalCue>>,
+    TError,
+    { data: BodyType<CreateVerbalCueRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createVerbalCue>>,
+  TError,
+  { data: BodyType<CreateVerbalCueRequest> },
+  TContext
+> => {
+  const mutationKey = ["createVerbalCue"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createVerbalCue>>,
+    { data: BodyType<CreateVerbalCueRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createVerbalCue(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateVerbalCueMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createVerbalCue>>
+>;
+export type CreateVerbalCueMutationBody = BodyType<CreateVerbalCueRequest>;
+export type CreateVerbalCueMutationError = ErrorType<void>;
+
+/**
+ * @summary Create a new verbal end-cue
+ */
+export const useCreateVerbalCue = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createVerbalCue>>,
+    TError,
+    { data: BodyType<CreateVerbalCueRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createVerbalCue>>,
+  TError,
+  { data: BodyType<CreateVerbalCueRequest> },
+  TContext
+> => {
+  return useMutation(getCreateVerbalCueMutationOptions(options));
+};
+
+/**
+ * @summary Delete a verbal end-cue
+ */
+export const getDeleteVerbalCueUrl = (id: string) => {
+  return `/api/verbal-cues/${id}`;
+};
+
+export const deleteVerbalCue = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteVerbalCueUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteVerbalCueMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteVerbalCue>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteVerbalCue>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteVerbalCue"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteVerbalCue>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteVerbalCue(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteVerbalCueMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteVerbalCue>>
+>;
+
+export type DeleteVerbalCueMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a verbal end-cue
+ */
+export const useDeleteVerbalCue = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteVerbalCue>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteVerbalCue>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteVerbalCueMutationOptions(options));
 };
 
 /**

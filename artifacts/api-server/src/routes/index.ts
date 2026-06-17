@@ -9,6 +9,7 @@ import usersRouter from "./users";
 import scheduleRouter from "./schedule";
 import templatesRouter from "./templates";
 import smartPhrasesRouter from "./smart-phrases";
+import verbalCuesRouter from "./verbal-cues";
 import phraseMappingsRouter from "./phrase-mappings";
 import noteDefaultsRouter from "./note-defaults";
 import onboardingRouter from "./onboarding";
@@ -66,6 +67,7 @@ router.use("/users", usersRouter);
 // later can't accidentally accept PHI from an unaccepted user.
 router.use(templatesRouter);
 router.use(smartPhrasesRouter);
+router.use(verbalCuesRouter);
 router.use(phraseMappingsRouter);
 router.use(noteDefaultsRouter);
 router.use(onboardingRouter);

@@ -11,6 +11,7 @@ export * from "./notes";
 export * from "./note-templates";
 export * from "./smart-phrases";
 export * from "./provider-phrase-mappings";
+export * from "./provider-verbal-cues";
 export * from "./provider-note-defaults";
 export * from "./legal-acceptances";
 export * from "./legal-document-overrides";

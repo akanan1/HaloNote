@@ -1696,6 +1696,45 @@ export const MarkSmartPhraseUsedParams = zod.object({
 });
 
 /**
+ * Per-provider phrases the streaming bridge watches for. Empty list means the bridge falls back to a hardcoded default set.
+ * @summary List the signed-in provider's verbal end-cues
+ */
+export const listVerbalCuesResponseDataItemPhraseMax = 120;
+
+export const ListVerbalCuesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      phrase: zod
+        .string()
+        .min(1)
+        .max(listVerbalCuesResponseDataItemPhraseMax)
+        .describe(
+          "End-of-visit phrase. Matched case-insensitively as a substring against streaming Deepgram is_final events.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new verbal end-cue
+ */
+export const createVerbalCueBodyPhraseMax = 120;
+
+export const CreateVerbalCueBody = zod.object({
+  phrase: zod.string().min(1).max(createVerbalCueBodyPhraseMax),
+});
+
+/**
+ * @summary Delete a verbal end-cue
+ */
+export const DeleteVerbalCueParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
  * Per-provider "always apply" assumptions the AI bakes into every generated note (e.g. "14-point ROS negative unless stated").
  * @summary List the signed-in provider's encounter defaults
  */
@@ -1859,6 +1898,12 @@ export const FinalizeRecordingResponse = zod.object({
     "cancelled",
   ]),
   transcript: zod.string().nullish(),
+  liveTranscript: zod
+    .string()
+    .nullish()
+    .describe(
+      "Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.",
+    ),
   structuredBody: zod
     .string()
     .nullish()
@@ -1897,6 +1942,12 @@ export const GetRecordingResponse = zod
       "cancelled",
     ]),
     transcript: zod.string().nullish(),
+    liveTranscript: zod
+      .string()
+      .nullish()
+      .describe(
+        "Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.",
+      ),
     structuredBody: zod
       .string()
       .nullish()

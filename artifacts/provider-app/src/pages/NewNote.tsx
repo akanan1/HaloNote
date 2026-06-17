@@ -40,6 +40,7 @@ import {
 } from "@/lib/use-note-autosave";
 import { useSmartPhraseAutocomplete } from "@/lib/use-smart-phrase-autocomplete";
 import { SmartPhraseDropdown } from "@/components/SmartPhraseDropdown";
+import { useAuth } from "@/lib/auth";
 
 interface NewNotePageProps {
   patientId: string;
@@ -100,6 +101,7 @@ function formatDate(iso: string): string {
 export function NewNotePage({ patientId }: NewNotePageProps) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const patientsQuery = useListPatients();
   const sendNote = useSendNoteToEhr();
   const templatesQuery = useListTemplates({
@@ -145,7 +147,12 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
 
   const [body, setBody] = useState("");
   const [bodyPrefilled, setBodyPrefilled] = useState(false);
+  const [silenceStopped, setSilenceStopped] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const silenceAutoStopMs =
+    user?.silenceAutoStopSec && user.silenceAutoStopSec > 0
+      ? user.silenceAutoStopSec * 1000
+      : undefined;
   const [sendState, setSendState] = useState<SendState>({ phase: "idle" });
   const [templateId, setTemplateId] = useState<string>("");
   // Audio segments captured by the ambient-recording panel above the
@@ -307,8 +314,20 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
       <RecordingPanel
         disabled={isBusy}
         autoStart={autoStartRecording}
+        {...(silenceAutoStopMs ? { silenceAutoStopMs } : {})}
+        onAutoStop={() => setSilenceStopped(true)}
         onSegmentsChange={setAudioSegments}
       />
+
+      {silenceStopped && user?.silenceAutoStopSec ? (
+        <p
+          role="status"
+          className="text-sm text-(--color-muted-foreground)"
+        >
+          Stopped automatically after {user.silenceAutoStopSec}s of
+          silence.
+        </p>
+      ) : null}
 
       <RecordingPipelineStatus
         state={recording.state}

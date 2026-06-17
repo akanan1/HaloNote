@@ -52,6 +52,9 @@ export const ConfirmPasswordResetBody = zod.object({
     .max(confirmPasswordResetBodyPasswordMax),
 });
 
+export const confirmPasswordResetResponseSilenceAutoStopSecMin = 0;
+export const confirmPasswordResetResponseSilenceAutoStopSecMax = 600;
+
 export const ConfirmPasswordResetResponse = zod.object({
   id: zod.string(),
   email: zod.string(),
@@ -79,6 +82,14 @@ export const ConfirmPasswordResetResponse = zod.object({
     .describe(
       "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
     ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(confirmPasswordResetResponseSilenceAutoStopSecMin)
+    .max(confirmPasswordResetResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
 });
 
 /**
@@ -89,6 +100,9 @@ export const LoginBody = zod.object({
   email: zod.string(),
   password: zod.string().min(1),
 });
+
+export const loginResponseSilenceAutoStopSecMin = 0;
+export const loginResponseSilenceAutoStopSecMax = 600;
 
 export const LoginResponse = zod.object({
   id: zod.string(),
@@ -117,11 +131,22 @@ export const LoginResponse = zod.object({
     .describe(
       "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
     ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(loginResponseSilenceAutoStopSecMin)
+    .max(loginResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
 });
 
 /**
  * @summary Get the signed-in user
  */
+export const getCurrentUserResponseSilenceAutoStopSecMin = 0;
+export const getCurrentUserResponseSilenceAutoStopSecMax = 600;
+
 export const GetCurrentUserResponse = zod.object({
   id: zod.string(),
   email: zod.string(),
@@ -149,18 +174,37 @@ export const GetCurrentUserResponse = zod.object({
     .describe(
       "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
     ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(getCurrentUserResponseSilenceAutoStopSecMin)
+    .max(getCurrentUserResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
 });
 
 /**
  * @summary Partial self-update of the signed-in user's preferences
  */
+export const updateMeBodySilenceAutoStopSecMin = 0;
+export const updateMeBodySilenceAutoStopSecMax = 600;
+
 export const UpdateMeBody = zod
   .object({
     autoPushToEhr: zod.boolean().optional(),
+    silenceAutoStopSec: zod
+      .number()
+      .min(updateMeBodySilenceAutoStopSecMin)
+      .max(updateMeBodySilenceAutoStopSecMax)
+      .optional(),
   })
   .describe(
     "Partial self-update of the signed-in user's preferences. Only fields present in the body are touched.",
   );
+
+export const updateMeResponseSilenceAutoStopSecMin = 0;
+export const updateMeResponseSilenceAutoStopSecMax = 600;
 
 export const UpdateMeResponse = zod.object({
   id: zod.string(),
@@ -188,6 +232,14 @@ export const UpdateMeResponse = zod.object({
     .optional()
     .describe(
       "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(updateMeResponseSilenceAutoStopSecMin)
+    .max(updateMeResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
     ),
 });
 
@@ -538,6 +590,9 @@ export const AcceptLegalAgreementsResponse = zod.object({
  * Idempotent. Sets `users.onboardingCompletedAt` to `now()` if it's currently null. Returns the refreshed AuthUser so the client can update its cached state in one round trip.
  * @summary Mark the first-run onboarding flow as completed
  */
+export const completeOnboardingResponseSilenceAutoStopSecMin = 0;
+export const completeOnboardingResponseSilenceAutoStopSecMax = 600;
+
 export const CompleteOnboardingResponse = zod.object({
   id: zod.string(),
   email: zod.string(),
@@ -564,6 +619,14 @@ export const CompleteOnboardingResponse = zod.object({
     .optional()
     .describe(
       "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(completeOnboardingResponseSilenceAutoStopSecMin)
+    .max(completeOnboardingResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
     ),
 });
 

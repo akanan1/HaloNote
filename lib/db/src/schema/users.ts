@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export type UserRole = "admin" | "member";
 
@@ -62,6 +62,11 @@ export const usersTable = pgTable("users", {
   // skip the second tap to forward it to the chart. Default false so
   // every existing account preserves the manual two-step.
   autoPushToEhr: boolean("auto_push_to_ehr").notNull().default(false),
+  // Seconds of continuous silence before the recorder auto-stops. 0
+  // disables the feature entirely (recorder only stops on manual tap).
+  // Default 0 — the provider opts in via Settings rather than having
+  // recordings cut off unexpectedly. Typical opt-in value is 45.
+  silenceAutoStopSec: integer("silence_auto_stop_sec").notNull().default(0),
   // Founder-tier access flag. A super-admin permission on top of the
   // existing admin/member role — gates the cross-tenant Founder
   // dashboard (analytics, per-user legal acceptance status, etc.).

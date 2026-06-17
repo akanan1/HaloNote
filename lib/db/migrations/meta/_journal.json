@@ -211,6 +211,13 @@
       "when": 1781659911928,
       "tag": "0029_add_auto_push_to_ehr",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1781668003646,
+      "tag": "0030_add_silence_auto_stop",
+      "breakpoints": true
     }
   ]
 }

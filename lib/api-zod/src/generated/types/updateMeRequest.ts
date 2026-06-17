@@ -11,4 +11,9 @@
  */
 export interface UpdateMeRequest {
   autoPushToEhr?: boolean;
+  /**
+   * @minimum 0
+   * @maximum 600
+   */
+  silenceAutoStopSec?: number;
 }

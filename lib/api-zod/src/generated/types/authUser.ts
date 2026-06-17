@@ -20,4 +20,10 @@ export interface AuthUser {
   isFounder?: boolean;
   /** When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step. */
   autoPushToEhr?: boolean;
+  /**
+   * Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.
+   * @minimum 0
+   * @maximum 600
+   */
+  silenceAutoStopSec?: number;
 }

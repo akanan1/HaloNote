@@ -23,6 +23,29 @@ interface RecordingPanelProps {
    * to the manual button. We only fire the auto-start once per mount.
    */
   autoStart?: boolean;
+  /**
+   * When set, the recorder auto-stops after this many milliseconds of
+   * continuous silence (audio RMS below `silenceLevelThreshold`).
+   * Approximates "doctor walked out of the room" without needing a
+   * streaming transcript. Off when undefined or <=0. The countdown
+   * resets the instant audio rises above the threshold again, so a
+   * brief pause mid-conversation doesn't end the visit.
+   */
+  silenceAutoStopMs?: number;
+  /**
+   * Normalized 0..1 RMS level under which the mic counts as silent.
+   * Default 0.02 works for typical room noise floors; bump for noisy
+   * environments. Compared against the same averaged-byte-frequency
+   * `level` value that drives the EKG strip — no extra analysis pass.
+   */
+  silenceLevelThreshold?: number;
+  /**
+   * Fired exactly once when an auto-stop is triggered by silence. The
+   * recorder still calls its usual onstop path; this is purely a
+   * notification so the parent can surface "Stopped automatically
+   * after N seconds of silence" copy. Reset on the next start.
+   */
+  onAutoStop?: () => void;
   onSegmentsChange?: (segments: AudioSegment[]) => void;
 }
 
@@ -88,6 +111,9 @@ function formatDuration(ms: number): string {
 export function RecordingPanel({
   disabled,
   autoStart,
+  silenceAutoStopMs,
+  silenceLevelThreshold = 0.02,
+  onAutoStop,
   onSegmentsChange,
 }: RecordingPanelProps) {
   const [supported] = useState(isSupported);
@@ -210,6 +236,15 @@ export function RecordingPanel({
     onSegmentsChangeRef.current?.(segments);
   }, [segments]);
 
+  // Silence tracking state. silenceStartRef is the performance.now() at
+  // which the mic first dropped below the threshold in the current
+  // continuous quiet stretch (null = currently above threshold or never
+  // started). autoStopFiredRef is a one-shot latch so a single silent
+  // stretch doesn't trigger handleStop twice if the rAF tick lands on
+  // the boundary multiple times before state updates settle.
+  const silenceStartRef = useRef<number | null>(null);
+  const autoStopFiredRef = useRef(false);
+
   const startLevelLoop = useCallback(() => {
     const analyser = analyserRef.current;
     if (!analyser) return;
@@ -220,11 +255,47 @@ export function RecordingPanel({
       cur.getByteFrequencyData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i] ?? 0;
-      setLevel(sum / buf.length / 255);
+      const normalized = sum / buf.length / 255;
+      setLevel(normalized);
+
+      // Silence accounting. Only counts while actually recording (paused
+      // shouldn't accrue silence) and only when a threshold > 0 is
+      // configured. The recorder ref is the authority — `state` is one
+      // tick behind because rAF runs faster than React state flushes.
+      if (
+        silenceAutoStopMs &&
+        silenceAutoStopMs > 0 &&
+        recorderRef.current?.state === "recording" &&
+        !autoStopFiredRef.current
+      ) {
+        if (normalized < silenceLevelThreshold) {
+          if (silenceStartRef.current == null) {
+            silenceStartRef.current = performance.now();
+          } else if (
+            performance.now() - silenceStartRef.current >= silenceAutoStopMs
+          ) {
+            autoStopFiredRef.current = true;
+            // Defer to a microtask so we don't reentrantly call
+            // MediaRecorder.stop() inside the rAF callback — that
+            // confuses some browsers about whether onstop has run.
+            queueMicrotask(() => {
+              const rec = recorderRef.current;
+              if (rec && rec.state !== "inactive") {
+                onAutoStop?.();
+                if (rec.state === "paused") rec.resume();
+                rec.stop();
+              }
+            });
+          }
+        } else {
+          silenceStartRef.current = null;
+        }
+      }
+
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [silenceAutoStopMs, silenceLevelThreshold, onAutoStop]);
 
   const startTicker = useCallback(() => {
     if (tickRef.current != null) return;
@@ -320,6 +391,8 @@ export function RecordingPanel({
 
     startTimeRef.current = performance.now();
     accumulatedRef.current = 0;
+    silenceStartRef.current = null;
+    autoStopFiredRef.current = false;
     recorder.start(250);
     setState("recording");
     startLevelLoop();

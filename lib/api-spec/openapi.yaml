@@ -1722,6 +1722,13 @@ components:
             EHR before the approve response returns. Per-provider
             preference; defaults to false so existing workflows keep
             the explicit Send to EHR step.
+        silenceAutoStopSec:
+          type: integer
+          minimum: 0
+          maximum: 600
+          description: >-
+            Seconds of continuous silence before the recorder
+            auto-stops. 0 disables. Typical opt-in value is 45.
     UpdateMeRequest:
       type: object
       description: >-
@@ -1730,6 +1737,10 @@ components:
       properties:
         autoPushToEhr:
           type: boolean
+        silenceAutoStopSec:
+          type: integer
+          minimum: 0
+          maximum: 600
     LoginRequest:
       type: object
       required: [email, password]

@@ -5,6 +5,7 @@ import accessRequestsRouter from "./access-requests";
 import patientsRouter from "./patients";
 import notesRouter from "./notes";
 import auditLogRouter from "./audit-log";
+import adminAutoPushedRouter from "./admin-auto-pushed";
 import usersRouter from "./users";
 import scheduleRouter from "./schedule";
 import templatesRouter from "./templates";
@@ -59,6 +60,7 @@ router.use(auditLog);
 // by physicians to connect their own EHR). With a path prefix, the
 // admin gate only fires for requests under that prefix.
 router.use("/audit-log", auditLogRouter);
+router.use("/admin/auto-pushed-notes", adminAutoPushedRouter);
 router.use("/users", usersRouter);
 // Non-PHI personalization + auth surfaces stay open so a user who
 // hasn't accepted the BAA yet can still finish onboarding (load

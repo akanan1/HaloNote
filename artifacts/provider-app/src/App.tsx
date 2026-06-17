@@ -44,6 +44,11 @@ const AuditLogPage = lazy(() =>
 const AdminUsersPage = lazy(() =>
   import("@/pages/AdminUsers").then((m) => ({ default: m.AdminUsersPage })),
 );
+const AdminAutoPushAuditPage = lazy(() =>
+  import("@/pages/AdminAutoPushAudit").then((m) => ({
+    default: m.AdminAutoPushAuditPage,
+  })),
+);
 const SettingsPage = lazy(() =>
   import("@/pages/Settings").then((m) => ({ default: m.SettingsPage })),
 );
@@ -169,6 +174,11 @@ export default function App() {
           <Route path="/admin/users">
             <RequireAuth>
               <AdminUsersPage />
+            </RequireAuth>
+          </Route>
+          <Route path="/admin/auto-pushed-notes">
+            <RequireAuth>
+              <AdminAutoPushAuditPage />
             </RequireAuth>
           </Route>
           <Route path="/settings">

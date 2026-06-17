@@ -438,6 +438,67 @@ paths:
                   nextCursor:
                     type: ["string", "null"]
                     format: date-time
+  /admin/auto-pushed-notes:
+    get:
+      operationId: listAutoPushedNotes
+      tags: [admin]
+      summary: List notes that were auto-pushed to the EHR without provider review
+      description: >-
+        Returns notes in the active organization that were materialized
+        + auto-approved + auto-pushed by the recording pipeline because
+        the author had `autoPushMode=after_transcription`. Newest first.
+        Admin-only. Cursor-pagination via `cursor` (opaque base64 of
+        `<createdAtIso>|<noteId>`) so pages remain stable across rows
+        created in the same millisecond.
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          description: Filter to notes authored by this user.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          description: Inclusive lower bound on `createdAt`.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Inclusive upper bound on `createdAt`.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor from the previous page's `nextCursor`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of auto-pushed notes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, nextCursor]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AutoPushedNoteEntry"
+                  nextCursor:
+                    type: ["string", "null"]
   /patients:
     get:
       operationId: listPatients
@@ -2375,6 +2436,46 @@ components:
         at:
           type: string
           format: date-time
+    AutoPushedNoteEntry:
+      type: object
+      required:
+        - noteId
+        - patientId
+        - authorId
+        - authorDisplayName
+        - createdAt
+        - ehrPushedAt
+        - ehrProvider
+        - ehrDocumentRef
+        - ehrError
+      description: >-
+        Metadata-only entry for a note that was auto-pushed to the EHR
+        without provider review. The note body is intentionally omitted
+        — the audit view exposes the existence of the auto-push event
+        and the EHR receipt, not the PHI in the body. Fetch the body
+        via `GET /notes/:id` under the same auth.
+      properties:
+        noteId:
+          type: string
+        patientId:
+          type: string
+        authorId:
+          type: ["string", "null"]
+        authorDisplayName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        ehrPushedAt:
+          type: ["string", "null"]
+          format: date-time
+        ehrProvider:
+          type: ["string", "null"]
+        ehrDocumentRef:
+          type: ["string", "null"]
+        ehrError:
+          type: ["string", "null"]
+          description: Last EHR push error message, if any.
     NoteAuthor:
       type: object
       required: [id, displayName]

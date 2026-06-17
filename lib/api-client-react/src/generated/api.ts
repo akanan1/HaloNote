@@ -51,6 +51,8 @@ import type {
   HealthStatus,
   ListAuditLog200,
   ListAuditLogParams,
+  ListAutoPushedNotes200,
+  ListAutoPushedNotesParams,
   ListEncounters200,
   ListEncountersParams,
   ListNoteDefaultSuggestions200,
@@ -1603,6 +1605,110 @@ export function useListAuditLog<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListAuditLogQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns notes in the active organization that were materialized + auto-approved + auto-pushed by the recording pipeline because the author had `autoPushMode=after_transcription`. Newest first. Admin-only. Cursor-pagination via `cursor` (opaque base64 of `<createdAtIso>|<noteId>`) so pages remain stable across rows created in the same millisecond.
+ * @summary List notes that were auto-pushed to the EHR without provider review
+ */
+export const getListAutoPushedNotesUrl = (
+  params?: ListAutoPushedNotesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/auto-pushed-notes?${stringifiedParams}`
+    : `/api/admin/auto-pushed-notes`;
+};
+
+export const listAutoPushedNotes = async (
+  params?: ListAutoPushedNotesParams,
+  options?: RequestInit,
+): Promise<ListAutoPushedNotes200> => {
+  return customFetch<ListAutoPushedNotes200>(
+    getListAutoPushedNotesUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListAutoPushedNotesQueryKey = (
+  params?: ListAutoPushedNotesParams,
+) => {
+  return [`/api/admin/auto-pushed-notes`, ...(params ? [params] : [])] as const;
+};
+
+export const getListAutoPushedNotesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAutoPushedNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAutoPushedNotesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAutoPushedNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListAutoPushedNotesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAutoPushedNotes>>
+  > = ({ signal }) =>
+    listAutoPushedNotes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAutoPushedNotes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAutoPushedNotesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAutoPushedNotes>>
+>;
+export type ListAutoPushedNotesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List notes that were auto-pushed to the EHR without provider review
+ */
+
+export function useListAutoPushedNotes<
+  TData = Awaited<ReturnType<typeof listAutoPushedNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAutoPushedNotesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAutoPushedNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAutoPushedNotesQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

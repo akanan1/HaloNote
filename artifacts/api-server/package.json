@@ -30,7 +30,8 @@
     "pino": "^9",
     "pino-http": "^10",
     "qrcode": "^1.5.4",
-    "resend": "^6.12.3"
+    "resend": "^6.12.3",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
@@ -40,6 +41,7 @@
     "@types/node": "catalog:",
     "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",

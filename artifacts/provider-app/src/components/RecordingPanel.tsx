@@ -46,6 +46,20 @@ interface RecordingPanelProps {
    * after N seconds of silence" copy. Reset on the next start.
    */
   onAutoStop?: () => void;
+  /**
+   * Hands the active MediaStream to the parent so a streaming-
+   * transcript pipeline can tap PCM from it in parallel with the
+   * existing MediaRecorder upload. Fires with `null` on stop/teardown.
+   */
+  onStreamChange?: (stream: MediaStream | null) => void;
+  /**
+   * Programmatic stop signal. When this value changes to a truthy
+   * key, the recorder calls its usual stop path. Lets a parent end
+   * the visit on a verbal end-cue from the streaming transcript
+   * without needing a ref into the panel. The actual value isn't
+   * inspected — just the change.
+   */
+  externalStopSignal?: number;
   onSegmentsChange?: (segments: AudioSegment[]) => void;
 }
 
@@ -114,6 +128,8 @@ export function RecordingPanel({
   silenceAutoStopMs,
   silenceLevelThreshold = 0.02,
   onAutoStop,
+  onStreamChange,
+  externalStopSignal,
   onSegmentsChange,
 }: RecordingPanelProps) {
   const [supported] = useState(isSupported);
@@ -339,6 +355,9 @@ export function RecordingPanel({
 
     setPermission("granted");
     streamRef.current = stream;
+    // Surface the active stream to the parent so a streaming
+    // transcript hook can tap PCM from it. Cleared in onstop.
+    onStreamChange?.(stream);
 
     const Ctx = getAudioContextCtor();
     if (Ctx) {
@@ -387,6 +406,9 @@ export function RecordingPanel({
       setState("idle");
       teardownAudioGraph();
       recorderRef.current = null;
+      // Signal stream gone to the parent so the streaming-transcript
+      // pipeline can tear its WebSocket down.
+      onStreamChange?.(null);
     };
 
     startTimeRef.current = performance.now();
@@ -448,6 +470,18 @@ export function RecordingPanel({
   const handleDeleteSegment = useCallback((id: string) => {
     setSegments((s) => s.filter((seg) => seg.id !== id));
   }, []);
+
+  // External stop trigger (verbal end-cue from the streaming
+  // transcript bridge). The host bumps a counter; we ignore the
+  // initial value and stop on every subsequent change.
+  const lastStopSignalRef = useRef<number | undefined>(externalStopSignal);
+  useEffect(() => {
+    if (externalStopSignal === lastStopSignalRef.current) return;
+    lastStopSignalRef.current = externalStopSignal;
+    if (externalStopSignal !== undefined) {
+      handleStop();
+    }
+  }, [externalStopSignal, handleStop]);
 
   if (!supported) {
     return (

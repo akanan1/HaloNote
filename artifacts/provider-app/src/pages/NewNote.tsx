@@ -41,6 +41,8 @@ import {
 import { useSmartPhraseAutocomplete } from "@/lib/use-smart-phrase-autocomplete";
 import { SmartPhraseDropdown } from "@/components/SmartPhraseDropdown";
 import { useAuth } from "@/lib/auth";
+import { useStreamingTranscript } from "@/lib/use-streaming-transcript";
+import { LiveTranscriptRibbon } from "@/components/LiveTranscriptRibbon";
 
 interface NewNotePageProps {
   patientId: string;
@@ -148,11 +150,20 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
   const [body, setBody] = useState("");
   const [bodyPrefilled, setBodyPrefilled] = useState(false);
   const [silenceStopped, setSilenceStopped] = useState(false);
+  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+  // Bumping this counter signals RecordingPanel to call its stop path
+  // — used when the streaming bridge detects a verbal end-cue.
+  const [externalStopSignal, setExternalStopSignal] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const silenceAutoStopMs =
     user?.silenceAutoStopSec && user.silenceAutoStopSec > 0
       ? user.silenceAutoStopSec * 1000
       : undefined;
+
+  const liveTranscript = useStreamingTranscript({
+    stream: activeStream,
+    onAutoStop: () => setExternalStopSignal((n) => n + 1),
+  });
   const [sendState, setSendState] = useState<SendState>({ phase: "idle" });
   const [templateId, setTemplateId] = useState<string>("");
   // Audio segments captured by the ambient-recording panel above the
@@ -319,11 +330,15 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
         )}
       </header>
 
+      <LiveTranscriptRibbon state={liveTranscript} />
+
       <RecordingPanel
         disabled={isBusy}
         autoStart={autoStartRecording}
         {...(silenceAutoStopMs ? { silenceAutoStopMs } : {})}
         onAutoStop={() => setSilenceStopped(true)}
+        onStreamChange={setActiveStream}
+        externalStopSignal={externalStopSignal}
         onSegmentsChange={setAudioSegments}
       />
 
@@ -334,6 +349,13 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
         >
           Stopped automatically after {user.silenceAutoStopSec}s of
           silence.
+        </p>
+      ) : null}
+
+      {liveTranscript.endCue ? (
+        <p role="status" className="text-sm text-(--color-muted-foreground)">
+          Visit ended on cue:{" "}
+          <span className="italic">"{liveTranscript.endCue}"</span>.
         </p>
       ) : null}
 

@@ -54,6 +54,9 @@ export default defineConfig({
       "/api": {
         target: apiProxyTarget,
         changeOrigin: true,
+        // Forward WebSocket upgrades so the streaming transcript
+        // bridge at /api/recordings/stream reaches the api-server.
+        ws: true,
       },
     },
   },

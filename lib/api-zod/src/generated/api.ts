@@ -1417,6 +1417,138 @@ export const DeletePhraseMappingParams = zod.object({
 });
 
 /**
+ * Editor-time dot-phrase expansions. The note editor reads this list once on mount and applies expansions locally — the server never sees the `.shortcut` typed in the textarea. Sorted by usageCount desc then shortcut asc so the daily-driver phrases sit on top.
+ * @summary List the signed-in provider's smart phrases
+ */
+export const listSmartPhrasesResponseDataItemShortcutMax = 40;
+
+export const listSmartPhrasesResponseDataItemDescriptionMax = 200;
+
+export const ListSmartPhrasesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      shortcut: zod
+        .string()
+        .min(1)
+        .max(listSmartPhrasesResponseDataItemShortcutMax)
+        .describe(
+          "The token typed after `.` in the note editor. Stored lowercased; whitespace and dot characters are rejected.",
+        ),
+      body: zod
+        .string()
+        .min(1)
+        .describe("Expansion text inserted into the note. May be multi-line."),
+      description: zod
+        .string()
+        .max(listSmartPhrasesResponseDataItemDescriptionMax)
+        .nullable()
+        .describe("Optional hint shown in the autocomplete dropdown."),
+      usageCount: zod
+        .number()
+        .describe(
+          "Times the phrase has been expanded. Used for autocomplete ranking within prefix matches.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new smart phrase
+ */
+export const createSmartPhraseBodyShortcutMax = 40;
+
+export const createSmartPhraseBodyDescriptionMax = 200;
+
+export const CreateSmartPhraseBody = zod.object({
+  shortcut: zod
+    .string()
+    .min(1)
+    .max(createSmartPhraseBodyShortcutMax)
+    .describe(
+      "Whitespace and `.` characters are rejected. Server lowercases before persisting.",
+    ),
+  body: zod.string().min(1),
+  description: zod.string().max(createSmartPhraseBodyDescriptionMax).nullish(),
+});
+
+/**
+ * @summary Edit a smart phrase
+ */
+export const UpdateSmartPhraseParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateSmartPhraseBodyShortcutMax = 40;
+
+export const updateSmartPhraseBodyDescriptionMax = 200;
+
+export const UpdateSmartPhraseBody = zod
+  .object({
+    shortcut: zod
+      .string()
+      .min(1)
+      .max(updateSmartPhraseBodyShortcutMax)
+      .optional(),
+    body: zod.string().min(1).optional(),
+    description: zod
+      .string()
+      .max(updateSmartPhraseBodyDescriptionMax)
+      .nullish(),
+  })
+  .describe(
+    "Partial update. Any provided field replaces; omitted fields are untouched. Pass description=null to clear the hint.",
+  );
+
+export const updateSmartPhraseResponseShortcutMax = 40;
+
+export const updateSmartPhraseResponseDescriptionMax = 200;
+
+export const UpdateSmartPhraseResponse = zod.object({
+  id: zod.string(),
+  shortcut: zod
+    .string()
+    .min(1)
+    .max(updateSmartPhraseResponseShortcutMax)
+    .describe(
+      "The token typed after `.` in the note editor. Stored lowercased; whitespace and dot characters are rejected.",
+    ),
+  body: zod
+    .string()
+    .min(1)
+    .describe("Expansion text inserted into the note. May be multi-line."),
+  description: zod
+    .string()
+    .max(updateSmartPhraseResponseDescriptionMax)
+    .nullable()
+    .describe("Optional hint shown in the autocomplete dropdown."),
+  usageCount: zod
+    .number()
+    .describe(
+      "Times the phrase has been expanded. Used for autocomplete ranking within prefix matches.",
+    ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a smart phrase
+ */
+export const DeleteSmartPhraseParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Fire-and-forget signal from the editor. Server bumps usageCount atomically and returns 204. Failure is non-fatal; the editor should not surface errors to the provider for this call.
+ * @summary Increment usageCount after an expansion fires in the editor
+ */
+export const MarkSmartPhraseUsedParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
  * Per-provider "always apply" assumptions the AI bakes into every generated note (e.g. "14-point ROS negative unless stated").
  * @summary List the signed-in provider's encounter defaults
  */

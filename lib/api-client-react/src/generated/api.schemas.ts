@@ -503,6 +503,65 @@ export interface UpdatePhraseMappingRequest {
   documented?: string;
 }
 
+export interface SmartPhrase {
+  id: string;
+  /**
+   * The token typed after `.` in the note editor. Stored lowercased; whitespace and dot characters are rejected.
+   * @minLength 1
+   * @maxLength 40
+   */
+  shortcut: string;
+  /**
+   * Expansion text inserted into the note. May be multi-line.
+   * @minLength 1
+   */
+  body: string;
+  /**
+   * Optional hint shown in the autocomplete dropdown.
+   * @maxLength 200
+   * @nullable
+   */
+  description: string | null;
+  /** Times the phrase has been expanded. Used for autocomplete ranking within prefix matches. */
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSmartPhraseRequest {
+  /**
+   * Whitespace and `.` characters are rejected. Server lowercases before persisting.
+   * @minLength 1
+   * @maxLength 40
+   */
+  shortcut: string;
+  /** @minLength 1 */
+  body: string;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  description?: string | null;
+}
+
+/**
+ * Partial update. Any provided field replaces; omitted fields are untouched. Pass description=null to clear the hint.
+ */
+export interface UpdateSmartPhraseRequest {
+  /**
+   * @minLength 1
+   * @maxLength 40
+   */
+  shortcut?: string;
+  /** @minLength 1 */
+  body?: string;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  description?: string | null;
+}
+
 export interface NoteDefault {
   id: string;
   /**
@@ -930,6 +989,10 @@ export type ResetTemplates200 = {
 
 export type ListPhraseMappings200 = {
   data: PhraseMapping[];
+};
+
+export type ListSmartPhrases200 = {
+  data: SmartPhrase[];
 };
 
 export type ListNoteDefaults200 = {

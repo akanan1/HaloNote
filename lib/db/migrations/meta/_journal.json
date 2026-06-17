@@ -197,6 +197,13 @@
       "when": 1781646412384,
       "tag": "0027_add_extracted_vitals",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781648522495,
+      "tag": "0028_add_smart_phrases",
+      "breakpoints": true
     }
   ]
 }

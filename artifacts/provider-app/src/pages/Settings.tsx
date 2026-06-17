@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EhrConnectionSection } from "@/components/EhrConnectionSection";
 import { TemplatesSection } from "@/components/TemplatesSection";
+import { SmartPhrasesSection } from "@/components/SmartPhrasesSection";
 import { PhraseMappingsSection } from "@/components/PhraseMappingsSection";
 import { NoteDefaultsSection } from "@/components/NoteDefaultsSection";
 import { LegalSection } from "@/components/LegalSection";
@@ -45,6 +46,8 @@ export function SettingsPage() {
       <EhrConnectionSection />
 
       <TemplatesSection />
+
+      <SmartPhrasesSection />
 
       <PhraseMappingsSection />
 

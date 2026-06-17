@@ -24,6 +24,8 @@ tags:
     description: Ambient-scribe audio capture + AI structuring pipeline
   - name: encounters
     description: Visit envelope for note + billing + orders + tasks
+  - name: smart-phrases
+    description: Per-provider dot-phrase expansions used by the note editor
 paths:
   /healthz:
     get:
@@ -1025,6 +1027,111 @@ paths:
           description: Phrase mapping deleted
         "404":
           description: Phrase mapping not found (or not owned by caller)
+  /smart-phrases:
+    get:
+      operationId: listSmartPhrases
+      tags: [smart-phrases]
+      summary: List the signed-in provider's smart phrases
+      description: >-
+        Editor-time dot-phrase expansions. The note editor reads this list
+        once on mount and applies expansions locally — the server never
+        sees the `.shortcut` typed in the textarea. Sorted by usageCount
+        desc then shortcut asc so the daily-driver phrases sit on top.
+      responses:
+        "200":
+          description: Smart phrases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SmartPhrase"
+    post:
+      operationId: createSmartPhrase
+      tags: [smart-phrases]
+      summary: Create a new smart phrase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSmartPhraseRequest"
+      responses:
+        "201":
+          description: Smart phrase created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartPhrase"
+        "409":
+          description: shortcut already used by another of the caller's phrases
+  /smart-phrases/{id}:
+    patch:
+      operationId: updateSmartPhrase
+      tags: [smart-phrases]
+      summary: Edit a smart phrase
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSmartPhraseRequest"
+      responses:
+        "200":
+          description: Smart phrase updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartPhrase"
+        "404":
+          description: Smart phrase not found (or not owned by caller)
+        "409":
+          description: shortcut collides with another of the caller's phrases
+    delete:
+      operationId: deleteSmartPhrase
+      tags: [smart-phrases]
+      summary: Delete a smart phrase
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Smart phrase deleted
+        "404":
+          description: Smart phrase not found (or not owned by caller)
+  /smart-phrases/{id}/used:
+    post:
+      operationId: markSmartPhraseUsed
+      tags: [smart-phrases]
+      summary: Increment usageCount after an expansion fires in the editor
+      description: >-
+        Fire-and-forget signal from the editor. Server bumps usageCount
+        atomically and returns 204. Failure is non-fatal; the editor
+        should not surface errors to the provider for this call.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Usage recorded
+        "404":
+          description: Smart phrase not found (or not owned by caller)
   /note-defaults:
     get:
       operationId: listNoteDefaults
@@ -1915,6 +2022,80 @@ components:
         documented:
           type: string
           minLength: 1
+          maxLength: 200
+    SmartPhrase:
+      type: object
+      required:
+        - id
+        - shortcut
+        - body
+        - description
+        - usageCount
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        shortcut:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: >-
+            The token typed after `.` in the note editor. Stored
+            lowercased; whitespace and dot characters are rejected.
+        body:
+          type: string
+          minLength: 1
+          description: >-
+            Expansion text inserted into the note. May be multi-line.
+        description:
+          type: ["string", "null"]
+          maxLength: 200
+          description: >-
+            Optional hint shown in the autocomplete dropdown.
+        usageCount:
+          type: integer
+          description: >-
+            Times the phrase has been expanded. Used for autocomplete
+            ranking within prefix matches.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateSmartPhraseRequest:
+      type: object
+      required: [shortcut, body]
+      properties:
+        shortcut:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: >-
+            Whitespace and `.` characters are rejected. Server
+            lowercases before persisting.
+        body:
+          type: string
+          minLength: 1
+        description:
+          type: ["string", "null"]
+          maxLength: 200
+    UpdateSmartPhraseRequest:
+      type: object
+      description: >-
+        Partial update. Any provided field replaces; omitted fields are
+        untouched. Pass description=null to clear the hint.
+      properties:
+        shortcut:
+          type: string
+          minLength: 1
+          maxLength: 40
+        body:
+          type: string
+          minLength: 1
+        description:
+          type: ["string", "null"]
           maxLength: 200
     NoteDefault:
       type: object

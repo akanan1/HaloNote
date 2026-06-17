@@ -32,9 +32,18 @@ vi.mock("@workspace/api-client-react", () => ({
     isPending: false,
     isError: false,
   }),
+  // Smart phrases use the same shape — empty list means the dropdown
+  // is inert and these tests can ignore it.
+  useListSmartPhrases: () => ({
+    data: { data: [] },
+    isPending: false,
+    isError: false,
+  }),
+  customFetch: vi.fn(),
   getListNotesQueryKey: (params?: { patientId: string }) =>
     params ? ["/api/notes", params] : ["/api/notes"],
   getListTemplatesQueryKey: () => ["/api/templates"],
+  getListSmartPhrasesQueryKey: () => ["/api/smart-phrases"],
 }));
 
 import { NewNotePage } from "./NewNote";

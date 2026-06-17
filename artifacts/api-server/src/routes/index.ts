@@ -8,6 +8,7 @@ import auditLogRouter from "./audit-log";
 import usersRouter from "./users";
 import scheduleRouter from "./schedule";
 import templatesRouter from "./templates";
+import smartPhrasesRouter from "./smart-phrases";
 import phraseMappingsRouter from "./phrase-mappings";
 import noteDefaultsRouter from "./note-defaults";
 import onboardingRouter from "./onboarding";
@@ -64,6 +65,7 @@ router.use("/users", usersRouter);
 // gated with `requireBaa` below — defense in depth so a route added
 // later can't accidentally accept PHI from an unaccepted user.
 router.use(templatesRouter);
+router.use(smartPhrasesRouter);
 router.use(phraseMappingsRouter);
 router.use(noteDefaultsRouter);
 router.use(onboardingRouter);

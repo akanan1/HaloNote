@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ArrowLeft,
@@ -38,6 +38,8 @@ import {
   useNoteAutosave,
   type AutosaveStatus,
 } from "@/lib/use-note-autosave";
+import { useSmartPhraseAutocomplete } from "@/lib/use-smart-phrase-autocomplete";
+import { SmartPhraseDropdown } from "@/components/SmartPhraseDropdown";
 
 interface NewNotePageProps {
   patientId: string;
@@ -143,6 +145,7 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
 
   const [body, setBody] = useState("");
   const [bodyPrefilled, setBodyPrefilled] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [sendState, setSendState] = useState<SendState>({ phase: "idle" });
   const [templateId, setTemplateId] = useState<string>("");
   // Audio segments captured by the ambient-recording panel above the
@@ -153,6 +156,13 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
 
   const isBusyState =
     sendState.phase === "saving" || sendState.phase === "sending";
+
+  const smartPhrases = useSmartPhraseAutocomplete({
+    textareaRef,
+    value: body,
+    setValue: setBody,
+    enabled: !sendState || sendState.phase !== "sent",
+  });
 
   // Debounced autosave. Disabled while a manual save / send is in flight
   // so the explicit button click is what actually persists.
@@ -367,16 +377,27 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
           ))}
         </select>
 
-        <Textarea
-          id="note-body"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Type or pick a template above. Use the recorder for the visit conversation."
-          rows={16}
-          className="min-h-[55vh] border-0 bg-transparent px-0 py-2 text-base leading-relaxed shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-          autoFocus
-          disabled={isBusy}
-        />
+        <div className="relative">
+          <Textarea
+            id="note-body"
+            ref={textareaRef}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={smartPhrases.onKeyDown}
+            placeholder="Type or pick a template above. Type .shortcut for smart phrases. Use the recorder for the visit conversation."
+            rows={16}
+            className="min-h-[55vh] border-0 bg-transparent px-0 py-2 text-base leading-relaxed shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            autoFocus
+            disabled={isBusy}
+          />
+          <SmartPhraseDropdown
+            open={smartPhrases.open}
+            suggestions={smartPhrases.suggestions}
+            activeIndex={smartPhrases.activeIndex}
+            onPick={smartPhrases.pick}
+            onHover={smartPhrases.setActiveIndex}
+          />
+        </div>
 
       </Card>
 

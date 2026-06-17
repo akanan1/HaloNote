@@ -27,6 +27,7 @@ import type {
   CreatePatientRequest,
   CreatePhraseMappingRequest,
   CreateRecordingRequest,
+  CreateSmartPhraseRequest,
   CreateTemplateRequest,
   EhrConnectionStatus,
   EhrPushResult,
@@ -47,6 +48,7 @@ import type {
   ListNotesParams,
   ListPatients200,
   ListPhraseMappings200,
+  ListSmartPhrases200,
   ListTemplates200,
   ListUsers200,
   LoginRequest,
@@ -65,6 +67,7 @@ import type {
   ReorderTemplatesRequest,
   ResetTemplates200,
   SignupRequest,
+  SmartPhrase,
   StartEhrOauth200,
   StartEhrOauthRequest,
   SyncPatientRequest,
@@ -73,6 +76,7 @@ import type {
   UpdateNoteDefaultRequest,
   UpdateNoteRequest,
   UpdatePhraseMappingRequest,
+  UpdateSmartPhraseRequest,
   UpdateTemplateRequest,
   UpdateUserRequest,
   UploadLegalVersionRequest,
@@ -3652,6 +3656,424 @@ export const useDeletePhraseMapping = <
   TContext
 > => {
   return useMutation(getDeletePhraseMappingMutationOptions(options));
+};
+
+/**
+ * Editor-time dot-phrase expansions. The note editor reads this list once on mount and applies expansions locally — the server never sees the `.shortcut` typed in the textarea. Sorted by usageCount desc then shortcut asc so the daily-driver phrases sit on top.
+ * @summary List the signed-in provider's smart phrases
+ */
+export const getListSmartPhrasesUrl = () => {
+  return `/api/smart-phrases`;
+};
+
+export const listSmartPhrases = async (
+  options?: RequestInit,
+): Promise<ListSmartPhrases200> => {
+  return customFetch<ListSmartPhrases200>(getListSmartPhrasesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSmartPhrasesQueryKey = () => {
+  return [`/api/smart-phrases`] as const;
+};
+
+export const getListSmartPhrasesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSmartPhrases>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSmartPhrases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSmartPhrasesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listSmartPhrases>>
+  > = ({ signal }) => listSmartPhrases({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSmartPhrases>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSmartPhrasesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSmartPhrases>>
+>;
+export type ListSmartPhrasesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the signed-in provider's smart phrases
+ */
+
+export function useListSmartPhrases<
+  TData = Awaited<ReturnType<typeof listSmartPhrases>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSmartPhrases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSmartPhrasesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a new smart phrase
+ */
+export const getCreateSmartPhraseUrl = () => {
+  return `/api/smart-phrases`;
+};
+
+export const createSmartPhrase = async (
+  createSmartPhraseRequest: CreateSmartPhraseRequest,
+  options?: RequestInit,
+): Promise<SmartPhrase> => {
+  return customFetch<SmartPhrase>(getCreateSmartPhraseUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createSmartPhraseRequest),
+  });
+};
+
+export const getCreateSmartPhraseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSmartPhrase>>,
+    TError,
+    { data: BodyType<CreateSmartPhraseRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSmartPhrase>>,
+  TError,
+  { data: BodyType<CreateSmartPhraseRequest> },
+  TContext
+> => {
+  const mutationKey = ["createSmartPhrase"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSmartPhrase>>,
+    { data: BodyType<CreateSmartPhraseRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSmartPhrase(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSmartPhraseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSmartPhrase>>
+>;
+export type CreateSmartPhraseMutationBody = BodyType<CreateSmartPhraseRequest>;
+export type CreateSmartPhraseMutationError = ErrorType<void>;
+
+/**
+ * @summary Create a new smart phrase
+ */
+export const useCreateSmartPhrase = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSmartPhrase>>,
+    TError,
+    { data: BodyType<CreateSmartPhraseRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSmartPhrase>>,
+  TError,
+  { data: BodyType<CreateSmartPhraseRequest> },
+  TContext
+> => {
+  return useMutation(getCreateSmartPhraseMutationOptions(options));
+};
+
+/**
+ * @summary Edit a smart phrase
+ */
+export const getUpdateSmartPhraseUrl = (id: string) => {
+  return `/api/smart-phrases/${id}`;
+};
+
+export const updateSmartPhrase = async (
+  id: string,
+  updateSmartPhraseRequest: UpdateSmartPhraseRequest,
+  options?: RequestInit,
+): Promise<SmartPhrase> => {
+  return customFetch<SmartPhrase>(getUpdateSmartPhraseUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateSmartPhraseRequest),
+  });
+};
+
+export const getUpdateSmartPhraseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSmartPhrase>>,
+    TError,
+    { id: string; data: BodyType<UpdateSmartPhraseRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSmartPhrase>>,
+  TError,
+  { id: string; data: BodyType<UpdateSmartPhraseRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateSmartPhrase"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSmartPhrase>>,
+    { id: string; data: BodyType<UpdateSmartPhraseRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateSmartPhrase(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSmartPhraseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateSmartPhrase>>
+>;
+export type UpdateSmartPhraseMutationBody = BodyType<UpdateSmartPhraseRequest>;
+export type UpdateSmartPhraseMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a smart phrase
+ */
+export const useUpdateSmartPhrase = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSmartPhrase>>,
+    TError,
+    { id: string; data: BodyType<UpdateSmartPhraseRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateSmartPhrase>>,
+  TError,
+  { id: string; data: BodyType<UpdateSmartPhraseRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateSmartPhraseMutationOptions(options));
+};
+
+/**
+ * @summary Delete a smart phrase
+ */
+export const getDeleteSmartPhraseUrl = (id: string) => {
+  return `/api/smart-phrases/${id}`;
+};
+
+export const deleteSmartPhrase = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteSmartPhraseUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteSmartPhraseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSmartPhrase>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteSmartPhrase>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteSmartPhrase"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteSmartPhrase>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteSmartPhrase(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteSmartPhraseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteSmartPhrase>>
+>;
+
+export type DeleteSmartPhraseMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a smart phrase
+ */
+export const useDeleteSmartPhrase = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSmartPhrase>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSmartPhrase>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteSmartPhraseMutationOptions(options));
+};
+
+/**
+ * Fire-and-forget signal from the editor. Server bumps usageCount atomically and returns 204. Failure is non-fatal; the editor should not surface errors to the provider for this call.
+ * @summary Increment usageCount after an expansion fires in the editor
+ */
+export const getMarkSmartPhraseUsedUrl = (id: string) => {
+  return `/api/smart-phrases/${id}/used`;
+};
+
+export const markSmartPhraseUsed = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getMarkSmartPhraseUsedUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkSmartPhraseUsedMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markSmartPhraseUsed>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markSmartPhraseUsed>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["markSmartPhraseUsed"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markSmartPhraseUsed>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return markSmartPhraseUsed(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkSmartPhraseUsedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markSmartPhraseUsed>>
+>;
+
+export type MarkSmartPhraseUsedMutationError = ErrorType<void>;
+
+/**
+ * @summary Increment usageCount after an expansion fires in the editor
+ */
+export const useMarkSmartPhraseUsed = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markSmartPhraseUsed>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markSmartPhraseUsed>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getMarkSmartPhraseUsedMutationOptions(options));
 };
 
 /**

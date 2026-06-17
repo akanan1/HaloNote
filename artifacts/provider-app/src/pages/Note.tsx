@@ -28,6 +28,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { SmartPhraseDropdown } from "@/components/SmartPhraseDropdown";
+import { useSmartPhraseAutocomplete } from "@/lib/use-smart-phrase-autocomplete";
 import { cn } from "@/lib/utils";
 import {
   buildPdfFilename,
@@ -79,6 +81,13 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const smartPhrases = useSmartPhraseAutocomplete({
+    textareaRef: editTextareaRef,
+    value: draftBody,
+    setValue: setDraftBody,
+    enabled: editing,
+  });
 
   // Seed the draft buffer when entering edit mode.
   useEffect(() => {
@@ -293,14 +302,25 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
 
           {editing ? (
             <div className="space-y-3">
-              <Textarea
-                value={draftBody}
-                onChange={(e) => setDraftBody(e.target.value)}
-                rows={16}
-                className="min-h-[50vh] text-base"
-                disabled={updateNote.isPending}
-                autoFocus
-              />
+              <div className="relative">
+                <Textarea
+                  ref={editTextareaRef}
+                  value={draftBody}
+                  onChange={(e) => setDraftBody(e.target.value)}
+                  onKeyDown={smartPhrases.onKeyDown}
+                  rows={16}
+                  className="min-h-[50vh] text-base"
+                  disabled={updateNote.isPending}
+                  autoFocus
+                />
+                <SmartPhraseDropdown
+                  open={smartPhrases.open}
+                  suggestions={smartPhrases.suggestions}
+                  activeIndex={smartPhrases.activeIndex}
+                  onPick={smartPhrases.pick}
+                  onHover={smartPhrases.setActiveIndex}
+                />
+              </div>
 
               {editError ? (
                 <p className="text-sm text-(--color-destructive)">{editError}</p>

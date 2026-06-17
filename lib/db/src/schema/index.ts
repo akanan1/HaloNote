@@ -9,6 +9,7 @@ export * from "./tasks";
 export * from "./patients";
 export * from "./notes";
 export * from "./note-templates";
+export * from "./smart-phrases";
 export * from "./provider-phrase-mappings";
 export * from "./provider-note-defaults";
 export * from "./legal-acceptances";

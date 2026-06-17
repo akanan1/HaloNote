@@ -56,6 +56,12 @@ export const usersTable = pgTable("users", {
     mode: "date",
     withTimezone: true,
   }),
+  // When true, /notes/:id/approve fires the EHR push synchronously
+  // before returning. The provider's *review* step still gates the
+  // push (approval is the explicit "this is the final note"); we just
+  // skip the second tap to forward it to the chart. Default false so
+  // every existing account preserves the manual two-step.
+  autoPushToEhr: boolean("auto_push_to_ehr").notNull().default(false),
   // Founder-tier access flag. A super-admin permission on top of the
   // existing admin/member role — gates the cross-tenant Founder
   // dashboard (analytics, per-user legal acceptance status, etc.).

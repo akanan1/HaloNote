@@ -73,6 +73,12 @@ export const ConfirmPasswordResetResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
+  autoPushToEhr: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+    ),
 });
 
 /**
@@ -105,6 +111,12 @@ export const LoginResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
+  autoPushToEhr: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+    ),
 });
 
 /**
@@ -130,6 +142,52 @@ export const GetCurrentUserResponse = zod.object({
     .optional()
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushToEhr: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+    ),
+});
+
+/**
+ * @summary Partial self-update of the signed-in user's preferences
+ */
+export const UpdateMeBody = zod
+  .object({
+    autoPushToEhr: zod.boolean().optional(),
+  })
+  .describe(
+    "Partial self-update of the signed-in user's preferences. Only fields present in the body are touched.",
+  );
+
+export const UpdateMeResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+  role: zod.enum(["admin", "member"]),
+  twoFactorEnabled: zod
+    .boolean()
+    .optional()
+    .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushToEhr: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
     ),
 });
 
@@ -500,6 +558,12 @@ export const CompleteOnboardingResponse = zod.object({
     .optional()
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushToEhr: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
     ),
 });
 

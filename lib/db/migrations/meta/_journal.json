@@ -204,6 +204,13 @@
       "when": 1781648522495,
       "tag": "0028_add_smart_phrases",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1781659911928,
+      "tag": "0029_add_auto_push_to_ehr",
+      "breakpoints": true
     }
   ]
 }

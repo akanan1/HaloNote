@@ -6,6 +6,7 @@ import {
   LoginBody,
   RequestPasswordResetBody,
   SignupBody,
+  UpdateMeBody,
 } from "@workspace/api-zod";
 import {
   getDb,
@@ -482,6 +483,19 @@ router.post("/auth/logout", async (req, res) => {
   res.status(204).end();
 });
 
+function serializeMe(user: typeof usersTable.$inferSelect) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    twoFactorEnabled: Boolean(user.totpEnabledAt),
+    onboardingCompleted: Boolean(user.onboardingCompletedAt),
+    isFounder: Boolean(user.isFounder),
+    autoPushToEhr: Boolean(user.autoPushToEhr),
+  };
+}
+
 router.get("/auth/me", requireAuth, (req, res) => {
   const user = req.user;
   if (!user) {
@@ -491,15 +505,48 @@ router.get("/auth/me", requireAuth, (req, res) => {
   if (!req.cookies?.[CSRF_COOKIE]) {
     setCsrfCookie(res, generateCsrfToken());
   }
-  res.json({
-    id: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    role: user.role,
-    twoFactorEnabled: Boolean(user.totpEnabledAt),
-    onboardingCompleted: Boolean(user.onboardingCompletedAt),
-    isFounder: Boolean(user.isFounder),
-  });
+  res.json(serializeMe(user));
+});
+
+// Self-update of the signed-in user's preferences. Currently scoped
+// to autoPushToEhr; expand the body schema rather than adding more
+// endpoints when more knobs land. CSRF + auth come from the global
+// middleware stack; we explicitly require auth here too as belt+
+// suspenders.
+router.patch("/auth/me", requireAuth, async (req, res) => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const parsed = UpdateMeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "invalid_request", issues: parsed.error.issues });
+    return;
+  }
+  const updates: Partial<typeof usersTable.$inferInsert> = {};
+  if (parsed.data.autoPushToEhr !== undefined) {
+    updates.autoPushToEhr = parsed.data.autoPushToEhr;
+  }
+  if (Object.keys(updates).length === 0) {
+    // No-op patch — just echo the current state. Saves a write but
+    // keeps the response shape consistent so callers don't have to
+    // branch on the partial-vs-empty body case.
+    res.json(serializeMe(user));
+    return;
+  }
+  const [updated] = await getDb()
+    .update(usersTable)
+    .set(updates)
+    .where(eq(usersTable.id, user.id))
+    .returning();
+  if (!updated) {
+    res.status(500).json({ error: "persistence_failed" });
+    return;
+  }
+  res.json(serializeMe(updated));
 });
 
 export default router;

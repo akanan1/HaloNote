@@ -141,6 +141,25 @@ paths:
                 $ref: "#/components/schemas/AuthUser"
         "401":
           description: Not signed in
+    patch:
+      operationId: updateMe
+      tags: [auth]
+      summary: Partial self-update of the signed-in user's preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not signed in
   /founder/legal-versions:
     post:
       operationId: uploadLegalVersion
@@ -1696,6 +1715,21 @@ components:
             cross-tenant Founder dashboard (analytics + per-user legal
             acceptance tracking). Granted manually for the HaloNote
             team only.
+        autoPushToEhr:
+          type: boolean
+          description: >-
+            When true, approving a note synchronously pushes it to the
+            EHR before the approve response returns. Per-provider
+            preference; defaults to false so existing workflows keep
+            the explicit Send to EHR step.
+    UpdateMeRequest:
+      type: object
+      description: >-
+        Partial self-update of the signed-in user's preferences. Only
+        fields present in the body are touched.
+      properties:
+        autoPushToEhr:
+          type: boolean
     LoginRequest:
       type: object
       required: [email, password]

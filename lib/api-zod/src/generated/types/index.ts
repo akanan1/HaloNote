@@ -95,6 +95,7 @@ export * from "./syncedPatientSynced";
 export * from "./syncedPatientSyncedProvider";
 export * from "./syncPatientRequest";
 export * from "./updateEncounterRequest";
+export * from "./updateMeRequest";
 export * from "./updateNoteDefaultRequest";
 export * from "./updateNoteRequest";
 export * from "./updatePhraseMappingRequest";

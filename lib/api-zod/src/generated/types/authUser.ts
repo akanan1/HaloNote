@@ -18,4 +18,6 @@ export interface AuthUser {
   onboardingCompleted?: boolean;
   /** Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only. */
   isFounder?: boolean;
+  /** When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step. */
+  autoPushToEhr?: boolean;
 }

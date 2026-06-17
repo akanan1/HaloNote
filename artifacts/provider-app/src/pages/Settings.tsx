@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EhrConnectionSection } from "@/components/EhrConnectionSection";
+import { AutoPushSection } from "@/components/AutoPushSection";
 import { TemplatesSection } from "@/components/TemplatesSection";
 import { SmartPhrasesSection } from "@/components/SmartPhrasesSection";
 import { PhraseMappingsSection } from "@/components/PhraseMappingsSection";
@@ -44,6 +45,8 @@ export function SettingsPage() {
       </header>
 
       <EhrConnectionSection />
+
+      <AutoPushSection />
 
       <TemplatesSection />
 

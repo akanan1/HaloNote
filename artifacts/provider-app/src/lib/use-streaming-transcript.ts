@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Mirrors the server's LiveCode shape. Kept in lockstep with the
+// suggester output so the client can render verbatim.
+export interface LiveBillingCode {
+  codeSystem: "icd10" | "cpt" | "em" | "modifier";
+  code: string;
+  description: string;
+  rationale: string;
+  confidence: "low" | "medium" | "high";
+}
+
 // Events the api-server bridge sends back over the WebSocket.
 type ServerEvent =
   | { type: "ready" }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
   | { type: "auto_stop"; reason: "verbal_cue"; cue: string }
+  | { type: "billing_suggestion"; codes: LiveBillingCode[] }
   | { type: "error"; message: string };
 
 export interface StreamingTranscriptState {
@@ -19,6 +30,9 @@ export interface StreamingTranscriptState {
   error: string | null;
   /** Phrase that triggered an auto-stop, if any. */
   endCue: string | null;
+  /** Billing suggestions surfaced during the visit so far. Append-only
+   *  within a single session; cleared on stream teardown. */
+  billingSuggestions: LiveBillingCode[];
 }
 
 export interface UseStreamingTranscriptParams {
@@ -68,6 +82,9 @@ export function useStreamingTranscript({
   );
   const [error, setError] = useState<string | null>(null);
   const [endCue, setEndCue] = useState<string | null>(null);
+  const [billingSuggestions, setBillingSuggestions] = useState<
+    LiveBillingCode[]
+  >([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -121,6 +138,7 @@ export function useStreamingTranscript({
       setFinals([]);
       setEndCue(null);
       setError(null);
+      setBillingSuggestions([]);
       return;
     }
 
@@ -156,6 +174,9 @@ export function useStreamingTranscript({
           case "auto_stop":
             setEndCue(parsed.cue);
             onAutoStopRef.current?.(parsed.cue);
+            return;
+          case "billing_suggestion":
+            setBillingSuggestions((cur) => [...cur, ...parsed.codes]);
             return;
           case "error":
             setStatus("error");
@@ -244,5 +265,5 @@ export function useStreamingTranscript({
     };
   }, [stream, teardown]);
 
-  return { finals, partial, status, error, endCue };
+  return { finals, partial, status, error, endCue, billingSuggestions };
 }

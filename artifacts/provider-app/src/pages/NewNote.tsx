@@ -43,6 +43,7 @@ import { SmartPhraseDropdown } from "@/components/SmartPhraseDropdown";
 import { useAuth } from "@/lib/auth";
 import { useStreamingTranscript } from "@/lib/use-streaming-transcript";
 import { LiveTranscriptRibbon } from "@/components/LiveTranscriptRibbon";
+import { LiveBillingPanel } from "@/components/LiveBillingPanel";
 
 interface NewNotePageProps {
   patientId: string;
@@ -331,6 +332,8 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
       </header>
 
       <LiveTranscriptRibbon state={liveTranscript} />
+
+      <LiveBillingPanel suggestions={liveTranscript.billingSuggestions} />
 
       <RecordingPanel
         disabled={isBusy}

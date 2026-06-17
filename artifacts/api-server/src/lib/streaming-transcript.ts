@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { SESSION_COOKIE, lookupSession } from "./auth";
 import { logger } from "./logger";
+import { suggestLiveCodes, type LiveCode } from "./live-billing-suggester";
 
 // Default list of phrases that end a visit. Matched case-insensitively
 // against each `is_final` transcript event. The match is *substring* —
@@ -38,7 +39,14 @@ type ServerEvent =
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
   | { type: "auto_stop"; reason: "verbal_cue"; cue: string }
+  | { type: "billing_suggestion"; codes: LiveCode[] }
   | { type: "error"; message: string };
+
+// Run a live-billing pass every Nth new final line. Higher = fewer
+// LLM calls + more transcript per call (better recall); lower =
+// faster reactivity. 5 lines is roughly one suggestion call every
+// 15-30 seconds of speech.
+const LIVE_BILLING_LINES_PER_PASS = 5;
 
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
@@ -167,6 +175,10 @@ function attachBridge(
   let cueTriggered = false;
   // Append every `is_final` line here so we can flush on close.
   const finalLines: string[] = [];
+  // Live billing state.
+  let billingInFlight = false;
+  let linesSinceLastBilling = 0;
+  const alreadySuggested: { codeSystem: string; code: string }[] = [];
 
   function send(event: ServerEvent): void {
     if (browserWs.readyState === browserWs.OPEN) {
@@ -190,6 +202,43 @@ function attachBridge(
     if (m.is_final) {
       send({ type: "final", text });
       finalLines.push(text);
+      linesSinceLastBilling++;
+      if (
+        !billingInFlight &&
+        linesSinceLastBilling >= LIVE_BILLING_LINES_PER_PASS
+      ) {
+        linesSinceLastBilling = 0;
+        billingInFlight = true;
+        const snapshot = finalLines.join("\n");
+        const knownKeys = alreadySuggested.slice();
+        void suggestLiveCodes({
+          transcript: snapshot,
+          alreadySuggested: knownKeys,
+        })
+          .then((codes) => {
+            // Filter out anything we've already sent in case the
+            // model didn't honor the dedupe hint.
+            const fresh = codes.filter(
+              (c) =>
+                !alreadySuggested.some(
+                  (k) =>
+                    k.codeSystem === c.codeSystem && k.code === c.code,
+                ),
+            );
+            if (fresh.length > 0) {
+              for (const c of fresh) {
+                alreadySuggested.push({
+                  codeSystem: c.codeSystem,
+                  code: c.code,
+                });
+              }
+              send({ type: "billing_suggestion", codes: fresh });
+            }
+          })
+          .finally(() => {
+            billingInFlight = false;
+          });
+      }
       if (!cueTriggered) {
         const lower = text.toLowerCase();
         const hit = cues.find((c) => lower.includes(c));

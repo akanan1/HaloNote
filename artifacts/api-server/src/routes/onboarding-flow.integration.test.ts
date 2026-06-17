@@ -50,10 +50,15 @@ describe("Legal onboarding → PHI access journey (integration)", () => {
 
   beforeEach(async () => {
     await resetTestDb();
+    // The whole point of this test file is to exercise the path
+    // where a brand-new user steps through the BAA acceptance — so
+    // skip the helper's auto-acceptance bootstrap. Org membership
+    // still applies (the user isn't an org-less account).
     await createTestUser({
       email: EMAIL,
       password: PASSWORD,
       displayName: "Journey User",
+      skipBaaAcceptance: true,
     });
   });
 

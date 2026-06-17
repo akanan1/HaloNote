@@ -40,4 +40,6 @@ export interface Note {
    * @nullable
    */
   ehrError: string | null;
+  /** True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the "unreviewed AI version in the chart" banner on the note page. */
+  autoPushedWithoutReview?: boolean;
 }

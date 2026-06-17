@@ -56,12 +56,21 @@ export const usersTable = pgTable("users", {
     mode: "date",
     withTimezone: true,
   }),
-  // When true, /notes/:id/approve fires the EHR push synchronously
-  // before returning. The provider's *review* step still gates the
-  // push (approval is the explicit "this is the final note"); we just
-  // skip the second tap to forward it to the chart. Default false so
-  // every existing account preserves the manual two-step.
-  autoPushToEhr: boolean("auto_push_to_ehr").notNull().default(false),
+  // Auto-push behavior for completed notes:
+  //   "off"                  — manual Send to EHR (default)
+  //   "after_approve"        — /notes/:id/approve pushes inline
+  //   "after_transcription"  — the recording pipeline approves + pushes
+  //                            as soon as the AI structured body lands.
+  //                            The provider's review step is SKIPPED;
+  //                            amend via the normal replaces chain.
+  // Postgres-side this is just text — we narrow in TS so the call
+  // sites pattern-match exhaustively. Stored as text rather than enum
+  // because Drizzle's pg-enum support is finicky with renames; the
+  // legibility win isn't worth the migration headache.
+  autoPushMode: text("auto_push_mode")
+    .$type<"off" | "after_approve" | "after_transcription">()
+    .notNull()
+    .default("off"),
   // Seconds of continuous silence before the recorder auto-stops. 0
   // disables the feature entirely (recorder only stops on manual tap).
   // Default 0 — the provider opts in via Settings rather than having

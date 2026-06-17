@@ -43,6 +43,7 @@ import {
   profileNeedsRefresh,
   refreshStyleProfileInBackground,
 } from "./style-profile";
+import { finalizeAndPushTranscribedNote } from "./auto-push";
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -346,7 +347,54 @@ class DeepgramClaudePipeline implements RecordingPipeline {
         refreshStyleProfileInBackground(job.userId);
       }
 
-      // 4. Done.
+      // 4. Optional: post-transcription auto-push. When the recording
+      //    author has autoPushMode=after_transcription, we materialize
+      //    the notes row here (rather than waiting for the browser to
+      //    autosave it) so the EHR push fires even if the provider
+      //    closes the tab. Failure leaves the note in `approved` state
+      //    with ehrError set; the existing manual Send button can
+      //    retry.
+      //
+      //    Skipped when no patientId is attached to the job (capture-
+      //    only test paths) — pushing a note without a patient binding
+      //    isn't meaningful.
+      let autoPushedNoteId: string | null = null;
+      const [author] = await getDb()
+        .select({ autoPushMode: usersTable.autoPushMode })
+        .from(usersTable)
+        .where(eq(usersTable.id, job.userId))
+        .limit(1);
+      if (
+        author?.autoPushMode === "after_transcription" &&
+        job.patientId
+      ) {
+        const outcome = await finalizeAndPushTranscribedNote({
+          organizationId: job.organizationId,
+          userId: job.userId,
+          patientId: job.patientId,
+          encounterId: job.encounterId,
+          structuredBody,
+          log: logger,
+        });
+        autoPushedNoteId = outcome.noteId;
+        // Link the resulting note back to the job so the polling
+        // browser can navigate the provider straight to it.
+        await getDb()
+          .update(recordingJobsTable)
+          .set({ noteId: outcome.noteId })
+          .where(eq(recordingJobsTable.id, jobId));
+        logger.info(
+          {
+            jobId,
+            noteId: outcome.noteId,
+            pushed: outcome.pushed,
+            ehrError: outcome.ehrError,
+          },
+          "recording-pipeline: after_transcription auto-push",
+        );
+      }
+
+      // 5. Done.
       await setStatus(jobId, "done", {
         transcript,
         structuredBody,
@@ -357,6 +405,7 @@ class DeepgramClaudePipeline implements RecordingPipeline {
           jobId,
           durationMs: Date.now() - startedAt,
           segmentCount: segments.length,
+          autoPushedNoteId,
         },
         "recording-pipeline: done",
       );

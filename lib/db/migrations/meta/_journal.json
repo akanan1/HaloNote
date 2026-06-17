@@ -218,6 +218,20 @@
       "when": 1781668003646,
       "tag": "0030_add_silence_auto_stop",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1781668800000,
+      "tag": "0031_switch_to_auto_push_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781700534892,
+      "tag": "0032_add_auto_pushed_without_review",
+      "breakpoints": true
     }
   ]
 }

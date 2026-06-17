@@ -22,7 +22,19 @@ export type RecordingProcessingState =
   | { phase: "uploading"; total: number; done: number }
   | { phase: "finalizing" }
   | { phase: "processing"; status: RecordingJob["status"] }
-  | { phase: "done"; structuredBody: string; transcript: string | null }
+  | {
+      phase: "done";
+      structuredBody: string;
+      transcript: string | null;
+      /**
+       * Set when the recording pipeline materialized + auto-pushed the
+       * note server-side (autoPushMode === "after_transcription"). The
+       * UI uses this to navigate the provider straight to the (already-
+       * pushed) note instead of dropping the structured body into the
+       * NewNote textarea.
+       */
+      noteId: string | null;
+    }
   | { phase: "failed"; message: string };
 
 interface UseRecordingToNoteArgs {
@@ -104,6 +116,7 @@ export function useRecordingToNote({
             phase: "done",
             structuredBody: job.structuredBody ?? "",
             transcript: job.transcript ?? null,
+            noteId: job.noteId ?? null,
           });
           return;
         }

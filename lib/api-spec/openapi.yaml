@@ -1528,6 +1528,14 @@ components:
         ehrError:
           type: ["string", "null"]
           description: Last EHR push error message, if any.
+        autoPushedWithoutReview:
+          type: boolean
+          description: >-
+            True when the recording pipeline auto-approved + auto-pushed
+            this note without the provider reviewing it (the author had
+            autoPushMode=after_transcription at the time). Drives the
+            "unreviewed AI version in the chart" banner on the note
+            page.
     CreateNoteRequest:
       type: object
       required: [patientId, body]
@@ -1715,13 +1723,17 @@ components:
             cross-tenant Founder dashboard (analytics + per-user legal
             acceptance tracking). Granted manually for the HaloNote
             team only.
-        autoPushToEhr:
-          type: boolean
+        autoPushMode:
+          type: string
+          enum: [off, after_approve, after_transcription]
           description: >-
-            When true, approving a note synchronously pushes it to the
-            EHR before the approve response returns. Per-provider
-            preference; defaults to false so existing workflows keep
-            the explicit Send to EHR step.
+            Controls when a completed note ships to the EHR.
+            `off` — manual Send to EHR (default).
+            `after_approve` — /notes/:id/approve pushes inline.
+            `after_transcription` — the recording pipeline approves
+            and pushes the AI-structured note immediately, skipping
+            the provider review step. Amendments still flow through
+            the existing replaces chain.
         silenceAutoStopSec:
           type: integer
           minimum: 0
@@ -1735,8 +1747,9 @@ components:
         Partial self-update of the signed-in user's preferences. Only
         fields present in the body are touched.
       properties:
-        autoPushToEhr:
-          type: boolean
+        autoPushMode:
+          type: string
+          enum: [off, after_approve, after_transcription]
         silenceAutoStopSec:
           type: integer
           minimum: 0

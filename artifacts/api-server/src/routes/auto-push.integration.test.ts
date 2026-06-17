@@ -64,39 +64,41 @@ describe("EHR auto-push (integration)", () => {
     await seedPatient("pt_ap1", "MRN-AP1");
   });
 
-  it("GET /auth/me returns autoPushToEhr=false by default", async () => {
+  it("GET /auth/me returns autoPushMode=off by default", async () => {
     const { agent } = await loginAgent();
     const res = await agent.get("/api/auth/me");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ autoPushToEhr: false });
+    expect(res.body).toMatchObject({ autoPushMode: "off" });
   });
 
-  it("PATCH /auth/me toggles autoPushToEhr and persists the change", async () => {
+  it("PATCH /auth/me switches autoPushMode and persists the change", async () => {
     const { agent, csrfToken } = await loginAgent();
     const on = await agent
       .patch("/api/auth/me")
       .set("X-CSRF-Token", csrfToken)
-      .send({ autoPushToEhr: true });
+      .send({ autoPushMode: "after_approve" });
     expect(on.status).toBe(200);
-    expect(on.body).toMatchObject({ autoPushToEhr: true });
+    expect(on.body).toMatchObject({ autoPushMode: "after_approve" });
 
     const me = await agent.get("/api/auth/me");
-    expect(me.body).toMatchObject({ autoPushToEhr: true });
+    expect(me.body).toMatchObject({ autoPushMode: "after_approve" });
+
+    // Round-trip to the third value too.
 
     const off = await agent
       .patch("/api/auth/me")
       .set("X-CSRF-Token", csrfToken)
-      .send({ autoPushToEhr: false });
-    expect(off.body).toMatchObject({ autoPushToEhr: false });
+      .send({ autoPushMode: "off" });
+    expect(off.body).toMatchObject({ autoPushMode: "off" });
   });
 
-  it("approve with autoPushToEhr=true exports the note in one round-trip", async () => {
+  it("approve with autoPushMode=after_approve exports the note in one round-trip", async () => {
     const { agent, csrfToken } = await loginAgent();
     // Opt in first.
     await agent
       .patch("/api/auth/me")
       .set("X-CSRF-Token", csrfToken)
-      .send({ autoPushToEhr: true });
+      .send({ autoPushMode: "after_approve" });
 
     const created = await agent
       .post("/api/notes")
@@ -121,7 +123,7 @@ describe("EHR auto-push (integration)", () => {
     expect(row?.ehrError).toBeNull();
   });
 
-  it("approve with autoPushToEhr=false stops at approved with no EHR fields set", async () => {
+  it("approve with autoPushMode=off stops at approved with no EHR fields set", async () => {
     const { agent, csrfToken } = await loginAgent();
     const created = await agent
       .post("/api/notes")

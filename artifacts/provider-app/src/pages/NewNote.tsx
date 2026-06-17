@@ -189,15 +189,23 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
     setBodyPrefilled(true);
   }, [predecessor, bodyPrefilled]);
 
-  // When the recording pipeline lands, drop the structured body into
-  // the textarea — but only if the textarea is empty. A provider who's
-  // already typed something keeps their work; they can manually paste
-  // from the recorded transcript instead.
+  // When the recording pipeline lands, behavior depends on the user's
+  // autoPushMode:
+  //   - after_transcription: the server already created + pushed the
+  //     note. Navigate straight to the note page so the provider sees
+  //     the final, EHR-shipped version (and can amend if needed).
+  //   - off / after_approve: drop the structured body into the
+  //     textarea so the provider reviews and saves manually. Don't
+  //     overwrite anything they've already typed.
   useEffect(() => {
     if (recording.state.phase !== "done") return;
-    const generated = recording.state.structuredBody;
-    setBody((current) => (current.trim() === "" ? generated : current));
-  }, [recording.state]);
+    const { noteId, structuredBody } = recording.state;
+    if (noteId) {
+      navigate(`/patients/${patientId}/notes/${noteId}`);
+      return;
+    }
+    setBody((current) => (current.trim() === "" ? structuredBody : current));
+  }, [recording.state, navigate, patientId]);
 
   // Apply a template's skeleton to the textarea. Only fires when the
   // body is empty — refuses to overwrite a note in progress.

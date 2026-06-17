@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthUserAutoPushMode } from "./authUserAutoPushMode";
 import type { AuthUserRole } from "./authUserRole";
 
 export interface AuthUser {
@@ -18,8 +19,8 @@ export interface AuthUser {
   onboardingCompleted?: boolean;
   /** Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only. */
   isFounder?: boolean;
-  /** When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step. */
-  autoPushToEhr?: boolean;
+  /** Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — /notes/:id/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain. */
+  autoPushMode?: AuthUserAutoPushMode;
   /**
    * Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.
    * @minimum 0

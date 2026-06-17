@@ -270,6 +270,21 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
               the screen header doesn't show DOB, and the spec is
               explicit that the PDF must not include fields that
               aren't already visible. */}
+          {note.autoPushedWithoutReview && !editing ? (
+            <Card className="border-amber-300 bg-amber-50 p-5 text-sm text-amber-900 print:hidden">
+              <p className="font-medium">
+                AI-drafted, sent without review.
+              </p>
+              <p className="mt-1">
+                Your auto-push setting shipped this note to the EHR the
+                moment transcription finished. Review the content
+                below; if anything needs correcting, tap{" "}
+                <span className="font-medium">Amend</span> to publish a
+                replacement.
+              </p>
+            </Card>
+          ) : null}
+
           {!editing ? (
             <div className="hidden print:block print-header">
               <h1>Clinical Note</h1>

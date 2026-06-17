@@ -1,0 +1,1 @@
+ALTER TABLE "notes" ADD COLUMN "auto_pushed_without_review" boolean DEFAULT false NOT NULL;

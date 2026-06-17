@@ -492,7 +492,7 @@ function serializeMe(user: typeof usersTable.$inferSelect) {
     twoFactorEnabled: Boolean(user.totpEnabledAt),
     onboardingCompleted: Boolean(user.onboardingCompletedAt),
     isFounder: Boolean(user.isFounder),
-    autoPushToEhr: Boolean(user.autoPushToEhr),
+    autoPushMode: user.autoPushMode,
     silenceAutoStopSec: user.silenceAutoStopSec,
   };
 }
@@ -510,7 +510,7 @@ router.get("/auth/me", requireAuth, (req, res) => {
 });
 
 // Self-update of the signed-in user's preferences. Currently scoped
-// to autoPushToEhr; expand the body schema rather than adding more
+// to autoPushMode + silenceAutoStopSec; expand the body schema rather than adding more
 // endpoints when more knobs land. CSRF + auth come from the global
 // middleware stack; we explicitly require auth here too as belt+
 // suspenders.
@@ -528,8 +528,8 @@ router.patch("/auth/me", requireAuth, async (req, res) => {
     return;
   }
   const updates: Partial<typeof usersTable.$inferInsert> = {};
-  if (parsed.data.autoPushToEhr !== undefined) {
-    updates.autoPushToEhr = parsed.data.autoPushToEhr;
+  if (parsed.data.autoPushMode !== undefined) {
+    updates.autoPushMode = parsed.data.autoPushMode;
   }
   if (parsed.data.silenceAutoStopSec !== undefined) {
     updates.silenceAutoStopSec = parsed.data.silenceAutoStopSec;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type AnyPgColumn,
+  boolean,
   jsonb,
   pgTable,
   text,
@@ -89,6 +90,15 @@ export const notesTable = pgTable("notes", {
   // route layer refuses the write. Computed server-side, not from the
   // wire.
   signedNoteHash: text("signed_note_hash"),
+  // True when the recording pipeline materialized + auto-pushed this
+  // note without going through the provider review step (the author
+  // has autoPushMode = after_transcription). The Note page renders a
+  // banner so the provider sees that the chart has an unreviewed AI
+  // version and can amend if needed. Default false — review-driven
+  // notes never set this flag.
+  autoPushedWithoutReview: boolean("auto_pushed_without_review")
+    .notNull()
+    .default(false),
   // ---------------------------------------------------------------
 
   // Self-FK for FHIR's amendment model: a new note can `replace` an

@@ -76,11 +76,11 @@ export const ConfirmPasswordResetResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
-  autoPushToEhr: zod
-    .boolean()
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
     .optional()
     .describe(
-      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
     ),
   silenceAutoStopSec: zod
     .number()
@@ -125,11 +125,11 @@ export const LoginResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
-  autoPushToEhr: zod
-    .boolean()
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
     .optional()
     .describe(
-      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
     ),
   silenceAutoStopSec: zod
     .number()
@@ -168,11 +168,11 @@ export const GetCurrentUserResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
-  autoPushToEhr: zod
-    .boolean()
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
     .optional()
     .describe(
-      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
     ),
   silenceAutoStopSec: zod
     .number()
@@ -192,7 +192,9 @@ export const updateMeBodySilenceAutoStopSecMax = 600;
 
 export const UpdateMeBody = zod
   .object({
-    autoPushToEhr: zod.boolean().optional(),
+    autoPushMode: zod
+      .enum(["off", "after_approve", "after_transcription"])
+      .optional(),
     silenceAutoStopSec: zod
       .number()
       .min(updateMeBodySilenceAutoStopSecMin)
@@ -227,11 +229,11 @@ export const UpdateMeResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
-  autoPushToEhr: zod
-    .boolean()
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
     .optional()
     .describe(
-      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
     ),
   silenceAutoStopSec: zod
     .number()
@@ -614,11 +616,11 @@ export const CompleteOnboardingResponse = zod.object({
     .describe(
       "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
     ),
-  autoPushToEhr: zod
-    .boolean()
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
     .optional()
     .describe(
-      "When true, approving a note synchronously pushes it to the EHR before the approve response returns. Per-provider preference; defaults to false so existing workflows keep the explicit Send to EHR step.",
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
     ),
   silenceAutoStopSec: zod
     .number()
@@ -849,6 +851,12 @@ export const ListNotesResponse = zod.object({
         .string()
         .nullable()
         .describe("Last EHR push error message, if any."),
+      autoPushedWithoutReview: zod
+        .boolean()
+        .optional()
+        .describe(
+          'True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the \"unreviewed AI version in the chart\" banner on the note page.',
+        ),
     }),
   ),
   nextCursor: zod.coerce
@@ -931,6 +939,12 @@ export const GetNoteResponse = zod.object({
     .string()
     .nullable()
     .describe("Last EHR push error message, if any."),
+  autoPushedWithoutReview: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the \"unreviewed AI version in the chart\" banner on the note page.',
+    ),
 });
 
 /**
@@ -996,6 +1010,12 @@ export const UpdateNoteResponse = zod.object({
     .string()
     .nullable()
     .describe("Last EHR push error message, if any."),
+  autoPushedWithoutReview: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the \"unreviewed AI version in the chart\" banner on the note page.',
+    ),
 });
 
 /**

@@ -9,8 +9,8 @@ import {
   patientsTable,
   usersTable,
 } from "@workspace/db";
-import { EhrPushError, pushNoteToEhr } from "../lib/ehr-push";
-import { findPatient } from "../lib/patients";
+import { EhrPushError } from "../lib/ehr-push";
+import { pushApprovedNote } from "../lib/auto-push";
 import { getActiveOrgId } from "../lib/active-org";
 import { analyzeNoteGaps } from "../lib/note-gap-analyzer";
 import {
@@ -62,6 +62,7 @@ const noteSelect = {
   ehrDocumentRef: notesTable.ehrDocumentRef,
   ehrPushedAt: notesTable.ehrPushedAt,
   ehrError: notesTable.ehrError,
+  autoPushedWithoutReview: notesTable.autoPushedWithoutReview,
   authorDisplayName: usersTable.displayName,
 } as const;
 
@@ -82,6 +83,7 @@ type NoteRow = {
   ehrDocumentRef: string | null;
   ehrPushedAt: Date | null;
   ehrError: string | null;
+  autoPushedWithoutReview: boolean;
   authorDisplayName: string | null;
 };
 
@@ -109,6 +111,7 @@ function serializeNote(row: NoteRow) {
     ehrDocumentRef: row.ehrDocumentRef,
     ehrPushedAt: row.ehrPushedAt,
     ehrError: row.ehrError,
+    autoPushedWithoutReview: row.autoPushedWithoutReview,
   };
 }
 
@@ -502,7 +505,7 @@ router.post("/notes/:id/approve", async (req, res) => {
     // not yet exported, and the manual Send to EHR button can retry.
     // ehrError lands on the row via pushApprovedNote's catch path so
     // the UI can surface the message without an extra query.
-    if (approver.autoPushToEhr) {
+    if (approver.autoPushMode === "after_approve") {
       // Re-read the row so pushApprovedNote sees the freshly-stamped
       // approval state. We have `existing` from above but it's pre-
       // update; using it would set status=exported on a row that the
@@ -909,100 +912,6 @@ router.post("/notes/:id/extract-vitals", async (req, res) => {
 
   res.json({ ...result, source });
 });
-
-// Result of a successful push, in the shape the manual /send-to-ehr
-// response uses. Auto-push from /approve doesn't surface this in the
-// response (the serialized note already reflects ehrPushedAt etc.),
-// but both code paths produce the same intermediate value.
-interface NotePushResult {
-  provider: string;
-  ehrDocumentRef: string;
-  pushedAt: Date;
-  mock: boolean;
-}
-
-// Shared push + persist body used by manual /send-to-ehr and the
-// auto-push hook in /approve. Caller is expected to have already
-// verified the note is in a pushable state (status approved/exported,
-// hash matches if signed). Throws EhrPushError on push failure with
-// the underlying status preserved.
-async function pushApprovedNote(
-  noteRow: typeof notesTable.$inferSelect,
-  orgId: string,
-  userId: string,
-  log: { error: (obj: object, msg: string) => void },
-): Promise<NotePushResult> {
-  const db = getDb();
-  const patient = await findPatient(noteRow.patientId, orgId);
-  if (!patient) {
-    // The note exists but the patient was wiped from under it — this
-    // shouldn't happen under normal flow, but propagate as a 500-ish
-    // ehr_push_failed so the caller surfaces it the same way as other
-    // push errors. Callers convert to the right HTTP code.
-    throw new EhrPushError("patient_not_found", 500);
-  }
-
-  let predecessorEhrRef: string | undefined;
-  if (noteRow.replacesNoteId) {
-    const [predecessor] = await db
-      .select({ ehrDocumentRef: notesTable.ehrDocumentRef })
-      .from(notesTable)
-      .where(
-        and(
-          eq(notesTable.id, noteRow.replacesNoteId),
-          eq(notesTable.organizationId, orgId),
-        ),
-      )
-      .limit(1);
-    if (predecessor?.ehrDocumentRef) {
-      predecessorEhrRef = predecessor.ehrDocumentRef;
-    }
-  }
-
-  try {
-    const outcome = await pushNoteToEhr({
-      note: { id: noteRow.id, body: noteRow.body },
-      patient,
-      ...(predecessorEhrRef ? { replacesEhrRef: predecessorEhrRef } : {}),
-      userId,
-    });
-
-    await db
-      .update(notesTable)
-      .set({
-        ehrProvider: outcome.provider,
-        ehrDocumentRef: outcome.ehrDocumentRef,
-        ehrPushedAt: outcome.pushedAt,
-        ehrError: null,
-        // Terminal state for the happy path. A retry on an already-
-        // exported note is allowed (idempotent on the wire); this
-        // UPDATE is a no-op on the status column in that case.
-        status: "exported",
-      })
-      .where(
-        and(
-          eq(notesTable.id, noteRow.id),
-          eq(notesTable.organizationId, orgId),
-        ),
-      );
-
-    return outcome;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, noteId: noteRow.id }, "EHR push failed");
-    await db
-      .update(notesTable)
-      .set({ ehrError: message })
-      .where(
-        and(
-          eq(notesTable.id, noteRow.id),
-          eq(notesTable.organizationId, orgId),
-        ),
-      )
-      .catch(() => {});
-    throw err;
-  }
-}
 
 router.post("/notes/:id/send-to-ehr", async (req, res) => {
   const orgId = getActiveOrgId(req, res);

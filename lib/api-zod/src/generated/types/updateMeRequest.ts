@@ -5,12 +5,13 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateMeRequestAutoPushMode } from "./updateMeRequestAutoPushMode";
 
 /**
  * Partial self-update of the signed-in user's preferences. Only fields present in the body are touched.
  */
 export interface UpdateMeRequest {
-  autoPushToEhr?: boolean;
+  autoPushMode?: UpdateMeRequestAutoPushMode;
   /**
    * @minimum 0
    * @maximum 600

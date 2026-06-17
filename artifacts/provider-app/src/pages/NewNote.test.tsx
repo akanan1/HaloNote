@@ -3,6 +3,19 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test-utils/render";
 
+// NewNote pulls user prefs (silenceAutoStopSec) via useAuth; tests
+// don't bother spinning up the full AuthProvider since they don't
+// exercise auth flows.
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: { silenceAutoStopSec: 0, autoPushMode: "off" },
+    loading: false,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 const createNoteMock = vi.fn();
 const updateNoteMock = vi.fn();
 const sendNoteMock = vi.fn();

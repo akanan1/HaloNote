@@ -25,6 +25,20 @@ export interface LiveDocNudge {
   message: string;
 }
 
+// Mirrors the server's LiveCdsWarning shape. Patient-safety surface;
+// kept in lockstep with `artifacts/api-server/src/lib/live-cds.ts`.
+export interface LiveCdsWarning {
+  kind:
+    | "allergy_interaction"
+    | "drug_drug_interaction"
+    | "duplicate_therapy"
+    | "dose_warning"
+    | "other";
+  severity: "info" | "warn" | "block";
+  message: string;
+  focus?: string;
+}
+
 // Events the api-server bridge sends back over the WebSocket.
 type ServerEvent =
   | { type: "ready" }
@@ -33,6 +47,7 @@ type ServerEvent =
   | { type: "auto_stop"; reason: "verbal_cue"; cue: string }
   | { type: "billing_suggestion"; codes: LiveBillingCode[] }
   | { type: "nudge"; nudges: LiveDocNudge[] }
+  | { type: "cds_warning"; warnings: LiveCdsWarning[] }
   | { type: "error"; message: string };
 
 export interface StreamingTranscriptState {
@@ -52,6 +67,10 @@ export interface StreamingTranscriptState {
   /** Documentation-completeness nudges surfaced during the visit so
    *  far. Same lifecycle as billingSuggestions. */
   nudges: LiveDocNudge[];
+  /** Clinical decision support warnings surfaced during the visit.
+   *  Append-only within a session (server-side dedupes by
+   *  (kind, message)); cleared on stream teardown. */
+  cdsWarnings: LiveCdsWarning[];
 }
 
 export interface UseStreamingTranscriptParams {
@@ -105,6 +124,7 @@ export function useStreamingTranscript({
     LiveBillingCode[]
   >([]);
   const [nudges, setNudges] = useState<LiveDocNudge[]>([]);
+  const [cdsWarnings, setCdsWarnings] = useState<LiveCdsWarning[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -160,6 +180,7 @@ export function useStreamingTranscript({
       setError(null);
       setBillingSuggestions([]);
       setNudges([]);
+      setCdsWarnings([]);
       return;
     }
 
@@ -201,6 +222,20 @@ export function useStreamingTranscript({
             return;
           case "nudge":
             setNudges((cur) => [...cur, ...parsed.nudges]);
+            return;
+          case "cds_warning":
+            // Server already dedupes by (kind, message), but a
+            // reconnect could replay; belt-and-suspenders dedupe on
+            // the client too. Safety surface, no double-flash.
+            setCdsWarnings((cur) => {
+              const incoming = parsed.warnings.filter(
+                (w) =>
+                  !cur.some(
+                    (k) => k.kind === w.kind && k.message === w.message,
+                  ),
+              );
+              return incoming.length === 0 ? cur : [...cur, ...incoming];
+            });
             return;
           case "error":
             setStatus("error");
@@ -297,5 +332,6 @@ export function useStreamingTranscript({
     endCue,
     billingSuggestions,
     nudges,
+    cdsWarnings,
   };
 }

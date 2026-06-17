@@ -8,12 +8,19 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { eq } from "drizzle-orm";
 import {
   getDb,
+  patientsTable,
   providerVerbalCuesTable,
   recordingJobsTable,
 } from "@workspace/db";
 import { SESSION_COOKIE, lookupSession } from "./auth";
+import { getPatientHistory } from "./ehr-history";
 import { logger } from "./logger";
 import { suggestLiveCodes, type LiveCode } from "./live-billing-suggester";
+import {
+  suggestLiveCdsWarnings,
+  type LiveCdsChart,
+  type LiveCdsWarning,
+} from "./live-cds";
 import { suggestLiveNudges, type LiveNudge } from "./live-nudges";
 
 // Default list of phrases that end a visit. Matched case-insensitively
@@ -42,6 +49,7 @@ type ServerEvent =
   | { type: "auto_stop"; reason: "verbal_cue"; cue: string }
   | { type: "billing_suggestion"; codes: LiveCode[] }
   | { type: "nudge"; nudges: LiveNudge[] }
+  | { type: "cds_warning"; warnings: LiveCdsWarning[] }
   | { type: "error"; message: string };
 
 // Run a live-billing pass every Nth new final line. Higher = fewer
@@ -49,6 +57,13 @@ type ServerEvent =
 // faster reactivity. 5 lines is roughly one suggestion call every
 // 15-30 seconds of speech.
 const LIVE_BILLING_LINES_PER_PASS = 5;
+
+// Hard cap on CDS passes per session. CDS is patient-safety code and
+// runs the most expensive prompt (chart context + transcript every
+// call), so an unbounded session shouldn't spam the API or blow the
+// LLM budget. 20 passes is enough for a long visit (~100 final lines
+// at the every-5 cadence). We log when hit so an operator can tune.
+const LIVE_CDS_MAX_CALLS_PER_SESSION = 20;
 
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
@@ -104,6 +119,65 @@ async function loadCues(userId: string): Promise<readonly string[]> {
     );
     return DEFAULT_END_CUES;
   }
+}
+
+/**
+ * Fetch the patient chart for the CDS pipe. Returns null when no
+ * jobId, no patient linked, no ehr_patient_id, or the EHR fetch fails
+ * — any of those mean CDS is opt-out for this session (no LLM calls,
+ * the rest of the bridge keeps streaming). Best-effort by design.
+ *
+ * Exported so a unit test can verify the failure path returns null
+ * (and the bridge therefore skips CDS, keeps streaming) without
+ * having to spin up the whole upgrade pipeline.
+ */
+export async function loadCdsChart(
+  jobId: string | null,
+  userId: string,
+): Promise<LiveCdsChart | null> {
+  if (!jobId) return null;
+  try {
+    const rows = await getDb()
+      .select({
+        ehrPatientId: patientsTable.ehrPatientId,
+      })
+      .from(recordingJobsTable)
+      .leftJoin(
+        patientsTable,
+        eq(recordingJobsTable.patientId, patientsTable.id),
+      )
+      .where(eq(recordingJobsTable.id, jobId))
+      .limit(1);
+    const ehrPatientId = rows[0]?.ehrPatientId;
+    if (!ehrPatientId) return null;
+    const history = await getPatientHistory(ehrPatientId, userId);
+    return {
+      activeMeds: history.medications.map((m) => {
+        const dose = m.dosage ? ` — ${m.dosage}` : "";
+        return truncateWords(`${m.text}${dose}`, 12);
+      }),
+      allergies: history.allergies.map((a) => {
+        const tail: string[] = [];
+        if (a.severity) tail.push(a.severity);
+        if (a.reactions.length > 0) tail.push(a.reactions.join(", "));
+        const qual = tail.length > 0 ? ` (${tail.join("; ")})` : "";
+        return truncateWords(`${a.text}${qual}`, 12);
+      }),
+      conditions: history.problems.map((p) => truncateWords(p.text, 12)),
+    };
+  } catch (err) {
+    logger.warn(
+      { err, jobId, userId },
+      "streaming: CDS chart fetch failed; CDS disabled for session",
+    );
+    return null;
+  }
+}
+
+function truncateWords(s: string, maxWords: number): string {
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return s.trim();
+  return `${words.slice(0, maxWords).join(" ")}…`;
 }
 
 async function persistLiveTranscript(
@@ -186,6 +260,27 @@ function attachBridge(
   let nudgesInFlight = false;
   let linesSinceLastNudge = 0;
   const alreadyNudged: { category: string; message: string }[] = [];
+  // Live CDS state. `cdsChart` is resolved once at open: if it's
+  // still null when the cadence fires we skip the LLM entirely (no
+  // patient/EHR data = nothing to check against). The cap stops a
+  // 30-minute visit from blowing the LLM budget.
+  let cdsChart: LiveCdsChart | null = null;
+  let cdsChartResolved = false;
+  let cdsInFlight = false;
+  let linesSinceLastCds = 0;
+  let cdsCallsThisSession = 0;
+  let cdsCapLogged = false;
+  const alreadyFired: { kind: string; message: string }[] = [];
+  void loadCdsChart(jobId, userId).then((chart) => {
+    cdsChart = chart;
+    cdsChartResolved = true;
+    if (!chart) {
+      logger.info(
+        { jobId, userId },
+        "streaming: CDS disabled (no chart context)",
+      );
+    }
+  });
 
   function send(event: ServerEvent): void {
     if (browserWs.readyState === browserWs.OPEN) {
@@ -211,6 +306,70 @@ function attachBridge(
       finalLines.push(text);
       linesSinceLastBilling++;
       linesSinceLastNudge++;
+      linesSinceLastCds++;
+      if (
+        cdsChartResolved &&
+        cdsChart &&
+        !cdsInFlight &&
+        linesSinceLastCds >= LIVE_BILLING_LINES_PER_PASS
+      ) {
+        if (cdsCallsThisSession >= LIVE_CDS_MAX_CALLS_PER_SESSION) {
+          if (!cdsCapLogged) {
+            cdsCapLogged = true;
+            logger.info(
+              { jobId, userId, cap: LIVE_CDS_MAX_CALLS_PER_SESSION },
+              "streaming: CDS per-session cap reached; further passes suppressed",
+            );
+          }
+        } else {
+          linesSinceLastCds = 0;
+          cdsInFlight = true;
+          cdsCallsThisSession++;
+          const snapshot = finalLines.join("\n");
+          const knownFired = alreadyFired.slice();
+          const chartSnapshot = cdsChart;
+          void suggestLiveCdsWarnings({
+            transcript: snapshot,
+            chart: chartSnapshot,
+            alreadyFired: knownFired,
+          })
+            .then((warnings) => {
+              // Dedupe at the bridge layer too — model can ignore the
+              // hint, and a recurring allergy banner during a long
+              // visit is its own safety hazard (alarm fatigue).
+              const fresh = warnings.filter(
+                (w) =>
+                  !alreadyFired.some(
+                    (k) => k.kind === w.kind && k.message === w.message,
+                  ),
+              );
+              if (fresh.length > 0) {
+                for (const w of fresh) {
+                  alreadyFired.push({ kind: w.kind, message: w.message });
+                  // Incident-review trail. This bridge bypasses the
+                  // Express audit-log middleware, so explicit info
+                  // lines are how a post-incident review proves what
+                  // the system flagged and when. Message is short and
+                  // not PHI by itself — it's a clinical rule statement.
+                  logger.info(
+                    {
+                      jobId,
+                      userId,
+                      kind: w.kind,
+                      severity: w.severity,
+                      message: w.message,
+                    },
+                    "streaming: CDS warning fired",
+                  );
+                }
+                send({ type: "cds_warning", warnings: fresh });
+              }
+            })
+            .finally(() => {
+              cdsInFlight = false;
+            });
+        }
+      }
       if (
         !nudgesInFlight &&
         linesSinceLastNudge >= LIVE_BILLING_LINES_PER_PASS

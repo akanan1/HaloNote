@@ -1,7 +1,20 @@
 import { eq, inArray } from "drizzle-orm";
-import { getDb, usersTable, type UserRole } from "@workspace/db";
+import {
+  getDb,
+  legalAcceptancesTable,
+  organizationMembersTable,
+  usersTable,
+  type UserRole,
+} from "@workspace/db";
 import { hashPassword } from "./auth";
 import { logger } from "./logger";
+import { resolveAllRequiredDocuments } from "./legal-resolver";
+
+// Default org installed by migration 0021. Demo accounts get dropped
+// here so the seeded patient roster (also pinned to this org) shows
+// up immediately on sign-in — without it the dev experience is "sign
+// in, see an empty patient list, wonder why".
+const DEMO_ORG_ID = "org_default";
 
 // Deterministic, dev-only TOTP secret. Admin login enforces TOTP, so
 // the seeded admin (alice) is pre-enrolled with this Base32 secret. Any
@@ -73,6 +86,7 @@ export async function seedUsersIfEmpty(): Promise<void> {
     return;
   }
 
+  const now = new Date();
   const rows = await Promise.all(
     missing.map(async (u) => ({
       id: u.id,
@@ -80,10 +94,14 @@ export async function seedUsersIfEmpty(): Promise<void> {
       displayName: u.displayName,
       passwordHash: await hashPassword(u.password),
       role: u.role,
+      // Demo users skip the first-run onboarding wizard — they exist
+      // for quick sign-in during dev/E2E, not to walk a real provider
+      // through the flow.
+      onboardingCompletedAt: now,
       // Pre-enroll TOTP for demo admins so they can clear the
       // admin-requires-TOTP login check without manual setup.
       ...(u.totpSecret
-        ? { totpSecret: u.totpSecret, totpEnabledAt: new Date() }
+        ? { totpSecret: u.totpSecret, totpEnabledAt: now }
         : {}),
     })),
   );
@@ -94,6 +112,39 @@ export async function seedUsersIfEmpty(): Promise<void> {
     .insert(usersTable)
     .values(rows)
     .onConflictDoNothing({ target: usersTable.email });
+
+  // Bootstrap the membership + legal acceptances that signup would
+  // create for a real user. Without these, login resolves no active
+  // org and requireBaa fails closed → demo accounts can't reach any
+  // PHI route.
+  await db
+    .insert(organizationMembersTable)
+    .values(
+      missing.map((u) => ({
+        organizationId: DEMO_ORG_ID,
+        userId: u.id,
+        role: (u.role === "admin" ? "admin" : "provider") as
+          | "admin"
+          | "provider",
+        isActive: true,
+        joinedAt: now,
+      })),
+    )
+    .onConflictDoNothing();
+
+  const documents = await resolveAllRequiredDocuments();
+  await db
+    .insert(legalAcceptancesTable)
+    .values(
+      missing.flatMap((u) =>
+        documents.map((doc) => ({
+          userId: u.id,
+          documentType: doc.type,
+          version: doc.currentVersion,
+          contentHash: doc.contentHash,
+        })),
+      ),
+    );
 
   logger.info(
     { count: rows.length, emails: missing.map((u) => u.email) },

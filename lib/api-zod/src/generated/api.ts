@@ -52,6 +52,9 @@ export const ConfirmPasswordResetBody = zod.object({
     .max(confirmPasswordResetBodyPasswordMax),
 });
 
+export const confirmPasswordResetResponseSilenceAutoStopSecMin = 0;
+export const confirmPasswordResetResponseSilenceAutoStopSecMax = 600;
+
 export const ConfirmPasswordResetResponse = zod.object({
   id: zod.string(),
   email: zod.string(),
@@ -61,6 +64,44 @@ export const ConfirmPasswordResetResponse = zod.object({
     .boolean()
     .optional()
     .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
+    .optional()
+    .describe(
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(confirmPasswordResetResponseSilenceAutoStopSecMin)
+    .max(confirmPasswordResetResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
 });
 
 /**
@@ -72,6 +113,9 @@ export const LoginBody = zod.object({
   password: zod.string().min(1),
 });
 
+export const loginResponseSilenceAutoStopSecMin = 0;
+export const loginResponseSilenceAutoStopSecMax = 600;
+
 export const LoginResponse = zod.object({
   id: zod.string(),
   email: zod.string(),
@@ -81,11 +125,52 @@ export const LoginResponse = zod.object({
     .boolean()
     .optional()
     .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
+    .optional()
+    .describe(
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(loginResponseSilenceAutoStopSecMin)
+    .max(loginResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
 });
 
 /**
  * @summary Get the signed-in user
  */
+export const getCurrentUserResponseSilenceAutoStopSecMin = 0;
+export const getCurrentUserResponseSilenceAutoStopSecMax = 600;
+
 export const GetCurrentUserResponse = zod.object({
   id: zod.string(),
   email: zod.string(),
@@ -95,6 +180,518 @@ export const GetCurrentUserResponse = zod.object({
     .boolean()
     .optional()
     .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
+    .optional()
+    .describe(
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(getCurrentUserResponseSilenceAutoStopSecMin)
+    .max(getCurrentUserResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
+});
+
+/**
+ * @summary Partial self-update of the signed-in user's preferences
+ */
+export const updateMeBodySilenceAutoStopSecMin = 0;
+export const updateMeBodySilenceAutoStopSecMax = 600;
+
+export const UpdateMeBody = zod
+  .object({
+    autoPushMode: zod
+      .enum(["off", "after_approve", "after_transcription"])
+      .optional(),
+    silenceAutoStopSec: zod
+      .number()
+      .min(updateMeBodySilenceAutoStopSecMin)
+      .max(updateMeBodySilenceAutoStopSecMax)
+      .optional(),
+    autoPushOrders: zod.boolean().optional(),
+    autoPushMedications: zod.boolean().optional(),
+  })
+  .describe(
+    "Partial self-update of the signed-in user's preferences. Only fields present in the body are touched.",
+  );
+
+export const updateMeResponseSilenceAutoStopSecMin = 0;
+export const updateMeResponseSilenceAutoStopSecMax = 600;
+
+export const UpdateMeResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+  role: zod.enum(["admin", "member"]),
+  twoFactorEnabled: zod
+    .boolean()
+    .optional()
+    .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
+    .optional()
+    .describe(
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(updateMeResponseSilenceAutoStopSecMin)
+    .max(updateMeResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
+});
+
+/**
+ * Append-only. Stores the supplied markdown as a new row in `legal_document_overrides` and makes it the current version for that document type. Previous versions stay in the table and are still referenced by historical acceptance rows. All users with stale acceptances are notified by email.
+ * @summary Publish a new version of a legal document
+ */
+export const uploadLegalVersionBodyVersionMax = 32;
+
+export const uploadLegalVersionBodyBodyMin = 100;
+
+export const UploadLegalVersionBody = zod.object({
+  type: zod.enum(["baa", "terms", "privacy"]),
+  version: zod
+    .string()
+    .min(1)
+    .max(uploadLegalVersionBodyVersionMax)
+    .describe("SemVer-ish, must be unique per type."),
+  body: zod
+    .string()
+    .min(uploadLegalVersionBodyBodyMin)
+    .describe("Full Markdown body of the new version."),
+});
+
+/**
+ * Sets `legalReacceptRequiredAt = now()` on the target user. Their existing acceptance rows stay on the audit trail; they just no longer count as current until the user clicks through onboarding again.
+ * @summary Force the user to re-accept the legal agreements
+ */
+export const RequireUserReacceptParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RequireUserReacceptResponse = zod.object({
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    displayName: zod.string(),
+    role: zod.enum(["admin", "member"]),
+    isFounder: zod.boolean().optional(),
+    createdAt: zod.coerce.date(),
+    lastNoteAt: zod.coerce
+      .date()
+      .optional()
+      .describe("When the user last created or edited a clinical note."),
+    patientCount: zod.number(),
+    noteCount: zod.number(),
+    recordingCount: zod.number(),
+    legalAcceptances: zod
+      .array(
+        zod.object({
+          type: zod.enum(["baa", "terms", "privacy"]),
+          currentVersion: zod.string(),
+          accepted: zod.boolean(),
+          acceptedVersion: zod
+            .string()
+            .optional()
+            .describe(
+              "Most recently accepted version (may be older than current).",
+            ),
+          acceptedAt: zod.coerce.date().optional(),
+        }),
+      )
+      .describe("One entry per required document type for this user."),
+  }),
+  acceptances: zod
+    .array(
+      zod.object({
+        type: zod.enum(["baa", "terms", "privacy"]),
+        version: zod.string(),
+        contentHash: zod.string(),
+        ipAddress: zod.string().optional(),
+        userAgent: zod.string().optional(),
+        acceptedAt: zod.coerce.date(),
+      }),
+    )
+    .describe("Full append-only history, newest first."),
+  dailySeries: zod.object({
+    startDate: zod.coerce.date(),
+    endDate: zod.coerce.date(),
+    notes: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    recordings: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    patients: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * @summary Detail view for a single user — full legal acceptance history
+ */
+export const GetFounderUserDetailParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetFounderUserDetailResponse = zod.object({
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    displayName: zod.string(),
+    role: zod.enum(["admin", "member"]),
+    isFounder: zod.boolean().optional(),
+    createdAt: zod.coerce.date(),
+    lastNoteAt: zod.coerce
+      .date()
+      .optional()
+      .describe("When the user last created or edited a clinical note."),
+    patientCount: zod.number(),
+    noteCount: zod.number(),
+    recordingCount: zod.number(),
+    legalAcceptances: zod
+      .array(
+        zod.object({
+          type: zod.enum(["baa", "terms", "privacy"]),
+          currentVersion: zod.string(),
+          accepted: zod.boolean(),
+          acceptedVersion: zod
+            .string()
+            .optional()
+            .describe(
+              "Most recently accepted version (may be older than current).",
+            ),
+          acceptedAt: zod.coerce.date().optional(),
+        }),
+      )
+      .describe("One entry per required document type for this user."),
+  }),
+  acceptances: zod
+    .array(
+      zod.object({
+        type: zod.enum(["baa", "terms", "privacy"]),
+        version: zod.string(),
+        contentHash: zod.string(),
+        ipAddress: zod.string().optional(),
+        userAgent: zod.string().optional(),
+        acceptedAt: zod.coerce.date(),
+      }),
+    )
+    .describe("Full append-only history, newest first."),
+  dailySeries: zod.object({
+    startDate: zod.coerce.date(),
+    endDate: zod.coerce.date(),
+    notes: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    recordings: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+    patients: zod.array(
+      zod.object({
+        date: zod.coerce.date(),
+        count: zod.number(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * Founder-only. Returns aggregate platform stats (user/patient/note/ recording counts), recent signups, and a per-user row with activity counts and the acceptance status for each required legal document. Returns 404 to non-founders so the endpoint doesn't advertise its existence.
+ * @summary Cross-tenant analytics + per-user legal acceptance status
+ */
+export const GetFounderAnalyticsResponse = zod.object({
+  compliance: zod.object({
+    onboardingCompleted: zod.number(),
+    onboardingPending: zod.number(),
+    onboardingCompletionRate: zod.number().describe("0..1"),
+    staleBaaUsers: zod
+      .number()
+      .describe("Users without a current BAA acceptance."),
+    staleTermsUsers: zod.number(),
+    stalePrivacyUsers: zod.number(),
+    staleAnyUsers: zod
+      .number()
+      .describe("Users stale on any required document."),
+  }),
+  dailySeries: zod
+    .object({
+      startDate: zod.coerce
+        .date()
+        .describe("First day in the series (inclusive, UTC)."),
+      endDate: zod.coerce
+        .date()
+        .describe("Last day in the series (inclusive, UTC)."),
+      signups: zod.array(
+        zod.object({
+          date: zod.coerce.date(),
+          count: zod.number(),
+        }),
+      ),
+      notes: zod.array(
+        zod.object({
+          date: zod.coerce.date(),
+          count: zod.number(),
+        }),
+      ),
+      recordings: zod.array(
+        zod.object({
+          date: zod.coerce.date(),
+          count: zod.number(),
+        }),
+      ),
+    })
+    .describe(
+      "Counts per UTC day for the last 30 days. Each array is ordered oldest → newest and includes zero-count days so the sparkline renderer can skip gap handling.",
+    ),
+  totals: zod.object({
+    users: zod.number(),
+    admins: zod.number(),
+    patients: zod.number(),
+    notes: zod.number(),
+    recordingsTotal: zod.number(),
+    recordingsDone: zod.number(),
+    recordingsFailed: zod.number(),
+    signupsLast7Days: zod.number(),
+    signupsLast30Days: zod.number(),
+  }),
+  users: zod.array(
+    zod.object({
+      id: zod.string(),
+      email: zod.string(),
+      displayName: zod.string(),
+      role: zod.enum(["admin", "member"]),
+      isFounder: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      lastNoteAt: zod.coerce
+        .date()
+        .optional()
+        .describe("When the user last created or edited a clinical note."),
+      patientCount: zod.number(),
+      noteCount: zod.number(),
+      recordingCount: zod.number(),
+      legalAcceptances: zod
+        .array(
+          zod.object({
+            type: zod.enum(["baa", "terms", "privacy"]),
+            currentVersion: zod.string(),
+            accepted: zod.boolean(),
+            acceptedVersion: zod
+              .string()
+              .optional()
+              .describe(
+                "Most recently accepted version (may be older than current).",
+              ),
+            acceptedAt: zod.coerce.date().optional(),
+          }),
+        )
+        .describe("One entry per required document type for this user."),
+    }),
+  ),
+});
+
+/**
+ * Returns each currently-required document (BAA, ToS, Privacy) with its full body text, the current version, and whether the signed-in user has accepted that version. The frontend uses this to render the agreement-acceptance step of onboarding and to surface acceptance history in Settings.
+ * @summary Get current legal agreements and acceptance status
+ */
+export const GetLegalAgreementsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      type: zod.enum(["baa", "terms", "privacy"]),
+      title: zod.string(),
+      summary: zod.string(),
+      currentVersion: zod.string(),
+      body: zod.string().describe("Markdown body of the current version."),
+      contentHash: zod
+        .string()
+        .describe(
+          "SHA-256 (hex) of `body`. Frontend echoes this back on POST.",
+        ),
+      accepted: zod
+        .boolean()
+        .describe("True iff the signed-in user has accepted `currentVersion`."),
+      acceptedAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "When the current version was accepted. Absent if accepted=false.",
+        ),
+    }),
+  ),
+});
+
+/**
+ * Idempotent per (user, documentType, version). The server computes the content hash from the in-repo text and stores it with IP + user agent. Returns the refreshed acceptance status so the client can advance.
+ * @summary Record acceptance of one or more legal agreements
+ */
+
+export const AcceptLegalAgreementsBody = zod.object({
+  acceptances: zod
+    .array(
+      zod.object({
+        type: zod.enum(["baa", "terms", "privacy"]),
+        version: zod.string(),
+        contentHash: zod
+          .string()
+          .describe(
+            "The hash the client received on GET. Server re-computes from disk and rejects with 400 if they don't match — protects against a stale client persisting a stale hash.",
+          ),
+      }),
+    )
+    .min(1),
+});
+
+export const AcceptLegalAgreementsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      type: zod.enum(["baa", "terms", "privacy"]),
+      title: zod.string(),
+      summary: zod.string(),
+      currentVersion: zod.string(),
+      body: zod.string().describe("Markdown body of the current version."),
+      contentHash: zod
+        .string()
+        .describe(
+          "SHA-256 (hex) of `body`. Frontend echoes this back on POST.",
+        ),
+      accepted: zod
+        .boolean()
+        .describe("True iff the signed-in user has accepted `currentVersion`."),
+      acceptedAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "When the current version was accepted. Absent if accepted=false.",
+        ),
+    }),
+  ),
+});
+
+/**
+ * Idempotent. Sets `users.onboardingCompletedAt` to `now()` if it's currently null. Returns the refreshed AuthUser so the client can update its cached state in one round trip.
+ * @summary Mark the first-run onboarding flow as completed
+ */
+export const completeOnboardingResponseSilenceAutoStopSecMin = 0;
+export const completeOnboardingResponseSilenceAutoStopSecMax = 600;
+
+export const CompleteOnboardingResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  displayName: zod.string(),
+  role: zod.enum(["admin", "member"]),
+  twoFactorEnabled: zod
+    .boolean()
+    .optional()
+    .describe("True when the user has TOTP 2FA enrolled."),
+  onboardingCompleted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to \/onboarding on sign-in.",
+    ),
+  isFounder: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only.",
+    ),
+  autoPushMode: zod
+    .enum(["off", "after_approve", "after_transcription"])
+    .optional()
+    .describe(
+      "Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — \/notes\/:id\/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.",
+    ),
+  silenceAutoStopSec: zod
+    .number()
+    .min(completeOnboardingResponseSilenceAutoStopSecMin)
+    .max(completeOnboardingResponseSilenceAutoStopSecMax)
+    .optional()
+    .describe(
+      "Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.",
+    ),
+  autoPushOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead.",
+    ),
+  autoPushMedications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
 });
 
 /**
@@ -316,6 +913,12 @@ export const ListNotesResponse = zod.object({
         .string()
         .nullable()
         .describe("Last EHR push error message, if any."),
+      autoPushedWithoutReview: zod
+        .boolean()
+        .optional()
+        .describe(
+          'True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the \"unreviewed AI version in the chart\" banner on the note page.',
+        ),
     }),
   ),
   nextCursor: zod.coerce
@@ -339,6 +942,12 @@ export const CreateNoteBody = zod.object({
     .optional()
     .describe(
       "When set, the new note supersedes this one. The original is preserved with status active; downstream EHR pushes carry relatesTo replaces.",
+    ),
+  encounterId: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional encounter the note documents. Must belong to the same\npatient and the active organization, or the server returns 404.\nWhen set, the note appears on that encounter's review surface and\nits lifecycle (draft → approved → exported) drives the encounter\nreview workflow.\n",
     ),
 });
 
@@ -392,6 +1001,12 @@ export const GetNoteResponse = zod.object({
     .string()
     .nullable()
     .describe("Last EHR push error message, if any."),
+  autoPushedWithoutReview: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the \"unreviewed AI version in the chart\" banner on the note page.',
+    ),
 });
 
 /**
@@ -457,6 +1072,12 @@ export const UpdateNoteResponse = zod.object({
     .string()
     .nullable()
     .describe("Last EHR push error message, if any."),
+  autoPushedWithoutReview: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the \"unreviewed AI version in the chart\" banner on the note page.',
+    ),
 });
 
 /**
@@ -519,6 +1140,195 @@ export const GetTodayScheduleResponse = zod.object({
       ]),
     }),
   ),
+});
+
+/**
+ * Returns encounters scoped to the caller's active organization,
+ordered by createdAt desc. Optional patientId narrows to a
+single chart. Cap at 200 rows; revisit with cursor pagination if
+a busy clinic exceeds it.
+
+ * @summary List encounters in the active organization
+ */
+export const ListEncountersQueryParams = zod.object({
+  patientId: zod.coerce.string().optional(),
+});
+
+export const ListEncountersResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      patientId: zod.string(),
+      providerId: zod.string().nullish(),
+      visitType: zod.enum([
+        "new_patient",
+        "established_patient",
+        "follow_up",
+        "annual_physical",
+        "hospital_follow_up",
+        "procedure",
+        "telehealth",
+        "nursing_facility",
+        "custom",
+      ]),
+      customLabel: zod.string().nullish(),
+      status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
+      isTelehealth: zod.boolean(),
+      location: zod.string().nullish(),
+      scheduledAt: zod.coerce.date().nullish(),
+      startedAt: zod.coerce.date().nullish(),
+      completedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * Patient must belong to the active organization. visitType='custom'
+requires customLabel; any other visitType forbids it. Defaults
+providerId to the current user when not supplied.
+
+ * @summary Start a new encounter
+ */
+
+export const createEncounterBodyCustomLabelMax = 120;
+
+export const createEncounterBodyLocationMax = 120;
+
+export const CreateEncounterBody = zod.object({
+  patientId: zod.string().min(1),
+  visitType: zod.enum([
+    "new_patient",
+    "established_patient",
+    "follow_up",
+    "annual_physical",
+    "hospital_follow_up",
+    "procedure",
+    "telehealth",
+    "nursing_facility",
+    "custom",
+  ]),
+  customLabel: zod
+    .string()
+    .min(1)
+    .max(createEncounterBodyCustomLabelMax)
+    .optional(),
+  isTelehealth: zod.boolean().optional(),
+  location: zod.string().max(createEncounterBodyLocationMax).optional(),
+  scheduledAt: zod.coerce.date().optional(),
+  providerId: zod.string().min(1).optional(),
+});
+
+/**
+ * @summary Read a single encounter
+ */
+export const GetEncounterParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  patientId: zod.string(),
+  providerId: zod.string().nullish(),
+  visitType: zod.enum([
+    "new_patient",
+    "established_patient",
+    "follow_up",
+    "annual_physical",
+    "hospital_follow_up",
+    "procedure",
+    "telehealth",
+    "nursing_facility",
+    "custom",
+  ]),
+  customLabel: zod.string().nullish(),
+  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
+  isTelehealth: zod.boolean(),
+  location: zod.string().nullish(),
+  scheduledAt: zod.coerce.date().nullish(),
+  startedAt: zod.coerce.date().nullish(),
+  completedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * Status transitions are enforced server-side: scheduled →
+in_progress → completed are the legal forward steps; cancellation
+is allowed from any non-terminal state. Completed and cancelled
+are terminal. Auto-stamps startedAt / completedAt timestamps on
+the matching transition.
+
+ * @summary Update encounter fields and/or transition status
+ */
+export const UpdateEncounterParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateEncounterBodyCustomLabelMax = 120;
+
+export const updateEncounterBodyLocationMax = 120;
+
+export const UpdateEncounterBody = zod
+  .object({
+    visitType: zod
+      .enum([
+        "new_patient",
+        "established_patient",
+        "follow_up",
+        "annual_physical",
+        "hospital_follow_up",
+        "procedure",
+        "telehealth",
+        "nursing_facility",
+        "custom",
+      ])
+      .optional(),
+    customLabel: zod
+      .string()
+      .min(1)
+      .max(updateEncounterBodyCustomLabelMax)
+      .nullish(),
+    isTelehealth: zod.boolean().optional(),
+    location: zod.string().max(updateEncounterBodyLocationMax).nullish(),
+    status: zod
+      .enum(["scheduled", "in_progress", "completed", "cancelled"])
+      .optional(),
+    scheduledAt: zod.coerce.date().nullish(),
+    providerId: zod.string().min(1).nullish(),
+  })
+  .describe(
+    "All fields optional. Set a field to null to clear it where the\ncolumn allows null (location, customLabel, scheduledAt,\nproviderId). visitType \/ status \/ isTelehealth are non-nullable\nso null isn't accepted there.\n",
+  );
+
+export const UpdateEncounterResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  patientId: zod.string(),
+  providerId: zod.string().nullish(),
+  visitType: zod.enum([
+    "new_patient",
+    "established_patient",
+    "follow_up",
+    "annual_physical",
+    "hospital_follow_up",
+    "procedure",
+    "telehealth",
+    "nursing_facility",
+    "custom",
+  ]),
+  customLabel: zod.string().nullish(),
+  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
+  isTelehealth: zod.boolean(),
+  location: zod.string().nullish(),
+  scheduledAt: zod.coerce.date().nullish(),
+  startedAt: zod.coerce.date().nullish(),
+  completedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
 });
 
 /**
@@ -713,6 +1523,1592 @@ export const ResetTemplatesResponse = zod.object({
 });
 
 /**
+ * Per-provider "when I say X, document Y" overrides applied during the AI structuring pass. Returned in manual sort order.
+ * @summary List the signed-in provider's phrase mappings
+ */
+export const listPhraseMappingsResponseDataItemSpokenMax = 200;
+
+export const listPhraseMappingsResponseDataItemDocumentedMax = 200;
+
+export const ListPhraseMappingsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      spoken: zod
+        .string()
+        .min(1)
+        .max(listPhraseMappingsResponseDataItemSpokenMax)
+        .describe(
+          "The colloquial phrase the provider tends to say during a visit. Matched case-insensitively in the transcript.",
+        ),
+      documented: zod
+        .string()
+        .min(1)
+        .max(listPhraseMappingsResponseDataItemDocumentedMax)
+        .describe(
+          "The preferred documentation term to use in the AI-generated note when the spoken phrase is detected.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new phrase mapping
+ */
+export const createPhraseMappingBodySpokenMax = 200;
+
+export const createPhraseMappingBodyDocumentedMax = 200;
+
+export const CreatePhraseMappingBody = zod.object({
+  spoken: zod.string().min(1).max(createPhraseMappingBodySpokenMax),
+  documented: zod.string().min(1).max(createPhraseMappingBodyDocumentedMax),
+});
+
+/**
+ * @summary Edit a phrase mapping
+ */
+export const UpdatePhraseMappingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updatePhraseMappingBodySpokenMax = 200;
+
+export const updatePhraseMappingBodyDocumentedMax = 200;
+
+export const UpdatePhraseMappingBody = zod
+  .object({
+    spoken: zod
+      .string()
+      .min(1)
+      .max(updatePhraseMappingBodySpokenMax)
+      .optional(),
+    documented: zod
+      .string()
+      .min(1)
+      .max(updatePhraseMappingBodyDocumentedMax)
+      .optional(),
+  })
+  .describe(
+    "Partial update. Any provided field replaces; omitted fields are untouched.",
+  );
+
+export const updatePhraseMappingResponseSpokenMax = 200;
+
+export const updatePhraseMappingResponseDocumentedMax = 200;
+
+export const UpdatePhraseMappingResponse = zod.object({
+  id: zod.string(),
+  spoken: zod
+    .string()
+    .min(1)
+    .max(updatePhraseMappingResponseSpokenMax)
+    .describe(
+      "The colloquial phrase the provider tends to say during a visit. Matched case-insensitively in the transcript.",
+    ),
+  documented: zod
+    .string()
+    .min(1)
+    .max(updatePhraseMappingResponseDocumentedMax)
+    .describe(
+      "The preferred documentation term to use in the AI-generated note when the spoken phrase is detected.",
+    ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a phrase mapping
+ */
+export const DeletePhraseMappingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Editor-time dot-phrase expansions. The note editor reads this list once on mount and applies expansions locally — the server never sees the `.shortcut` typed in the textarea. Sorted by usageCount desc then shortcut asc so the daily-driver phrases sit on top.
+ * @summary List the signed-in provider's smart phrases
+ */
+export const listSmartPhrasesResponseDataItemShortcutMax = 40;
+
+export const listSmartPhrasesResponseDataItemDescriptionMax = 200;
+
+export const ListSmartPhrasesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      shortcut: zod
+        .string()
+        .min(1)
+        .max(listSmartPhrasesResponseDataItemShortcutMax)
+        .describe(
+          "The token typed after `.` in the note editor. Stored lowercased; whitespace and dot characters are rejected.",
+        ),
+      body: zod
+        .string()
+        .min(1)
+        .describe("Expansion text inserted into the note. May be multi-line."),
+      description: zod
+        .string()
+        .max(listSmartPhrasesResponseDataItemDescriptionMax)
+        .nullable()
+        .describe("Optional hint shown in the autocomplete dropdown."),
+      usageCount: zod
+        .number()
+        .describe(
+          "Times the phrase has been expanded. Used for autocomplete ranking within prefix matches.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new smart phrase
+ */
+export const createSmartPhraseBodyShortcutMax = 40;
+
+export const createSmartPhraseBodyDescriptionMax = 200;
+
+export const CreateSmartPhraseBody = zod.object({
+  shortcut: zod
+    .string()
+    .min(1)
+    .max(createSmartPhraseBodyShortcutMax)
+    .describe(
+      "Whitespace and `.` characters are rejected. Server lowercases before persisting.",
+    ),
+  body: zod.string().min(1),
+  description: zod.string().max(createSmartPhraseBodyDescriptionMax).nullish(),
+});
+
+/**
+ * @summary Edit a smart phrase
+ */
+export const UpdateSmartPhraseParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateSmartPhraseBodyShortcutMax = 40;
+
+export const updateSmartPhraseBodyDescriptionMax = 200;
+
+export const UpdateSmartPhraseBody = zod
+  .object({
+    shortcut: zod
+      .string()
+      .min(1)
+      .max(updateSmartPhraseBodyShortcutMax)
+      .optional(),
+    body: zod.string().min(1).optional(),
+    description: zod
+      .string()
+      .max(updateSmartPhraseBodyDescriptionMax)
+      .nullish(),
+  })
+  .describe(
+    "Partial update. Any provided field replaces; omitted fields are untouched. Pass description=null to clear the hint.",
+  );
+
+export const updateSmartPhraseResponseShortcutMax = 40;
+
+export const updateSmartPhraseResponseDescriptionMax = 200;
+
+export const UpdateSmartPhraseResponse = zod.object({
+  id: zod.string(),
+  shortcut: zod
+    .string()
+    .min(1)
+    .max(updateSmartPhraseResponseShortcutMax)
+    .describe(
+      "The token typed after `.` in the note editor. Stored lowercased; whitespace and dot characters are rejected.",
+    ),
+  body: zod
+    .string()
+    .min(1)
+    .describe("Expansion text inserted into the note. May be multi-line."),
+  description: zod
+    .string()
+    .max(updateSmartPhraseResponseDescriptionMax)
+    .nullable()
+    .describe("Optional hint shown in the autocomplete dropdown."),
+  usageCount: zod
+    .number()
+    .describe(
+      "Times the phrase has been expanded. Used for autocomplete ranking within prefix matches.",
+    ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a smart phrase
+ */
+export const DeleteSmartPhraseParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Fire-and-forget signal from the editor. Server bumps usageCount atomically and returns 204. Failure is non-fatal; the editor should not surface errors to the provider for this call.
+ * @summary Increment usageCount after an expansion fires in the editor
+ */
+export const MarkSmartPhraseUsedParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Per-provider phrases the streaming bridge watches for. Empty list means the bridge falls back to a hardcoded default set.
+ * @summary List the signed-in provider's verbal end-cues
+ */
+export const listVerbalCuesResponseDataItemPhraseMax = 120;
+
+export const ListVerbalCuesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      phrase: zod
+        .string()
+        .min(1)
+        .max(listVerbalCuesResponseDataItemPhraseMax)
+        .describe(
+          "End-of-visit phrase. Matched case-insensitively as a substring against streaming Deepgram is_final events.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new verbal end-cue
+ */
+export const createVerbalCueBodyPhraseMax = 120;
+
+export const CreateVerbalCueBody = zod.object({
+  phrase: zod.string().min(1).max(createVerbalCueBodyPhraseMax),
+});
+
+/**
+ * @summary Delete a verbal end-cue
+ */
+export const DeleteVerbalCueParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * @summary List billing suggestions + approved codes for an encounter
+ */
+export const GetEncounterBillingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterBillingResponse = zod.object({
+  suggestions: zod.array(
+    zod.object({
+      id: zod.string(),
+      codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+      code: zod.string(),
+      description: zod.string(),
+      rationale: zod.string(),
+      supportingExcerpts: zod.array(
+        zod.object({
+          text: zod.string(),
+          locationHint: zod.string().optional(),
+        }),
+      ),
+      documentationGaps: zod.array(
+        zod.object({
+          field: zod.string(),
+          message: zod.string(),
+          severity: zod.enum(["info", "warn", "block"]),
+        }),
+      ),
+      confidence: zod.enum(["low", "medium", "high"]),
+      status: zod.enum([
+        "ai_suggested",
+        "needs_review",
+        "provider_approved",
+        "biller_approved",
+        "rejected",
+        "exported",
+      ]),
+      createdByAi: zod.boolean(),
+    }),
+  ),
+  approvedCodes: zod.array(
+    zod.object({
+      id: zod.string(),
+      codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+      code: zod.string(),
+      description: zod.string(),
+      sourceSuggestionId: zod.string().nullable(),
+      approvedAt: zod.coerce.date().nullable(),
+      billerApprovedAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe(
+          "Resource ref returned by the charge system after a successful push.",
+        ),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
+    }),
+  ),
+});
+
+/**
+ * Inserts new ai_suggested rows, returns the full BillingResponse for the encounter. Safe to call multiple times — prior non-`ai_suggested` rows are preserved.
+ * @summary Run (or rerun) AI billing-code suggestion on the encounter's note
+ */
+export const SuggestEncounterBillingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SuggestEncounterBillingResponse = zod
+  .object({
+    suggestions: zod.array(
+      zod.object({
+        id: zod.string(),
+        codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+        code: zod.string(),
+        description: zod.string(),
+        rationale: zod.string(),
+        supportingExcerpts: zod.array(
+          zod.object({
+            text: zod.string(),
+            locationHint: zod.string().optional(),
+          }),
+        ),
+        documentationGaps: zod.array(
+          zod.object({
+            field: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+        confidence: zod.enum(["low", "medium", "high"]),
+        status: zod.enum([
+          "ai_suggested",
+          "needs_review",
+          "provider_approved",
+          "biller_approved",
+          "rejected",
+          "exported",
+        ]),
+        createdByAi: zod.boolean(),
+      }),
+    ),
+    approvedCodes: zod.array(
+      zod.object({
+        id: zod.string(),
+        codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+        code: zod.string(),
+        description: zod.string(),
+        sourceSuggestionId: zod.string().nullable(),
+        approvedAt: zod.coerce.date().nullable(),
+        billerApprovedAt: zod.coerce.date().nullable(),
+        exportedAt: zod.coerce.date().nullable(),
+        ehrDocumentRef: zod
+          .string()
+          .nullish()
+          .describe(
+            "Resource ref returned by the charge system after a successful push.",
+          ),
+        ehrError: zod
+          .string()
+          .nullish()
+          .describe("Last EHR push error, if any. Cleared on success."),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      source: zod.enum(["ai", "stub"]),
+    }),
+  );
+
+/**
+ * @summary Provider-approve an AI billing suggestion (promotes to approved_codes)
+ */
+export const ApproveBillingSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ApproveBillingSuggestionResponse = zod.object({
+  id: zod.string(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  sourceSuggestionId: zod.string().nullable(),
+  approvedAt: zod.coerce.date().nullable(),
+  billerApprovedAt: zod.coerce.date().nullable(),
+  exportedAt: zod.coerce.date().nullable(),
+  ehrDocumentRef: zod
+    .string()
+    .nullish()
+    .describe(
+      "Resource ref returned by the charge system after a successful push.",
+    ),
+  ehrError: zod
+    .string()
+    .nullish()
+    .describe("Last EHR push error, if any. Cleared on success."),
+});
+
+/**
+ * @summary Provider-reject an AI billing suggestion
+ */
+export const RejectBillingSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const rejectBillingSuggestionBodyReasonMax = 500;
+
+export const RejectBillingSuggestionBody = zod.object({
+  reason: zod.string().max(rejectBillingSuggestionBodyReasonMax).optional(),
+});
+
+export const RejectBillingSuggestionResponse = zod.object({
+  id: zod.string(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  rationale: zod.string(),
+  supportingExcerpts: zod.array(
+    zod.object({
+      text: zod.string(),
+      locationHint: zod.string().optional(),
+    }),
+  ),
+  documentationGaps: zod.array(
+    zod.object({
+      field: zod.string(),
+      message: zod.string(),
+      severity: zod.enum(["info", "warn", "block"]),
+    }),
+  ),
+  confidence: zod.enum(["low", "medium", "high"]),
+  status: zod.enum([
+    "ai_suggested",
+    "needs_review",
+    "provider_approved",
+    "biller_approved",
+    "rejected",
+    "exported",
+  ]),
+  createdByAi: zod.boolean(),
+});
+
+/**
+ * @summary Biller secondary approval on an approved billing code (export gate)
+ */
+export const BillerApproveBillingCodeParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const BillerApproveBillingCodeResponse = zod.object({
+  id: zod.string(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  sourceSuggestionId: zod.string().nullable(),
+  approvedAt: zod.coerce.date().nullable(),
+  billerApprovedAt: zod.coerce.date().nullable(),
+  exportedAt: zod.coerce.date().nullable(),
+  ehrDocumentRef: zod
+    .string()
+    .nullish()
+    .describe(
+      "Resource ref returned by the charge system after a successful push.",
+    ),
+  ehrError: zod
+    .string()
+    .nullish()
+    .describe("Last EHR push error, if any. Cleared on success."),
+});
+
+/**
+ * Gates on biller_approved_at != null. Idempotent on re-push (mock layer returns a stable synthetic id). Real-mode wiring is per-provider follow-up.
+ * @summary Push a biller-approved code to the EHR / charge system
+ */
+export const SendBillingCodeToEhrParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SendBillingCodeToEhrResponse = zod.object({
+  provider: zod.enum(["athenahealth", "epic", "mock"]),
+  ehrDocumentRef: zod
+    .string()
+    .describe(
+      'FHIR-style \"ResourceType\/id\" reference returned by the upstream after a successful push (or a synthetic \"mock-<localId>\" identifier in mock mode).',
+    ),
+  pushedAt: zod.coerce.date(),
+  mock: zod
+    .boolean()
+    .describe("True when the push was a no-op against the mock backend."),
+});
+
+/**
+ * @summary List order suggestions + approved orders for an encounter
+ */
+export const GetEncounterOrdersParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterOrdersResponse = zod.object({
+  suggestions: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        orderType: zod.enum([
+          "lab",
+          "imaging",
+          "referral",
+          "medication",
+          "procedure",
+          "followup",
+          "instruction",
+          "dme",
+          "therapy",
+          "nursing",
+        ]),
+        name: zod.string(),
+        indication: zod.string().nullable(),
+        indicationDiagnosisCode: zod.string().nullable(),
+        priority: zod.enum(["routine", "urgent", "stat"]),
+        instructions: zod.string().nullable(),
+        frequency: zod.string().nullable(),
+        duration: zod.string().nullable(),
+        medicationName: zod.string().nullable(),
+        medicationDose: zod.string().nullable(),
+        medicationRoute: zod.string().nullable(),
+        medicationFrequency: zod.string().nullable(),
+        medicationDuration: zod.string().nullable(),
+        medicationQuantity: zod.number().nullable(),
+        medicationRefills: zod.number().nullable(),
+        isComplete: zod.boolean(),
+        safetyWarnings: zod.array(
+          zod.object({
+            kind: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+      })
+      .and(
+        zod.object({
+          rationale: zod.string(),
+          status: zod.enum([
+            "ai_suggested",
+            "needs_review",
+            "approved",
+            "rejected",
+            "exported",
+          ]),
+          createdByAi: zod.boolean(),
+        }),
+      ),
+  ),
+  approvedOrders: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        orderType: zod.enum([
+          "lab",
+          "imaging",
+          "referral",
+          "medication",
+          "procedure",
+          "followup",
+          "instruction",
+          "dme",
+          "therapy",
+          "nursing",
+        ]),
+        name: zod.string(),
+        indication: zod.string().nullable(),
+        indicationDiagnosisCode: zod.string().nullable(),
+        priority: zod.enum(["routine", "urgent", "stat"]),
+        instructions: zod.string().nullable(),
+        frequency: zod.string().nullable(),
+        duration: zod.string().nullable(),
+        medicationName: zod.string().nullable(),
+        medicationDose: zod.string().nullable(),
+        medicationRoute: zod.string().nullable(),
+        medicationFrequency: zod.string().nullable(),
+        medicationDuration: zod.string().nullable(),
+        medicationQuantity: zod.number().nullable(),
+        medicationRefills: zod.number().nullable(),
+        isComplete: zod.boolean(),
+        safetyWarnings: zod.array(
+          zod.object({
+            kind: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+      })
+      .and(
+        zod.object({
+          sourceSuggestionId: zod.string().nullable(),
+          status: zod.enum([
+            "approved",
+            "export_ready",
+            "exported",
+            "cancelled",
+          ]),
+          approvedAt: zod.coerce.date().nullable(),
+          exportReadyAt: zod.coerce.date().nullable(),
+          exportedAt: zod.coerce.date().nullable(),
+          ehrDocumentRef: zod
+            .string()
+            .nullish()
+            .describe(
+              "Resource ref returned by the EHR after a successful push.",
+            ),
+          ehrError: zod
+            .string()
+            .nullish()
+            .describe("Last EHR push error, if any. Cleared on success."),
+        }),
+      ),
+  ),
+});
+
+/**
+ * @summary Run (or rerun) AI order suggestion on the encounter's note
+ */
+export const SuggestEncounterOrdersParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SuggestEncounterOrdersResponse = zod.object({
+  data: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        orderType: zod.enum([
+          "lab",
+          "imaging",
+          "referral",
+          "medication",
+          "procedure",
+          "followup",
+          "instruction",
+          "dme",
+          "therapy",
+          "nursing",
+        ]),
+        name: zod.string(),
+        indication: zod.string().nullable(),
+        indicationDiagnosisCode: zod.string().nullable(),
+        priority: zod.enum(["routine", "urgent", "stat"]),
+        instructions: zod.string().nullable(),
+        frequency: zod.string().nullable(),
+        duration: zod.string().nullable(),
+        medicationName: zod.string().nullable(),
+        medicationDose: zod.string().nullable(),
+        medicationRoute: zod.string().nullable(),
+        medicationFrequency: zod.string().nullable(),
+        medicationDuration: zod.string().nullable(),
+        medicationQuantity: zod.number().nullable(),
+        medicationRefills: zod.number().nullable(),
+        isComplete: zod.boolean(),
+        safetyWarnings: zod.array(
+          zod.object({
+            kind: zod.string(),
+            message: zod.string(),
+            severity: zod.enum(["info", "warn", "block"]),
+          }),
+        ),
+      })
+      .and(
+        zod.object({
+          rationale: zod.string(),
+          status: zod.enum([
+            "ai_suggested",
+            "needs_review",
+            "approved",
+            "rejected",
+            "exported",
+          ]),
+          createdByAi: zod.boolean(),
+        }),
+      ),
+  ),
+  source: zod.enum(["ai", "stub"]),
+});
+
+/**
+ * @summary Clinician-approve an AI order suggestion
+ */
+export const ApproveOrderSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ApproveOrderSuggestionResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
+    }),
+  );
+
+/**
+ * @summary Clinician-reject an AI order suggestion
+ */
+export const RejectOrderSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const rejectOrderSuggestionBodyReasonMax = 500;
+
+export const RejectOrderSuggestionBody = zod.object({
+  reason: zod.string().max(rejectOrderSuggestionBodyReasonMax).optional(),
+});
+
+export const RejectOrderSuggestionResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      rationale: zod.string(),
+      status: zod.enum([
+        "ai_suggested",
+        "needs_review",
+        "approved",
+        "rejected",
+        "exported",
+      ]),
+      createdByAi: zod.boolean(),
+    }),
+  );
+
+/**
+ * @summary Manually create an approved order (no AI suggestion path)
+ */
+export const createOrderBodyNameMax = 200;
+
+export const createOrderBodyIndicationMax = 500;
+
+export const createOrderBodyIndicationDiagnosisCodeMax = 20;
+
+export const createOrderBodyInstructionsMax = 2000;
+
+export const createOrderBodyFrequencyMax = 100;
+
+export const createOrderBodyDurationMax = 100;
+
+export const createOrderBodyMedicationNameMax = 200;
+
+export const createOrderBodyMedicationDoseMax = 50;
+
+export const createOrderBodyMedicationRouteMax = 50;
+
+export const createOrderBodyMedicationFrequencyMax = 100;
+
+export const createOrderBodyMedicationDurationMax = 100;
+
+export const createOrderBodyMedicationQuantityMin = 0;
+
+export const createOrderBodyMedicationRefillsMin = 0;
+
+export const CreateOrderBody = zod.object({
+  encounterId: zod.string(),
+  orderType: zod.enum([
+    "lab",
+    "imaging",
+    "referral",
+    "medication",
+    "procedure",
+    "followup",
+    "instruction",
+    "dme",
+    "therapy",
+    "nursing",
+  ]),
+  name: zod.string().min(1).max(createOrderBodyNameMax),
+  indication: zod.string().max(createOrderBodyIndicationMax).optional(),
+  indicationDiagnosisCode: zod
+    .string()
+    .max(createOrderBodyIndicationDiagnosisCodeMax)
+    .optional(),
+  priority: zod.enum(["routine", "urgent", "stat"]).optional(),
+  instructions: zod.string().max(createOrderBodyInstructionsMax).optional(),
+  frequency: zod.string().max(createOrderBodyFrequencyMax).optional(),
+  duration: zod.string().max(createOrderBodyDurationMax).optional(),
+  medicationName: zod.string().max(createOrderBodyMedicationNameMax).optional(),
+  medicationDose: zod.string().max(createOrderBodyMedicationDoseMax).optional(),
+  medicationRoute: zod
+    .string()
+    .max(createOrderBodyMedicationRouteMax)
+    .optional(),
+  medicationFrequency: zod
+    .string()
+    .max(createOrderBodyMedicationFrequencyMax)
+    .optional(),
+  medicationDuration: zod
+    .string()
+    .max(createOrderBodyMedicationDurationMax)
+    .optional(),
+  medicationQuantity: zod
+    .number()
+    .min(createOrderBodyMedicationQuantityMin)
+    .optional(),
+  medicationRefills: zod
+    .number()
+    .min(createOrderBodyMedicationRefillsMin)
+    .optional(),
+});
+
+/**
+ * @summary Edit an approved order (medication dose, instructions, etc.)
+ */
+export const UpdateOrderParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateOrderBodyNameMax = 200;
+
+export const updateOrderBodyIndicationMax = 500;
+
+export const updateOrderBodyIndicationDiagnosisCodeMax = 20;
+
+export const updateOrderBodyInstructionsMax = 2000;
+
+export const updateOrderBodyFrequencyMax = 100;
+
+export const updateOrderBodyDurationMax = 100;
+
+export const updateOrderBodyMedicationNameMax = 200;
+
+export const updateOrderBodyMedicationDoseMax = 50;
+
+export const updateOrderBodyMedicationRouteMax = 50;
+
+export const updateOrderBodyMedicationFrequencyMax = 100;
+
+export const updateOrderBodyMedicationDurationMax = 100;
+
+export const updateOrderBodyMedicationQuantityMin = 0;
+
+export const updateOrderBodyMedicationRefillsMin = 0;
+
+export const UpdateOrderBody = zod
+  .object({
+    name: zod.string().min(1).max(updateOrderBodyNameMax).optional(),
+    indication: zod.string().max(updateOrderBodyIndicationMax).nullish(),
+    indicationDiagnosisCode: zod
+      .string()
+      .max(updateOrderBodyIndicationDiagnosisCodeMax)
+      .nullish(),
+    priority: zod.enum(["routine", "urgent", "stat"]).optional(),
+    instructions: zod.string().max(updateOrderBodyInstructionsMax).nullish(),
+    frequency: zod.string().max(updateOrderBodyFrequencyMax).nullish(),
+    duration: zod.string().max(updateOrderBodyDurationMax).nullish(),
+    medicationName: zod
+      .string()
+      .max(updateOrderBodyMedicationNameMax)
+      .nullish(),
+    medicationDose: zod
+      .string()
+      .max(updateOrderBodyMedicationDoseMax)
+      .nullish(),
+    medicationRoute: zod
+      .string()
+      .max(updateOrderBodyMedicationRouteMax)
+      .nullish(),
+    medicationFrequency: zod
+      .string()
+      .max(updateOrderBodyMedicationFrequencyMax)
+      .nullish(),
+    medicationDuration: zod
+      .string()
+      .max(updateOrderBodyMedicationDurationMax)
+      .nullish(),
+    medicationQuantity: zod
+      .number()
+      .min(updateOrderBodyMedicationQuantityMin)
+      .nullish(),
+    medicationRefills: zod
+      .number()
+      .min(updateOrderBodyMedicationRefillsMin)
+      .nullish(),
+  })
+  .describe(
+    "Partial update — only fields present in the body are touched. Allowed fields mirror CreateOrderRequest (no encounterId or orderType; those are immutable post-creation).",
+  );
+
+export const UpdateOrderResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
+    }),
+  );
+
+/**
+ * @summary Flip an approved order to export_ready (gates EHR push)
+ */
+export const MarkOrderExportReadyParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const MarkOrderExportReadyResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
+    }),
+  );
+
+/**
+ * Gates on status == export_ready (or exported, for idempotent retry). On success the order flips to status=exported with exported_at + ehr_document_ref set. Push failures persist ehr_error and 502.
+ * @summary Push an export-ready order to the EHR
+ */
+export const SendOrderToEhrParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SendOrderToEhrResponse = zod.object({
+  provider: zod.enum(["athenahealth", "epic", "mock"]),
+  ehrDocumentRef: zod
+    .string()
+    .describe(
+      'FHIR-style \"ResourceType\/id\" reference returned by the upstream after a successful push (or a synthetic \"mock-<localId>\" identifier in mock mode).',
+    ),
+  pushedAt: zod.coerce.date(),
+  mock: zod
+    .boolean()
+    .describe("True when the push was a no-op against the mock backend."),
+});
+
+/**
+ * @summary Cancel an approved order
+ */
+export const CancelOrderParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const cancelOrderBodyReasonMax = 500;
+
+export const CancelOrderBody = zod.object({
+  reason: zod.string().max(cancelOrderBodyReasonMax).optional(),
+});
+
+export const CancelOrderResponse = zod
+  .object({
+    id: zod.string(),
+    orderType: zod.enum([
+      "lab",
+      "imaging",
+      "referral",
+      "medication",
+      "procedure",
+      "followup",
+      "instruction",
+      "dme",
+      "therapy",
+      "nursing",
+    ]),
+    name: zod.string(),
+    indication: zod.string().nullable(),
+    indicationDiagnosisCode: zod.string().nullable(),
+    priority: zod.enum(["routine", "urgent", "stat"]),
+    instructions: zod.string().nullable(),
+    frequency: zod.string().nullable(),
+    duration: zod.string().nullable(),
+    medicationName: zod.string().nullable(),
+    medicationDose: zod.string().nullable(),
+    medicationRoute: zod.string().nullable(),
+    medicationFrequency: zod.string().nullable(),
+    medicationDuration: zod.string().nullable(),
+    medicationQuantity: zod.number().nullable(),
+    medicationRefills: zod.number().nullable(),
+    isComplete: zod.boolean(),
+    safetyWarnings: zod.array(
+      zod.object({
+        kind: zod.string(),
+        message: zod.string(),
+        severity: zod.enum(["info", "warn", "block"]),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      sourceSuggestionId: zod.string().nullable(),
+      status: zod.enum(["approved", "export_ready", "exported", "cancelled"]),
+      approvedAt: zod.coerce.date().nullable(),
+      exportReadyAt: zod.coerce.date().nullable(),
+      exportedAt: zod.coerce.date().nullable(),
+      ehrDocumentRef: zod
+        .string()
+        .nullish()
+        .describe("Resource ref returned by the EHR after a successful push."),
+      ehrError: zod
+        .string()
+        .nullish()
+        .describe("Last EHR push error, if any. Cleared on success."),
+    }),
+  );
+
+/**
+ * @summary List tasks the caller can see, with optional filters
+ */
+export const ListTasksQueryParams = zod.object({
+  assignee: zod.enum(["me", "anyone"]).optional(),
+  status: zod
+    .enum(["open", "in_progress", "completed", "cancelled"])
+    .optional(),
+  patientId: zod.coerce.string().optional(),
+  encounterId: zod.coerce.string().optional(),
+});
+
+export const ListTasksResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      encounterId: zod.string().nullable(),
+      category: zod.enum([
+        "call_patient",
+        "schedule_followup",
+        "send_referral",
+        "prior_auth",
+        "obtain_records",
+        "repeat_labs",
+        "nursing_instruction",
+        "billing_followup",
+        "patient_instruction",
+        "other",
+      ]),
+      title: zod.string(),
+      description: zod.string().nullable(),
+      dueAt: zod.coerce.date().nullable(),
+      priority: zod.enum(["low", "normal", "high"]),
+      status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+      isClosed: zod.boolean(),
+      source: zod.enum(["ai", "manual"]),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a clinical task
+ */
+export const createTaskBodyTitleMax = 200;
+
+export const createTaskBodyDescriptionMax = 2000;
+
+export const CreateTaskBody = zod.object({
+  patientId: zod.string(),
+  encounterId: zod.string().optional(),
+  title: zod.string().min(1).max(createTaskBodyTitleMax),
+  description: zod.string().max(createTaskBodyDescriptionMax).optional(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  priority: zod.enum(["low", "normal", "high"]).optional(),
+  dueAt: zod.coerce.date().optional(),
+  assignedUserId: zod.string().optional(),
+});
+
+/**
+ * @summary Get a task by id
+ */
+export const GetTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Edit a task (title, due date, priority, assignee, status)
+ */
+export const UpdateTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateTaskBodyTitleMax = 200;
+
+export const updateTaskBodyDescriptionMax = 2000;
+
+export const UpdateTaskBody = zod
+  .object({
+    title: zod.string().min(1).max(updateTaskBodyTitleMax).optional(),
+    description: zod.string().max(updateTaskBodyDescriptionMax).nullish(),
+    category: zod
+      .enum([
+        "call_patient",
+        "schedule_followup",
+        "send_referral",
+        "prior_auth",
+        "obtain_records",
+        "repeat_labs",
+        "nursing_instruction",
+        "billing_followup",
+        "patient_instruction",
+        "other",
+      ])
+      .optional(),
+    priority: zod.enum(["low", "normal", "high"]).optional(),
+    dueAt: zod.coerce.date().nullish(),
+    assignedUserId: zod.string().nullish(),
+    status: zod
+      .enum(["open", "in_progress", "completed", "cancelled"])
+      .optional(),
+  })
+  .describe("Partial update — only fields present in the body are touched.");
+
+export const UpdateTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Mark a task complete
+ */
+export const CompleteTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const CompleteTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Cancel a task
+ */
+export const CancelTaskParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const cancelTaskBodyReasonMax = 500;
+
+export const CancelTaskBody = zod.object({
+  reason: zod.string().max(cancelTaskBodyReasonMax).optional(),
+});
+
+export const CancelTaskResponse = zod.object({
+  id: zod.string(),
+  encounterId: zod.string().nullable(),
+  category: zod.enum([
+    "call_patient",
+    "schedule_followup",
+    "send_referral",
+    "prior_auth",
+    "obtain_records",
+    "repeat_labs",
+    "nursing_instruction",
+    "billing_followup",
+    "patient_instruction",
+    "other",
+  ]),
+  title: zod.string(),
+  description: zod.string().nullable(),
+  dueAt: zod.coerce.date().nullable(),
+  priority: zod.enum(["low", "normal", "high"]),
+  status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+  isClosed: zod.boolean(),
+  source: zod.enum(["ai", "manual"]),
+});
+
+/**
+ * @summary Run AI task generation on the encounter's note
+ */
+export const GenerateEncounterTasksParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GenerateEncounterTasksResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      encounterId: zod.string().nullable(),
+      category: zod.enum([
+        "call_patient",
+        "schedule_followup",
+        "send_referral",
+        "prior_auth",
+        "obtain_records",
+        "repeat_labs",
+        "nursing_instruction",
+        "billing_followup",
+        "patient_instruction",
+        "other",
+      ]),
+      title: zod.string(),
+      description: zod.string().nullable(),
+      dueAt: zod.coerce.date().nullable(),
+      priority: zod.enum(["low", "normal", "high"]),
+      status: zod.enum(["open", "in_progress", "completed", "cancelled"]),
+      isClosed: zod.boolean(),
+      source: zod.enum(["ai", "manual"]),
+    }),
+  ),
+  source: zod.enum(["ai", "stub"]),
+});
+
+/**
+ * Per-provider "always apply" assumptions the AI bakes into every generated note (e.g. "14-point ROS negative unless stated").
+ * @summary List the signed-in provider's encounter defaults
+ */
+export const listNoteDefaultsResponseDataItemLabelMax = 120;
+
+export const listNoteDefaultsResponseDataItemRuleMax = 1000;
+
+export const ListNoteDefaultsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      label: zod.string().min(1).max(listNoteDefaultsResponseDataItemLabelMax),
+      rule: zod
+        .string()
+        .min(1)
+        .max(listNoteDefaultsResponseDataItemRuleMax)
+        .describe(
+          "Imperative instruction the AI applies on every encounter unless the transcript contradicts it.",
+        ),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new note default
+ */
+export const createNoteDefaultBodyLabelMax = 120;
+
+export const createNoteDefaultBodyRuleMax = 1000;
+
+export const CreateNoteDefaultBody = zod.object({
+  label: zod.string().min(1).max(createNoteDefaultBodyLabelMax),
+  rule: zod.string().min(1).max(createNoteDefaultBodyRuleMax),
+});
+
+/**
+ * @summary Edit a note default
+ */
+export const UpdateNoteDefaultParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateNoteDefaultBodyLabelMax = 120;
+
+export const updateNoteDefaultBodyRuleMax = 1000;
+
+export const UpdateNoteDefaultBody = zod
+  .object({
+    label: zod.string().min(1).max(updateNoteDefaultBodyLabelMax).optional(),
+    rule: zod.string().min(1).max(updateNoteDefaultBodyRuleMax).optional(),
+  })
+  .describe(
+    "Partial update. Any provided field replaces; omitted fields are untouched.",
+  );
+
+export const updateNoteDefaultResponseLabelMax = 120;
+
+export const updateNoteDefaultResponseRuleMax = 1000;
+
+export const UpdateNoteDefaultResponse = zod.object({
+  id: zod.string(),
+  label: zod.string().min(1).max(updateNoteDefaultResponseLabelMax),
+  rule: zod
+    .string()
+    .min(1)
+    .max(updateNoteDefaultResponseRuleMax)
+    .describe(
+      "Imperative instruction the AI applies on every encounter unless the transcript contradicts it.",
+    ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a note default
+ */
+export const DeleteNoteDefaultParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Returns a catalog of common encounter defaults (ROS, vitals, physical exam framework, etc.) that the provider can adopt wholesale to skip the blank-page problem during onboarding.
+ * @summary List the built-in suggested defaults the provider can adopt
+ */
+export const ListNoteDefaultSuggestionsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      key: zod
+        .string()
+        .describe(
+          'Stable identifier of the suggestion (e.g. \"ros-default\"). The UI uses this to mark already-adopted suggestions.',
+        ),
+      label: zod.string(),
+      rule: zod.string(),
+      description: zod
+        .string()
+        .optional()
+        .describe(
+          "Plain-English explanation of what this default does, shown in the UI under the label.",
+        ),
+    }),
+  ),
+});
+
+/**
  * Creates a `recording_jobs` row in the `capturing` state. Returns the id the browser uses to upload audio segments to, and to later finalize / poll. Calling this without a patientId is allowed (unattached test captures); the typical product flow always supplies one.
  * @summary Open a new ambient-scribe capture session
  */
@@ -769,6 +3165,12 @@ export const FinalizeRecordingResponse = zod.object({
     "cancelled",
   ]),
   transcript: zod.string().nullish(),
+  liveTranscript: zod
+    .string()
+    .nullish()
+    .describe(
+      "Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.",
+    ),
   structuredBody: zod
     .string()
     .nullish()
@@ -807,6 +3209,12 @@ export const GetRecordingResponse = zod
       "cancelled",
     ]),
     transcript: zod.string().nullish(),
+    liveTranscript: zod
+      .string()
+      .nullish()
+      .describe(
+        "Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.",
+      ),
     structuredBody: zod
       .string()
       .nullish()

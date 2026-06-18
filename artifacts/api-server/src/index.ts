@@ -14,6 +14,9 @@ import {
   stopAuditLogCleanup,
 } from "./lib/audit-cleanup";
 import { runMigrations } from "./lib/run-migrations";
+import { validateSessionCookieConfig } from "./lib/auth";
+import { validateEhrProductionConfig } from "./lib/ehr-prod-guard";
+import { attachStreamingTranscriptHandler } from "./lib/streaming-transcript";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +33,8 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 try {
+  validateSessionCookieConfig();
+  validateEhrProductionConfig(process.env);
   // Run pending migrations first so the seed code below sees the
   // schema it expects. A deploy that ships a schema change can't
   // accept traffic until the schema matches the code.
@@ -44,6 +49,11 @@ try {
 const server = app.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
+
+// WebSocket upgrade handler for /api/recordings/stream. Must be
+// attached after app.listen returns the http.Server but before the
+// first client tries to upgrade.
+attachStreamingTranscriptHandler(server);
 
 // Daily delete of audit-log rows older than the retention window.
 // .unref()-ed so it doesn't keep the event loop alive on SIGTERM.

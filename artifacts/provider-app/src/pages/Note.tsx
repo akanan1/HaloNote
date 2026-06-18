@@ -1,16 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ArrowLeft,
+  ClipboardCopy,
+  Download,
   FilePlus2,
   Loader2,
-  Mic,
-  MicOff,
-  Pause,
   Pencil,
-  Play,
   Printer,
   Send,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,6 +18,7 @@ import {
   getGetNoteQueryKey,
   getListNotesQueryKey,
   useDeleteNote,
+  useGetEhrConnectionStatus,
   useGetNote,
   useListPatients,
   useSendNoteToEhr,
@@ -28,8 +28,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { useSpeechRecognition } from "@/lib/use-speech-recognition";
+import { SmartPhraseDropdown } from "@/components/SmartPhraseDropdown";
+import { useSmartPhraseAutocomplete } from "@/lib/use-smart-phrase-autocomplete";
 import { cn } from "@/lib/utils";
+import {
+  buildPdfFilename,
+  copyAvailability,
+  copyTextToClipboard,
+  formatAssessmentAndPlanForCopy,
+  formatFullForCopy,
+  formatPatientInstructionsForCopy,
+  formatSoapForCopy,
+  parseNoteSections,
+  type NoteExportMeta,
+} from "@/lib/note-export";
 
 interface NotePageProps {
   patientId: string;
@@ -56,6 +68,12 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
   const sendNote = useSendNoteToEhr();
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
+  // Drives the "Use Copy, Print, or PDF export…" hint when the clinic
+  // doesn't have a live EHR connection.
+  const ehrStatusQuery = useGetEhrConnectionStatus();
+  const ehrConnected = Boolean(
+    ehrStatusQuery.data?.athenahealth?.connected ?? false,
+  );
 
   const patient = patientsQuery.data?.data.find((p) => p.id === patientId);
   const note = noteQuery.data;
@@ -63,50 +81,18 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
-  const [interimSpeech, setInterimSpeech] = useState("");
-  const speech = useSpeechRecognition();
+  const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const smartPhrases = useSmartPhraseAutocomplete({
+    textareaRef: editTextareaRef,
+    value: draftBody,
+    setValue: setDraftBody,
+    enabled: editing,
+  });
 
   // Seed the draft buffer when entering edit mode.
   useEffect(() => {
     if (editing && note) setDraftBody(note.body);
   }, [editing, note]);
-
-  // Stop any in-flight dictation when leaving edit mode so the mic icon
-  // doesn't stay open in the background.
-  useEffect(() => {
-    if (!editing && speech.active) {
-      speech.stop();
-      setInterimSpeech("");
-    }
-  }, [editing, speech]);
-
-  function appendDictation(chunk: string) {
-    setDraftBody((current) => {
-      const sep = current.length === 0 || /\s$/.test(current) ? "" : " ";
-      return current + sep + chunk;
-    });
-    setInterimSpeech("");
-  }
-
-  function toggleDictation() {
-    if (speech.active) {
-      speech.stop();
-      setInterimSpeech("");
-      return;
-    }
-    speech.start(appendDictation, (interim) => setInterimSpeech(interim));
-  }
-
-  function togglePause() {
-    if (speech.paused) {
-      speech.resume();
-      return;
-    }
-    if (speech.listening) {
-      speech.pause();
-      setInterimSpeech("");
-    }
-  }
 
   function invalidateAllNoteQueries() {
     if (!note) return;
@@ -193,7 +179,7 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
         </p>
       ) : (
         <>
-          <header className="flex flex-wrap items-start justify-between gap-4">
+          <header className="flex flex-wrap items-start justify-between gap-4 print:hidden">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <h1 className="text-3xl font-semibold tracking-tight">Note</h1>
@@ -233,14 +219,13 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
             </div>
             {!editing && !withdrawn ? (
               <div className="flex flex-wrap items-center gap-2 print:hidden">
-                <Button
-                  variant="outline"
-                  onClick={() => window.print()}
-                  aria-label="Print"
-                >
-                  <Printer className="h-4 w-4" aria-hidden="true" />
-                  <span className="hidden sm:inline">Print</span>
-                </Button>
+                <ExportMenu
+                  note={note}
+                  patientName={
+                    patient ? `${patient.lastName}, ${patient.firstName}` : undefined
+                  }
+                  providerName={note.author?.displayName ?? undefined}
+                />
                 <Link
                   href={`/patients/${patientId}/notes/new?replaces=${note.id}`}
                 >
@@ -272,7 +257,7 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
           </header>
 
           {note.author ? (
-            <p className="text-sm text-(--color-muted-foreground)">
+            <p className="text-sm text-(--color-muted-foreground) print:hidden">
               By{" "}
               <span className="font-medium text-(--color-foreground)">
                 {note.author.displayName}
@@ -280,95 +265,77 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
             </p>
           ) : null}
 
+          {/* Print-only header block. Hidden on screen; appears at the
+              top of the printed page or PDF. Deliberately omits DOB —
+              the screen header doesn't show DOB, and the spec is
+              explicit that the PDF must not include fields that
+              aren't already visible. */}
+          {note.autoPushedWithoutReview && !editing ? (
+            <Card className="border-amber-300 bg-amber-50 p-5 text-sm text-amber-900 print:hidden">
+              <p className="font-medium">
+                AI-drafted, sent without review.
+              </p>
+              <p className="mt-1">
+                Your auto-push setting shipped this note to the EHR the
+                moment transcription finished. Review the content
+                below; if anything needs correcting, tap{" "}
+                <span className="font-medium">Amend</span> to publish a
+                replacement.
+              </p>
+            </Card>
+          ) : null}
+
+          {!editing ? (
+            <div className="hidden print:block print-header">
+              <h1>Clinical Note</h1>
+              <dl>
+                {patient ? (
+                  <>
+                    <dt>Patient</dt>
+                    <dd>
+                      {patient.lastName}, {patient.firstName}
+                    </dd>
+                  </>
+                ) : null}
+                <dt>Date</dt>
+                <dd>{formatFullTimestamp(note.createdAt)}</dd>
+                {note.author ? (
+                  <>
+                    <dt>Provider</dt>
+                    <dd>{note.author.displayName}</dd>
+                  </>
+                ) : null}
+                {wasEdited(note) ? (
+                  <>
+                    <dt>Edited</dt>
+                    <dd>{formatFullTimestamp(note.updatedAt)}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </div>
+          ) : null}
+
           {editing ? (
             <div className="space-y-3">
-              {speech.supported ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant={speech.active ? "default" : "outline"}
-                      size="sm"
-                      onClick={toggleDictation}
-                      disabled={updateNote.isPending}
-                      aria-pressed={speech.active}
-                      aria-label={
-                        speech.active ? "Stop dictation" : "Start dictation"
-                      }
-                    >
-                      {speech.active ? (
-                        <>
-                          <MicOff className="h-4 w-4" aria-hidden="true" />
-                          Stop
-                        </>
-                      ) : (
-                        <>
-                          <Mic className="h-4 w-4" aria-hidden="true" />
-                          Dictate
-                        </>
-                      )}
-                    </Button>
-
-                    {speech.active ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={togglePause}
-                        disabled={updateNote.isPending}
-                        aria-pressed={speech.paused}
-                        aria-label={
-                          speech.paused ? "Resume dictation" : "Pause dictation"
-                        }
-                      >
-                        {speech.paused ? (
-                          <>
-                            <Play className="h-4 w-4" aria-hidden="true" />
-                            Resume
-                          </>
-                        ) : (
-                          <>
-                            <Pause className="h-4 w-4" aria-hidden="true" />
-                            Pause
-                          </>
-                        )}
-                      </Button>
-                    ) : null}
-                  </div>
-                  <p className="text-xs text-(--color-muted-foreground)">
-                    Experimental — uses browser speech API (not HIPAA-grade).
-                  </p>
-                </div>
-              ) : null}
-
-              <Textarea
-                value={draftBody}
-                onChange={(e) => setDraftBody(e.target.value)}
-                rows={16}
-                className="min-h-[50vh] text-base"
-                disabled={updateNote.isPending}
-                autoFocus
-              />
-
-              {speech.listening && interimSpeech ? (
-                <p
-                  role="status"
-                  aria-live="polite"
-                  className="text-sm italic text-(--color-muted-foreground)"
-                >
-                  …{interimSpeech}
-                </p>
-              ) : null}
-
-              {speech.error && speech.error !== "no-speech" ? (
-                <p role="alert" className="text-sm text-(--color-destructive)">
-                  {speech.error === "not-allowed"
-                    ? "Microphone permission denied. Enable it in your browser settings."
-                    : speech.error === "unsupported"
-                      ? "Your browser doesn't support dictation."
-                      : `Dictation error: ${speech.error}`}
-                </p>
-              ) : null}
+              <div className="relative">
+                <Textarea
+                  ref={editTextareaRef}
+                  value={draftBody}
+                  onChange={(e) => setDraftBody(e.target.value)}
+                  onKeyDown={smartPhrases.onKeyDown}
+                  rows={16}
+                  className="min-h-[50vh] text-base"
+                  disabled={updateNote.isPending}
+                  autoFocus
+                />
+                <SmartPhraseDropdown
+                  open={smartPhrases.open}
+                  suggestions={smartPhrases.suggestions}
+                  activeIndex={smartPhrases.activeIndex}
+                  onPick={smartPhrases.pick}
+                  onHover={smartPhrases.setActiveIndex}
+                />
+              </div>
 
               {editError ? (
                 <p className="text-sm text-(--color-destructive)">{editError}</p>
@@ -428,6 +395,7 @@ export function NotePage({ patientId, noteId }: NotePageProps) {
               sendError={
                 sendNote.error instanceof Error ? sendNote.error.message : null
               }
+              ehrConnected={ehrConnected}
             />
           ) : null}
 
@@ -465,15 +433,34 @@ interface EhrSectionProps {
   onSend: () => void;
   sending: boolean;
   sendError: string | null;
+  /** When false, the clinic isn't connected to an EHR — surface
+   *  guidance toward the manual export flow. */
+  ehrConnected: boolean;
 }
 
-function EhrSection({ note, onSend, sending, sendError }: EhrSectionProps) {
+function EhrSection({
+  note,
+  onSend,
+  sending,
+  sendError,
+  ehrConnected,
+}: EhrSectionProps) {
   const sent = Boolean(note.ehrPushedAt && note.ehrDocumentRef);
   const hasError = Boolean(note.ehrError);
 
   return (
     <section className="space-y-3 border-t border-(--color-border) pt-6 print:hidden">
       <h2 className="text-lg font-medium">EHR</h2>
+
+      {!ehrConnected && !sent ? (
+        <p
+          className="rounded-md border border-(--color-border) bg-(--color-muted) px-3 py-2 text-sm text-(--color-muted-foreground)"
+          role="note"
+        >
+          No EHR connected. Use Copy, Print, or PDF export to place this
+          note into your EHR.
+        </p>
+      ) : null}
 
       {sent ? (
         <div className="space-y-2">
@@ -547,5 +534,221 @@ function StatusPill({
     >
       {children}
     </span>
+  );
+}
+
+interface ExportMenuProps {
+  note: Note;
+  patientName?: string | undefined;
+  providerName?: string | undefined;
+}
+
+// All export entry points live inside one disclosure so the header
+// doesn't grow six new buttons. Native `<details>`-style behavior via
+// useState — same a11y, no new dependency.
+//
+// HIPAA posture:
+//   - Every output formatter runs locally (clipboard or window.print).
+//   - We never POST exported content anywhere.
+//   - PDF generation is the browser's own print pipeline ("Save as
+//     PDF" destination in the print dialog) — no PDF blob is created
+//     in app code, nothing is stored.
+function ExportMenu({ note, patientName, providerName }: ExportMenuProps) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click + Esc. Native disclosure-style.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (
+        containerRef.current &&
+        e.target instanceof Node &&
+        !containerRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const parsed = useMemo(() => parseNoteSections(note.body), [note.body]);
+  const avail = useMemo(() => copyAvailability(parsed), [parsed]);
+
+  const meta: NoteExportMeta = {
+    // note.createdAt is typed as Date in the generated client but in
+    // practice arrives as an ISO string off the wire — handle both.
+    createdAt:
+      typeof note.createdAt === "string"
+        ? note.createdAt
+        : new Date(note.createdAt).toISOString(),
+    ...(patientName ? { patientName } : {}),
+    ...(providerName ? { providerName } : {}),
+  };
+
+  async function doCopy(text: string | null, label: string) {
+    if (!text) {
+      toast.error("Nothing to copy for that section.");
+      return;
+    }
+    const ok = await copyTextToClipboard(text);
+    if (ok) toast.success(`${label} copied`);
+    else toast.error("Clipboard unavailable — try Print or PDF instead.");
+    setOpen(false);
+  }
+
+  function doPrint() {
+    setOpen(false);
+    window.print();
+  }
+
+  // "Save as PDF" is sugar around window.print(). We temporarily set
+  // document.title so the browser pre-fills a clinician-friendly
+  // filename in the PDF destination of the print dialog. Restored
+  // after the dialog closes (the afterprint event fires reliably on
+  // every desktop browser and on iOS Safari).
+  function doSaveAsPdf() {
+    setOpen(false);
+    const originalTitle = document.title;
+    const filename = buildPdfFilename(patientName, meta.createdAt);
+    // Strip the .pdf extension — most browsers append it themselves
+    // when "Save as PDF" is the destination; doubling it is a common
+    // bug ("…pdf.pdf").
+    document.title = filename.replace(/\.pdf$/i, "");
+    const restore = () => {
+      document.title = originalTitle;
+      window.removeEventListener("afterprint", restore);
+    };
+    window.addEventListener("afterprint", restore);
+    window.print();
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Button
+        variant="outline"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Export note"
+      >
+        <Share2 className="h-4 w-4" aria-hidden="true" />
+        <span className="hidden sm:inline">Export</span>
+      </Button>
+      {open ? (
+        <div
+          role="menu"
+          aria-label="Export note actions"
+          className="absolute right-0 z-20 mt-2 w-72 overflow-hidden rounded-md border border-(--color-border) bg-(--color-card) shadow-lg"
+        >
+          <ExportMenuItem
+            label="Copy full note"
+            icon={<ClipboardCopy className="h-4 w-4" aria-hidden="true" />}
+            onClick={() =>
+              void doCopy(formatFullForCopy(parsed, meta), "Full note")
+            }
+          />
+          <ExportMenuItem
+            label="Copy SOAP note"
+            sublabel={avail.soap ? undefined : "No SOAP sections detected"}
+            disabled={!avail.soap}
+            icon={<ClipboardCopy className="h-4 w-4" aria-hidden="true" />}
+            onClick={() =>
+              void doCopy(formatSoapForCopy(parsed, meta), "SOAP note")
+            }
+          />
+          <ExportMenuItem
+            label="Copy Assessment & Plan"
+            sublabel={
+              avail.assessmentAndPlan
+                ? undefined
+                : "No A&P section detected"
+            }
+            disabled={!avail.assessmentAndPlan}
+            icon={<ClipboardCopy className="h-4 w-4" aria-hidden="true" />}
+            onClick={() =>
+              void doCopy(
+                formatAssessmentAndPlanForCopy(parsed, meta),
+                "Assessment & Plan",
+              )
+            }
+          />
+          <ExportMenuItem
+            label="Copy patient instructions"
+            sublabel={
+              avail.patientInstructions
+                ? undefined
+                : "No patient instructions section detected"
+            }
+            disabled={!avail.patientInstructions}
+            icon={<ClipboardCopy className="h-4 w-4" aria-hidden="true" />}
+            onClick={() =>
+              void doCopy(
+                formatPatientInstructionsForCopy(parsed, meta),
+                "Patient instructions",
+              )
+            }
+          />
+          <div className="my-1 border-t border-(--color-border)" />
+          <ExportMenuItem
+            label="Print"
+            icon={<Printer className="h-4 w-4" aria-hidden="true" />}
+            onClick={doPrint}
+          />
+          <ExportMenuItem
+            label="Save as PDF"
+            sublabel="Choose 'Save as PDF' in the print dialog"
+            icon={<Download className="h-4 w-4" aria-hidden="true" />}
+            onClick={doSaveAsPdf}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface ExportMenuItemProps {
+  label: string;
+  sublabel?: string | undefined;
+  icon: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+function ExportMenuItem({
+  label,
+  sublabel,
+  icon,
+  disabled,
+  onClick,
+}: ExportMenuItemProps) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full items-start gap-3 px-3 py-2 text-left text-sm hover:bg-(--color-muted) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span className="mt-0.5 shrink-0 text-(--color-muted-foreground)">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium">{label}</span>
+        {sublabel ? (
+          <span className="block text-xs text-(--color-muted-foreground)">
+            {sublabel}
+          </span>
+        ) : null}
+      </span>
+    </button>
   );
 }

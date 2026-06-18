@@ -105,7 +105,16 @@ export function AdminUsersPage() {
       </header>
 
       {query.isPending ? (
-        <p className="text-(--color-muted-foreground)">Loading…</p>
+        <Card className="overflow-hidden" role="status" aria-label="Loading users">
+          <ul className="divide-y divide-(--color-border)">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="space-y-3 px-4 py-4">
+                <div className="h-4 w-1/3 animate-pulse rounded bg-(--color-muted)" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-(--color-muted)" />
+              </li>
+            ))}
+          </ul>
+        </Card>
       ) : query.isError ? (
         <ErrorMessage error={query.error} />
       ) : query.data.data.length === 0 ? (

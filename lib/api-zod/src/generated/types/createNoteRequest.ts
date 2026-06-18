@@ -12,4 +12,11 @@ export interface CreateNoteRequest {
   body: string;
   /** When set, the new note supersedes this one. The original is preserved with status active; downstream EHR pushes carry relatesTo replaces. */
   replacesNoteId?: string;
+  /** Optional encounter the note documents. Must belong to the same
+patient and the active organization, or the server returns 404.
+When set, the note appears on that encounter's review surface and
+its lifecycle (draft → approved → exported) drives the encounter
+review workflow.
+ */
+  encounterId?: string;
 }

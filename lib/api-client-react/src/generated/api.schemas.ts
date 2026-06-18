@@ -65,6 +65,8 @@ export interface Note {
    * @nullable
    */
   ehrError: string | null;
+  /** True when the recording pipeline auto-approved + auto-pushed this note without the provider reviewing it (the author had autoPushMode=after_transcription at the time). Drives the "unreviewed AI version in the chart" banner on the note page. */
+  autoPushedWithoutReview?: boolean;
 }
 
 export interface CreateNoteRequest {
@@ -73,11 +75,112 @@ export interface CreateNoteRequest {
   body: string;
   /** When set, the new note supersedes this one. The original is preserved with status active; downstream EHR pushes carry relatesTo replaces. */
   replacesNoteId?: string;
+  /** Optional encounter the note documents. Must belong to the same
+patient and the active organization, or the server returns 404.
+When set, the note appears on that encounter's review surface and
+its lifecycle (draft → approved → exported) drives the encounter
+review workflow.
+ */
+  encounterId?: string;
 }
 
 export interface UpdateNoteRequest {
   /** @minLength 1 */
   body: string;
+}
+
+export type VisitType = (typeof VisitType)[keyof typeof VisitType];
+
+export const VisitType = {
+  new_patient: "new_patient",
+  established_patient: "established_patient",
+  follow_up: "follow_up",
+  annual_physical: "annual_physical",
+  hospital_follow_up: "hospital_follow_up",
+  procedure: "procedure",
+  telehealth: "telehealth",
+  nursing_facility: "nursing_facility",
+  custom: "custom",
+} as const;
+
+export type EncounterStatus =
+  (typeof EncounterStatus)[keyof typeof EncounterStatus];
+
+export const EncounterStatus = {
+  scheduled: "scheduled",
+  in_progress: "in_progress",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type EncounterPriority =
+  (typeof EncounterPriority)[keyof typeof EncounterPriority];
+
+export const EncounterPriority = {
+  routine: "routine",
+  urgent: "urgent",
+  stat: "stat",
+} as const;
+
+export interface Encounter {
+  id: string;
+  organizationId: string;
+  patientId: string;
+  providerId?: string | null;
+  visitType: VisitType;
+  customLabel?: string | null;
+  status: EncounterStatus;
+  isTelehealth: boolean;
+  location?: string | null;
+  scheduledAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListEncounters200 {
+  data: Encounter[];
+}
+
+export interface CreateEncounterRequest {
+  /** @minLength 1 */
+  patientId: string;
+  visitType: VisitType;
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  customLabel?: string;
+  isTelehealth?: boolean;
+  /** @maxLength 120 */
+  location?: string;
+  scheduledAt?: string;
+  /** @minLength 1 */
+  providerId?: string;
+}
+
+/**
+ * All fields optional. Set a field to null to clear it where the
+column allows null (location, customLabel, scheduledAt,
+providerId). visitType / status / isTelehealth are non-nullable
+so null isn't accepted there.
+
+ */
+export interface UpdateEncounterRequest {
+  visitType?: VisitType;
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  customLabel?: string | null;
+  isTelehealth?: boolean;
+  /** @maxLength 120 */
+  location?: string | null;
+  status?: EncounterStatus;
+  scheduledAt?: string | null;
+  /** @minLength 1 */
+  providerId?: string | null;
 }
 
 export interface CreatePatientRequest {
@@ -136,6 +239,18 @@ export const AuthUserRole = {
   member: "member",
 } as const;
 
+/**
+ * Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — /notes/:id/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain.
+ */
+export type AuthUserAutoPushMode =
+  (typeof AuthUserAutoPushMode)[keyof typeof AuthUserAutoPushMode];
+
+export const AuthUserAutoPushMode = {
+  off: "off",
+  after_approve: "after_approve",
+  after_transcription: "after_transcription",
+} as const;
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -143,6 +258,45 @@ export interface AuthUser {
   role: AuthUserRole;
   /** True when the user has TOTP 2FA enrolled. */
   twoFactorEnabled?: boolean;
+  /** False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to /onboarding on sign-in. */
+  onboardingCompleted?: boolean;
+  /** Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only. */
+  isFounder?: boolean;
+  /** Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — /notes/:id/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain. */
+  autoPushMode?: AuthUserAutoPushMode;
+  /**
+   * Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.
+   * @minimum 0
+   * @maximum 600
+   */
+  silenceAutoStopSec?: number;
+  /** When true, /orders/:id/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead. */
+  autoPushOrders?: boolean;
+  /** When true, /orders/:id/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab/imaging auto-push while still hand-confirming every prescription. */
+  autoPushMedications?: boolean;
+}
+
+export type UpdateMeRequestAutoPushMode =
+  (typeof UpdateMeRequestAutoPushMode)[keyof typeof UpdateMeRequestAutoPushMode];
+
+export const UpdateMeRequestAutoPushMode = {
+  off: "off",
+  after_approve: "after_approve",
+  after_transcription: "after_transcription",
+} as const;
+
+/**
+ * Partial self-update of the signed-in user's preferences. Only fields present in the body are touched.
+ */
+export interface UpdateMeRequest {
+  autoPushMode?: UpdateMeRequestAutoPushMode;
+  /**
+   * @minimum 0
+   * @maximum 600
+   */
+  silenceAutoStopSec?: number;
+  autoPushOrders?: boolean;
+  autoPushMedications?: boolean;
 }
 
 export interface LoginRequest {
@@ -351,6 +505,890 @@ export interface ReorderTemplatesRequest {
   ids: string[];
 }
 
+export interface PhraseMapping {
+  id: string;
+  /**
+   * The colloquial phrase the provider tends to say during a visit. Matched case-insensitively in the transcript.
+   * @minLength 1
+   * @maxLength 200
+   */
+  spoken: string;
+  /**
+   * The preferred documentation term to use in the AI-generated note when the spoken phrase is detected.
+   * @minLength 1
+   * @maxLength 200
+   */
+  documented: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePhraseMappingRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  spoken: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  documented: string;
+}
+
+/**
+ * Partial update. Any provided field replaces; omitted fields are untouched.
+ */
+export interface UpdatePhraseMappingRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  spoken?: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  documented?: string;
+}
+
+export interface SmartPhrase {
+  id: string;
+  /**
+   * The token typed after `.` in the note editor. Stored lowercased; whitespace and dot characters are rejected.
+   * @minLength 1
+   * @maxLength 40
+   */
+  shortcut: string;
+  /**
+   * Expansion text inserted into the note. May be multi-line.
+   * @minLength 1
+   */
+  body: string;
+  /**
+   * Optional hint shown in the autocomplete dropdown.
+   * @maxLength 200
+   * @nullable
+   */
+  description: string | null;
+  /** Times the phrase has been expanded. Used for autocomplete ranking within prefix matches. */
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSmartPhraseRequest {
+  /**
+   * Whitespace and `.` characters are rejected. Server lowercases before persisting.
+   * @minLength 1
+   * @maxLength 40
+   */
+  shortcut: string;
+  /** @minLength 1 */
+  body: string;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  description?: string | null;
+}
+
+/**
+ * Partial update. Any provided field replaces; omitted fields are untouched. Pass description=null to clear the hint.
+ */
+export interface UpdateSmartPhraseRequest {
+  /**
+   * @minLength 1
+   * @maxLength 40
+   */
+  shortcut?: string;
+  /** @minLength 1 */
+  body?: string;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  description?: string | null;
+}
+
+export interface VerbalCue {
+  id: string;
+  /**
+   * End-of-visit phrase. Matched case-insensitively as a substring against streaming Deepgram is_final events.
+   * @minLength 1
+   * @maxLength 120
+   */
+  phrase: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateVerbalCueRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  phrase: string;
+}
+
+export interface NoteDefault {
+  id: string;
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  label: string;
+  /**
+   * Imperative instruction the AI applies on every encounter unless the transcript contradicts it.
+   * @minLength 1
+   * @maxLength 1000
+   */
+  rule: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateNoteDefaultRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  label: string;
+  /**
+   * @minLength 1
+   * @maxLength 1000
+   */
+  rule: string;
+}
+
+/**
+ * Partial update. Any provided field replaces; omitted fields are untouched.
+ */
+export interface UpdateNoteDefaultRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  label?: string;
+  /**
+   * @minLength 1
+   * @maxLength 1000
+   */
+  rule?: string;
+}
+
+export type BillingCodeSystem =
+  (typeof BillingCodeSystem)[keyof typeof BillingCodeSystem];
+
+export const BillingCodeSystem = {
+  icd10: "icd10",
+  cpt: "cpt",
+  em: "em",
+  modifier: "modifier",
+} as const;
+
+export type SuggestionConfidence =
+  (typeof SuggestionConfidence)[keyof typeof SuggestionConfidence];
+
+export const SuggestionConfidence = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+} as const;
+
+export type BillingSuggestionStatus =
+  (typeof BillingSuggestionStatus)[keyof typeof BillingSuggestionStatus];
+
+export const BillingSuggestionStatus = {
+  ai_suggested: "ai_suggested",
+  needs_review: "needs_review",
+  provider_approved: "provider_approved",
+  biller_approved: "biller_approved",
+  rejected: "rejected",
+  exported: "exported",
+} as const;
+
+export interface BillingSupportingExcerpt {
+  text: string;
+  locationHint?: string;
+}
+
+export type BillingDocumentationGapSeverity =
+  (typeof BillingDocumentationGapSeverity)[keyof typeof BillingDocumentationGapSeverity];
+
+export const BillingDocumentationGapSeverity = {
+  info: "info",
+  warn: "warn",
+  block: "block",
+} as const;
+
+export interface BillingDocumentationGap {
+  field: string;
+  message: string;
+  severity: BillingDocumentationGapSeverity;
+}
+
+export interface BillingSuggestion {
+  id: string;
+  codeSystem: BillingCodeSystem;
+  code: string;
+  description: string;
+  rationale: string;
+  supportingExcerpts: BillingSupportingExcerpt[];
+  documentationGaps: BillingDocumentationGap[];
+  confidence: SuggestionConfidence;
+  status: BillingSuggestionStatus;
+  createdByAi: boolean;
+}
+
+export interface ApprovedBillingCode {
+  id: string;
+  codeSystem: BillingCodeSystem;
+  code: string;
+  description: string;
+  /** @nullable */
+  sourceSuggestionId: string | null;
+  /** @nullable */
+  approvedAt: string | null;
+  /** @nullable */
+  billerApprovedAt: string | null;
+  /** @nullable */
+  exportedAt: string | null;
+  /**
+   * Resource ref returned by the charge system after a successful push.
+   * @nullable
+   */
+  ehrDocumentRef?: string | null;
+  /**
+   * Last EHR push error, if any. Cleared on success.
+   * @nullable
+   */
+  ehrError?: string | null;
+}
+
+export interface BillingResponse {
+  suggestions: BillingSuggestion[];
+  approvedCodes: ApprovedBillingCode[];
+}
+
+export type BillingSuggestSource =
+  (typeof BillingSuggestSource)[keyof typeof BillingSuggestSource];
+
+export const BillingSuggestSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export type EhrPushOutcomeProvider =
+  (typeof EhrPushOutcomeProvider)[keyof typeof EhrPushOutcomeProvider];
+
+export const EhrPushOutcomeProvider = {
+  athenahealth: "athenahealth",
+  epic: "epic",
+  mock: "mock",
+} as const;
+
+export interface EhrPushOutcome {
+  provider: EhrPushOutcomeProvider;
+  /** FHIR-style "ResourceType/id" reference returned by the upstream after a successful push (or a synthetic "mock-<localId>" identifier in mock mode). */
+  ehrDocumentRef: string;
+  pushedAt: string;
+  /** True when the push was a no-op against the mock backend. */
+  mock: boolean;
+}
+
+export type BillingSuggestResponse = BillingResponse & {
+  source: BillingSuggestSource;
+};
+
+export interface RejectBillingSuggestionRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export type OrderType = (typeof OrderType)[keyof typeof OrderType];
+
+export const OrderType = {
+  lab: "lab",
+  imaging: "imaging",
+  referral: "referral",
+  medication: "medication",
+  procedure: "procedure",
+  followup: "followup",
+  instruction: "instruction",
+  dme: "dme",
+  therapy: "therapy",
+  nursing: "nursing",
+} as const;
+
+export type OrderPriority = (typeof OrderPriority)[keyof typeof OrderPriority];
+
+export const OrderPriority = {
+  routine: "routine",
+  urgent: "urgent",
+  stat: "stat",
+} as const;
+
+export type OrderSuggestionStatus =
+  (typeof OrderSuggestionStatus)[keyof typeof OrderSuggestionStatus];
+
+export const OrderSuggestionStatus = {
+  ai_suggested: "ai_suggested",
+  needs_review: "needs_review",
+  approved: "approved",
+  rejected: "rejected",
+  exported: "exported",
+} as const;
+
+export type ApprovedOrderStatus =
+  (typeof ApprovedOrderStatus)[keyof typeof ApprovedOrderStatus];
+
+export const ApprovedOrderStatus = {
+  approved: "approved",
+  export_ready: "export_ready",
+  exported: "exported",
+  cancelled: "cancelled",
+} as const;
+
+export type OrderSafetyWarningSeverity =
+  (typeof OrderSafetyWarningSeverity)[keyof typeof OrderSafetyWarningSeverity];
+
+export const OrderSafetyWarningSeverity = {
+  info: "info",
+  warn: "warn",
+  block: "block",
+} as const;
+
+export interface OrderSafetyWarning {
+  kind: string;
+  message: string;
+  severity: OrderSafetyWarningSeverity;
+}
+
+export interface OrderCommon {
+  id: string;
+  orderType: OrderType;
+  name: string;
+  /** @nullable */
+  indication: string | null;
+  /** @nullable */
+  indicationDiagnosisCode: string | null;
+  priority: OrderPriority;
+  /** @nullable */
+  instructions: string | null;
+  /** @nullable */
+  frequency: string | null;
+  /** @nullable */
+  duration: string | null;
+  /** @nullable */
+  medicationName: string | null;
+  /** @nullable */
+  medicationDose: string | null;
+  /** @nullable */
+  medicationRoute: string | null;
+  /** @nullable */
+  medicationFrequency: string | null;
+  /** @nullable */
+  medicationDuration: string | null;
+  /** @nullable */
+  medicationQuantity: number | null;
+  /** @nullable */
+  medicationRefills: number | null;
+  isComplete: boolean;
+  safetyWarnings: OrderSafetyWarning[];
+}
+
+export type OrderSuggestion = OrderCommon & {
+  rationale: string;
+  status: OrderSuggestionStatus;
+  createdByAi: boolean;
+};
+
+export type ApprovedOrder = OrderCommon & {
+  /** @nullable */
+  sourceSuggestionId: string | null;
+  status: ApprovedOrderStatus;
+  /** @nullable */
+  approvedAt: string | null;
+  /** @nullable */
+  exportReadyAt: string | null;
+  /** @nullable */
+  exportedAt: string | null;
+  /**
+   * Resource ref returned by the EHR after a successful push.
+   * @nullable
+   */
+  ehrDocumentRef?: string | null;
+  /**
+   * Last EHR push error, if any. Cleared on success.
+   * @nullable
+   */
+  ehrError?: string | null;
+};
+
+export interface OrdersResponse {
+  suggestions: OrderSuggestion[];
+  approvedOrders: ApprovedOrder[];
+}
+
+export type OrderSuggestResponseSource =
+  (typeof OrderSuggestResponseSource)[keyof typeof OrderSuggestResponseSource];
+
+export const OrderSuggestResponseSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export interface OrderSuggestResponse {
+  data: OrderSuggestion[];
+  source: OrderSuggestResponseSource;
+}
+
+export interface RejectOrderSuggestionRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export interface CreateOrderRequest {
+  encounterId: string;
+  orderType: OrderType;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  name: string;
+  /** @maxLength 500 */
+  indication?: string;
+  /** @maxLength 20 */
+  indicationDiagnosisCode?: string;
+  priority?: OrderPriority;
+  /** @maxLength 2000 */
+  instructions?: string;
+  /** @maxLength 100 */
+  frequency?: string;
+  /** @maxLength 100 */
+  duration?: string;
+  /** @maxLength 200 */
+  medicationName?: string;
+  /** @maxLength 50 */
+  medicationDose?: string;
+  /** @maxLength 50 */
+  medicationRoute?: string;
+  /** @maxLength 100 */
+  medicationFrequency?: string;
+  /** @maxLength 100 */
+  medicationDuration?: string;
+  /** @minimum 0 */
+  medicationQuantity?: number;
+  /** @minimum 0 */
+  medicationRefills?: number;
+}
+
+/**
+ * Partial update — only fields present in the body are touched. Allowed fields mirror CreateOrderRequest (no encounterId or orderType; those are immutable post-creation).
+ */
+export interface UpdateOrderRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  name?: string;
+  /**
+   * @maxLength 500
+   * @nullable
+   */
+  indication?: string | null;
+  /**
+   * @maxLength 20
+   * @nullable
+   */
+  indicationDiagnosisCode?: string | null;
+  priority?: OrderPriority;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
+  instructions?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  frequency?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  duration?: string | null;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  medicationName?: string | null;
+  /**
+   * @maxLength 50
+   * @nullable
+   */
+  medicationDose?: string | null;
+  /**
+   * @maxLength 50
+   * @nullable
+   */
+  medicationRoute?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  medicationFrequency?: string | null;
+  /**
+   * @maxLength 100
+   * @nullable
+   */
+  medicationDuration?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  medicationQuantity?: number | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  medicationRefills?: number | null;
+}
+
+export interface CancelOrderRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export type TaskCategory = (typeof TaskCategory)[keyof typeof TaskCategory];
+
+export const TaskCategory = {
+  call_patient: "call_patient",
+  schedule_followup: "schedule_followup",
+  send_referral: "send_referral",
+  prior_auth: "prior_auth",
+  obtain_records: "obtain_records",
+  repeat_labs: "repeat_labs",
+  nursing_instruction: "nursing_instruction",
+  billing_followup: "billing_followup",
+  patient_instruction: "patient_instruction",
+  other: "other",
+} as const;
+
+export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
+
+export const TaskStatus = {
+  open: "open",
+  in_progress: "in_progress",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type TaskPriority = (typeof TaskPriority)[keyof typeof TaskPriority];
+
+export const TaskPriority = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+} as const;
+
+export type TaskSource = (typeof TaskSource)[keyof typeof TaskSource];
+
+export const TaskSource = {
+  ai: "ai",
+  manual: "manual",
+} as const;
+
+export interface Task {
+  id: string;
+  /** @nullable */
+  encounterId: string | null;
+  category: TaskCategory;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  dueAt: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  isClosed: boolean;
+  source: TaskSource;
+}
+
+export interface TaskListResponse {
+  data: Task[];
+}
+
+export type TaskGenerateResponseSource =
+  (typeof TaskGenerateResponseSource)[keyof typeof TaskGenerateResponseSource];
+
+export const TaskGenerateResponseSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export interface TaskGenerateResponse {
+  data: Task[];
+  source: TaskGenerateResponseSource;
+}
+
+export interface CreateTaskRequest {
+  patientId: string;
+  encounterId?: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  title: string;
+  /** @maxLength 2000 */
+  description?: string;
+  category: TaskCategory;
+  priority?: TaskPriority;
+  dueAt?: string;
+  assignedUserId?: string;
+}
+
+/**
+ * Partial update — only fields present in the body are touched.
+ */
+export interface UpdateTaskRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  title?: string;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
+  description?: string | null;
+  category?: TaskCategory;
+  priority?: TaskPriority;
+  /** @nullable */
+  dueAt?: string | null;
+  /** @nullable */
+  assignedUserId?: string | null;
+  status?: TaskStatus;
+}
+
+export interface CancelTaskRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export type FounderAnalyticsCompliance = {
+  onboardingCompleted: number;
+  onboardingPending: number;
+  /** 0..1 */
+  onboardingCompletionRate: number;
+  /** Users without a current BAA acceptance. */
+  staleBaaUsers: number;
+  staleTermsUsers: number;
+  stalePrivacyUsers: number;
+  /** Users stale on any required document. */
+  staleAnyUsers: number;
+};
+
+export interface DailyCount {
+  date: string;
+  count: number;
+}
+
+/**
+ * Counts per UTC day for the last 30 days. Each array is ordered oldest → newest and includes zero-count days so the sparkline renderer can skip gap handling.
+ */
+export type FounderAnalyticsDailySeries = {
+  /** First day in the series (inclusive, UTC). */
+  startDate: string;
+  /** Last day in the series (inclusive, UTC). */
+  endDate: string;
+  signups: DailyCount[];
+  notes: DailyCount[];
+  recordings: DailyCount[];
+};
+
+export type FounderAnalyticsTotals = {
+  users: number;
+  admins: number;
+  patients: number;
+  notes: number;
+  recordingsTotal: number;
+  recordingsDone: number;
+  recordingsFailed: number;
+  signupsLast7Days: number;
+  signupsLast30Days: number;
+};
+
+export type FounderUserRowRole =
+  (typeof FounderUserRowRole)[keyof typeof FounderUserRowRole];
+
+export const FounderUserRowRole = {
+  admin: "admin",
+  member: "member",
+} as const;
+
+export type FounderUserLegalStatusType =
+  (typeof FounderUserLegalStatusType)[keyof typeof FounderUserLegalStatusType];
+
+export const FounderUserLegalStatusType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface FounderUserLegalStatus {
+  type: FounderUserLegalStatusType;
+  currentVersion: string;
+  accepted: boolean;
+  /** Most recently accepted version (may be older than current). */
+  acceptedVersion?: string;
+  acceptedAt?: string;
+}
+
+export interface FounderUserRow {
+  id: string;
+  email: string;
+  displayName: string;
+  role: FounderUserRowRole;
+  isFounder?: boolean;
+  createdAt: string;
+  /** When the user last created or edited a clinical note. */
+  lastNoteAt?: string;
+  patientCount: number;
+  noteCount: number;
+  recordingCount: number;
+  /** One entry per required document type for this user. */
+  legalAcceptances: FounderUserLegalStatus[];
+}
+
+export interface FounderAnalytics {
+  compliance: FounderAnalyticsCompliance;
+  /** Counts per UTC day for the last 30 days. Each array is ordered oldest → newest and includes zero-count days so the sparkline renderer can skip gap handling. */
+  dailySeries: FounderAnalyticsDailySeries;
+  totals: FounderAnalyticsTotals;
+  users: FounderUserRow[];
+}
+
+export type FounderUserAcceptanceType =
+  (typeof FounderUserAcceptanceType)[keyof typeof FounderUserAcceptanceType];
+
+export const FounderUserAcceptanceType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface FounderUserAcceptance {
+  type: FounderUserAcceptanceType;
+  version: string;
+  contentHash: string;
+  ipAddress?: string;
+  userAgent?: string;
+  acceptedAt: string;
+}
+
+export type FounderUserDetailDailySeries = {
+  startDate: string;
+  endDate: string;
+  notes: DailyCount[];
+  recordings: DailyCount[];
+  patients: DailyCount[];
+};
+
+export interface FounderUserDetail {
+  user: FounderUserRow;
+  /** Full append-only history, newest first. */
+  acceptances: FounderUserAcceptance[];
+  dailySeries: FounderUserDetailDailySeries;
+}
+
+export type LegalAgreementStatusType =
+  (typeof LegalAgreementStatusType)[keyof typeof LegalAgreementStatusType];
+
+export const LegalAgreementStatusType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface LegalAgreementStatus {
+  type: LegalAgreementStatusType;
+  title: string;
+  summary: string;
+  currentVersion: string;
+  /** Markdown body of the current version. */
+  body: string;
+  /** SHA-256 (hex) of `body`. Frontend echoes this back on POST. */
+  contentHash: string;
+  /** True iff the signed-in user has accepted `currentVersion`. */
+  accepted: boolean;
+  /** When the current version was accepted. Absent if accepted=false. */
+  acceptedAt?: string;
+}
+
+export type AcceptLegalAgreementsRequestAcceptancesItemType =
+  (typeof AcceptLegalAgreementsRequestAcceptancesItemType)[keyof typeof AcceptLegalAgreementsRequestAcceptancesItemType];
+
+export const AcceptLegalAgreementsRequestAcceptancesItemType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export type AcceptLegalAgreementsRequestAcceptancesItem = {
+  type: AcceptLegalAgreementsRequestAcceptancesItemType;
+  version: string;
+  /** The hash the client received on GET. Server re-computes from disk and rejects with 400 if they don't match — protects against a stale client persisting a stale hash. */
+  contentHash: string;
+};
+
+export interface AcceptLegalAgreementsRequest {
+  /** @minItems 1 */
+  acceptances: AcceptLegalAgreementsRequestAcceptancesItem[];
+}
+
+export type UploadLegalVersionRequestType =
+  (typeof UploadLegalVersionRequestType)[keyof typeof UploadLegalVersionRequestType];
+
+export const UploadLegalVersionRequestType = {
+  baa: "baa",
+  terms: "terms",
+  privacy: "privacy",
+} as const;
+
+export interface UploadLegalVersionRequest {
+  type: UploadLegalVersionRequestType;
+  /**
+   * SemVer-ish, must be unique per type.
+   * @minLength 1
+   * @maxLength 32
+   */
+  version: string;
+  /**
+   * Full Markdown body of the new version.
+   * @minLength 100
+   */
+  body: string;
+}
+
+export interface UploadLegalVersionResult {
+  type: string;
+  version: string;
+  contentHash: string;
+  /** How many users got a notification email. */
+  notifiedUserCount: number;
+}
+
+export interface NoteDefaultSuggestion {
+  /** Stable identifier of the suggestion (e.g. "ros-default"). The UI uses this to mark already-adopted suggestions. */
+  key: string;
+  label: string;
+  rule: string;
+  /** Plain-English explanation of what this default does, shown in the UI under the label. */
+  description?: string;
+}
+
 export interface EhrProviderConnection {
   connected: boolean;
   /**
@@ -407,6 +1445,11 @@ export interface RecordingJob {
   /** @nullable */
   transcript?: string | null;
   /**
+   * Accumulated `is_final` lines captured by the streaming transcript bridge, joined with newlines. Distinct from `transcript` (set by the batch transcribe step after segments upload). Useful for audit + reproducing what an auto-stop fired on.
+   * @nullable
+   */
+  liveTranscript?: string | null;
+  /**
    * AI-generated clinical note body; populated when status == done
    * @nullable
    */
@@ -431,6 +1474,14 @@ export interface RecordingSegment {
 
 export type RecordingJobDetail = RecordingJob & {
   segments: RecordingSegment[];
+};
+
+export type GetLegalAgreements200 = {
+  data: LegalAgreementStatus[];
+};
+
+export type AcceptLegalAgreements200 = {
+  data: LegalAgreementStatus[];
 };
 
 export type ListUsers200 = {
@@ -494,6 +1545,10 @@ export type GetTodaySchedule200 = {
   data: ScheduledAppointment[];
 };
 
+export type ListEncountersParams = {
+  patientId?: string;
+};
+
 export type ListTemplates200 = {
   data: NoteTemplate[];
 };
@@ -504,6 +1559,51 @@ export type ReorderTemplates200 = {
 
 export type ResetTemplates200 = {
   data: NoteTemplate[];
+};
+
+export type ListPhraseMappings200 = {
+  data: PhraseMapping[];
+};
+
+export type ListSmartPhrases200 = {
+  data: SmartPhrase[];
+};
+
+export type ListVerbalCues200 = {
+  data: VerbalCue[];
+};
+
+export type ListTasksParams = {
+  assignee?: ListTasksAssignee;
+  status?: ListTasksStatus;
+  patientId?: string;
+  encounterId?: string;
+};
+
+export type ListTasksAssignee =
+  (typeof ListTasksAssignee)[keyof typeof ListTasksAssignee];
+
+export const ListTasksAssignee = {
+  me: "me",
+  anyone: "anyone",
+} as const;
+
+export type ListTasksStatus =
+  (typeof ListTasksStatus)[keyof typeof ListTasksStatus];
+
+export const ListTasksStatus = {
+  open: "open",
+  in_progress: "in_progress",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type ListNoteDefaults200 = {
+  data: NoteDefault[];
+};
+
+export type ListNoteDefaultSuggestions200 = {
+  data: NoteDefaultSuggestion[];
 };
 
 export type StartEhrOauth200 = {

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "silence_auto_stop_sec" integer DEFAULT 0 NOT NULL;

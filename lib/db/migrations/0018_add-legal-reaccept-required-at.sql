@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "legal_reaccept_required_at" timestamp with time zone;

@@ -3,6 +3,19 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test-utils/render";
 
+// NewNote pulls user prefs (silenceAutoStopSec) via useAuth; tests
+// don't bother spinning up the full AuthProvider since they don't
+// exercise auth flows.
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: { silenceAutoStopSec: 0, autoPushMode: "off" },
+    loading: false,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 const createNoteMock = vi.fn();
 const updateNoteMock = vi.fn();
 const sendNoteMock = vi.fn();
@@ -32,9 +45,18 @@ vi.mock("@workspace/api-client-react", () => ({
     isPending: false,
     isError: false,
   }),
+  // Smart phrases use the same shape — empty list means the dropdown
+  // is inert and these tests can ignore it.
+  useListSmartPhrases: () => ({
+    data: { data: [] },
+    isPending: false,
+    isError: false,
+  }),
+  customFetch: vi.fn(),
   getListNotesQueryKey: (params?: { patientId: string }) =>
     params ? ["/api/notes", params] : ["/api/notes"],
   getListTemplatesQueryKey: () => ["/api/templates"],
+  getListSmartPhrasesQueryKey: () => ["/api/smart-phrases"],
 }));
 
 import { NewNotePage } from "./NewNote";

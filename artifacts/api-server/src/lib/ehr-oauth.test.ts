@@ -82,6 +82,7 @@ describe("upsertConnection at-rest encryption", () => {
 
     await upsertConnection({
       userId: "u_1",
+      organizationId: "org_default",
       provider: "athenahealth",
       accessToken: access,
       refreshToken: refresh,
@@ -116,6 +117,7 @@ describe("upsertConnection at-rest encryption", () => {
   it("persists a null refreshToken as null (does not encrypt null)", async () => {
     await upsertConnection({
       userId: "u_2",
+      organizationId: "org_default",
       provider: "athenahealth",
       accessToken: "only-access",
       refreshToken: null,
@@ -136,6 +138,7 @@ describe("upsertConnection at-rest encryption", () => {
 
     await expect(
       upsertConnection({
+        organizationId: "org_default",
         userId: "u_3",
         provider: "athenahealth",
         accessToken: "would-be-plaintext",

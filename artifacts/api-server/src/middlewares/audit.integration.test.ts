@@ -105,6 +105,7 @@ describe("audit log (integration)", () => {
       .insert(patientsTable)
       .values({
         id: "pt_audit",
+        organizationId: "org_default",
         firstName: "Audit",
         lastName: "Test",
         dateOfBirth: "1990-01-01",
@@ -141,6 +142,7 @@ describe("audit log (integration)", () => {
       .insert(patientsTable)
       .values({
         id: "pt_audit",
+        organizationId: "org_default",
         firstName: "Audit",
         lastName: "Test",
         dateOfBirth: "1990-01-01",

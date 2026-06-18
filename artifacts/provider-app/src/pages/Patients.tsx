@@ -180,9 +180,26 @@ export function PatientsPage() {
       </div>
 
       {isPending ? (
-        <p role="status" className="text-(--color-muted-foreground)">
-          Loading patients…
-        </p>
+        <ul
+          className="space-y-3"
+          role="status"
+          aria-label="Loading patients"
+        >
+          {[0, 1, 2, 3].map((i) => (
+            <li key={i}>
+              <Card className="relative overflow-hidden">
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-0 left-0 w-1 bg-(--color-border)"
+                />
+                <div className="space-y-2 px-6 py-5">
+                  <div className="h-5 w-2/5 animate-pulse rounded bg-(--color-muted)" />
+                  <div className="h-3 w-3/5 animate-pulse rounded bg-(--color-muted)" />
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
       ) : isError ? (
         <p role="alert" className="text-(--color-destructive)">
           Couldn't load patients. {error instanceof Error ? error.message : ""}
@@ -194,22 +211,40 @@ export function PatientsPage() {
             : "No patients yet."}
         </Card>
       ) : (
-        <ul className="space-y-3" aria-label="Patients">
+        <ul
+          className="space-y-3 pb-24 md:pb-0"
+          aria-label="Patients"
+        >
           {filtered.map((patient) => {
             const age = calculateAge(patient.dateOfBirth);
             return (
               <li key={patient.id}>
                 <Link href={`/patients/${patient.id}`}>
-                  <Card className="cursor-pointer transition-colors hover:bg-(--color-muted)">
+                  <Card className="relative cursor-pointer overflow-hidden transition-colors hover:bg-(--color-muted)">
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-y-0 left-0 w-1 bg-(--color-primary)/60"
+                    />
                     <div className="flex items-center justify-between gap-4 px-6 py-5">
-                      <div className="space-y-1">
-                        <div className="text-lg font-medium leading-snug">
+                      <div className="min-w-0 space-y-1">
+                        <div className="truncate text-lg font-medium leading-snug">
                           {patient.lastName}, {patient.firstName}
                         </div>
-                        <div className="text-sm text-(--color-muted-foreground)">
-                          DOB {formatDob(patient.dateOfBirth)}
-                          {age != null ? ` · ${age} yrs` : ""} · MRN{" "}
-                          {patient.mrn}
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm text-(--color-muted-foreground)">
+                          {age != null ? (
+                            <span>
+                              <span className="font-medium text-(--color-foreground)">
+                                {age}
+                              </span>{" "}
+                              yrs
+                            </span>
+                          ) : null}
+                          <span className="tabular-nums">
+                            DOB {formatDob(patient.dateOfBirth)}
+                          </span>
+                          <span className="font-mono text-xs tabular-nums">
+                            {patient.mrn}
+                          </span>
                         </div>
                       </div>
                       <ChevronRight

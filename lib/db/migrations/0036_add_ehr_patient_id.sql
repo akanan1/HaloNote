@@ -1,0 +1,1 @@
+ALTER TABLE "patients" ADD COLUMN "ehr_patient_id" text;

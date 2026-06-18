@@ -14,6 +14,52 @@ export interface AudioSegment {
 
 interface RecordingPanelProps {
   disabled?: boolean;
+  /**
+   * If true, attempt to begin recording immediately on mount. Set by the
+   * Today schedule's "Start note" tap so the provider doesn't have to
+   * tap the mic again on arrival. Browsers gate `getUserMedia` on a
+   * user gesture for the first permission prompt — if the mic isn't
+   * pre-granted the call will throw `NotAllowedError` and we fall back
+   * to the manual button. We only fire the auto-start once per mount.
+   */
+  autoStart?: boolean;
+  /**
+   * When set, the recorder auto-stops after this many milliseconds of
+   * continuous silence (audio RMS below `silenceLevelThreshold`).
+   * Approximates "doctor walked out of the room" without needing a
+   * streaming transcript. Off when undefined or <=0. The countdown
+   * resets the instant audio rises above the threshold again, so a
+   * brief pause mid-conversation doesn't end the visit.
+   */
+  silenceAutoStopMs?: number;
+  /**
+   * Normalized 0..1 RMS level under which the mic counts as silent.
+   * Default 0.02 works for typical room noise floors; bump for noisy
+   * environments. Compared against the same averaged-byte-frequency
+   * `level` value that drives the EKG strip — no extra analysis pass.
+   */
+  silenceLevelThreshold?: number;
+  /**
+   * Fired exactly once when an auto-stop is triggered by silence. The
+   * recorder still calls its usual onstop path; this is purely a
+   * notification so the parent can surface "Stopped automatically
+   * after N seconds of silence" copy. Reset on the next start.
+   */
+  onAutoStop?: () => void;
+  /**
+   * Hands the active MediaStream to the parent so a streaming-
+   * transcript pipeline can tap PCM from it in parallel with the
+   * existing MediaRecorder upload. Fires with `null` on stop/teardown.
+   */
+  onStreamChange?: (stream: MediaStream | null) => void;
+  /**
+   * Programmatic stop signal. When this value changes to a truthy
+   * key, the recorder calls its usual stop path. Lets a parent end
+   * the visit on a verbal end-cue from the streaming transcript
+   * without needing a ref into the panel. The actual value isn't
+   * inspected — just the change.
+   */
+  externalStopSignal?: number;
   onSegmentsChange?: (segments: AudioSegment[]) => void;
 }
 
@@ -78,6 +124,12 @@ function formatDuration(ms: number): string {
 
 export function RecordingPanel({
   disabled,
+  autoStart,
+  silenceAutoStopMs,
+  silenceLevelThreshold = 0.02,
+  onAutoStop,
+  onStreamChange,
+  externalStopSignal,
   onSegmentsChange,
 }: RecordingPanelProps) {
   const [supported] = useState(isSupported);
@@ -200,6 +252,15 @@ export function RecordingPanel({
     onSegmentsChangeRef.current?.(segments);
   }, [segments]);
 
+  // Silence tracking state. silenceStartRef is the performance.now() at
+  // which the mic first dropped below the threshold in the current
+  // continuous quiet stretch (null = currently above threshold or never
+  // started). autoStopFiredRef is a one-shot latch so a single silent
+  // stretch doesn't trigger handleStop twice if the rAF tick lands on
+  // the boundary multiple times before state updates settle.
+  const silenceStartRef = useRef<number | null>(null);
+  const autoStopFiredRef = useRef(false);
+
   const startLevelLoop = useCallback(() => {
     const analyser = analyserRef.current;
     if (!analyser) return;
@@ -210,11 +271,47 @@ export function RecordingPanel({
       cur.getByteFrequencyData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i] ?? 0;
-      setLevel(sum / buf.length / 255);
+      const normalized = sum / buf.length / 255;
+      setLevel(normalized);
+
+      // Silence accounting. Only counts while actually recording (paused
+      // shouldn't accrue silence) and only when a threshold > 0 is
+      // configured. The recorder ref is the authority — `state` is one
+      // tick behind because rAF runs faster than React state flushes.
+      if (
+        silenceAutoStopMs &&
+        silenceAutoStopMs > 0 &&
+        recorderRef.current?.state === "recording" &&
+        !autoStopFiredRef.current
+      ) {
+        if (normalized < silenceLevelThreshold) {
+          if (silenceStartRef.current == null) {
+            silenceStartRef.current = performance.now();
+          } else if (
+            performance.now() - silenceStartRef.current >= silenceAutoStopMs
+          ) {
+            autoStopFiredRef.current = true;
+            // Defer to a microtask so we don't reentrantly call
+            // MediaRecorder.stop() inside the rAF callback — that
+            // confuses some browsers about whether onstop has run.
+            queueMicrotask(() => {
+              const rec = recorderRef.current;
+              if (rec && rec.state !== "inactive") {
+                onAutoStop?.();
+                if (rec.state === "paused") rec.resume();
+                rec.stop();
+              }
+            });
+          }
+        } else {
+          silenceStartRef.current = null;
+        }
+      }
+
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [silenceAutoStopMs, silenceLevelThreshold, onAutoStop]);
 
   const startTicker = useCallback(() => {
     if (tickRef.current != null) return;
@@ -258,6 +355,9 @@ export function RecordingPanel({
 
     setPermission("granted");
     streamRef.current = stream;
+    // Surface the active stream to the parent so a streaming
+    // transcript hook can tap PCM from it. Cleared in onstop.
+    onStreamChange?.(stream);
 
     const Ctx = getAudioContextCtor();
     if (Ctx) {
@@ -306,15 +406,34 @@ export function RecordingPanel({
       setState("idle");
       teardownAudioGraph();
       recorderRef.current = null;
+      // Signal stream gone to the parent so the streaming-transcript
+      // pipeline can tear its WebSocket down.
+      onStreamChange?.(null);
     };
 
     startTimeRef.current = performance.now();
     accumulatedRef.current = 0;
+    silenceStartRef.current = null;
+    autoStopFiredRef.current = false;
     recorder.start(250);
     setState("recording");
     startLevelLoop();
     startTicker();
   }, [supported, disabled, teardownAudioGraph, startLevelLoop, startTicker]);
+
+  // Auto-start once per mount when the parent (e.g. Today → "Start
+  // note") asks for it. Runs after `handleStart` is defined so the
+  // closure captures the latest callbacks. Guard with a ref so a parent
+  // re-render that flips `autoStart` back doesn't re-trigger us.
+  const autoStartFiredRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart) return;
+    if (autoStartFiredRef.current) return;
+    if (!supported || disabled) return;
+    if (state !== "idle") return;
+    autoStartFiredRef.current = true;
+    void handleStart();
+  }, [autoStart, supported, disabled, state, handleStart]);
 
   const handlePause = useCallback(() => {
     const rec = recorderRef.current;
@@ -351,6 +470,18 @@ export function RecordingPanel({
   const handleDeleteSegment = useCallback((id: string) => {
     setSegments((s) => s.filter((seg) => seg.id !== id));
   }, []);
+
+  // External stop trigger (verbal end-cue from the streaming
+  // transcript bridge). The host bumps a counter; we ignore the
+  // initial value and stop on every subsequent change.
+  const lastStopSignalRef = useRef<number | undefined>(externalStopSignal);
+  useEffect(() => {
+    if (externalStopSignal === lastStopSignalRef.current) return;
+    lastStopSignalRef.current = externalStopSignal;
+    if (externalStopSignal !== undefined) {
+      handleStop();
+    }
+  }, [externalStopSignal, handleStop]);
 
   if (!supported) {
     return (

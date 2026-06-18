@@ -146,6 +146,7 @@ describe("CSRF (integration)", () => {
       .insert(patientsTable)
       .values({
         id: "pt_test",
+        organizationId: "org_default",
         firstName: "Test",
         lastName: "Patient",
         dateOfBirth: "1990-01-01",

@@ -9,10 +9,11 @@ import {
   recordingSegmentsTable,
   type RecordingJob,
   type RecordingSegment,
-  type RecordingStatus,
 } from "@workspace/db";
 import { getRecordingStorage } from "../lib/recording-storage";
+import { getRecordingPipeline } from "../lib/recording-pipeline";
 import { logger } from "../lib/logger";
+import { getActiveOrgId } from "../lib/active-org";
 
 const router: IRouter = Router();
 
@@ -25,11 +26,14 @@ const ACCEPTABLE_AUDIO_PREFIXES = ["audio/", "video/webm"];
 function serializeJob(row: typeof recordingJobsTable.$inferSelect): RecordingJob {
   return {
     id: row.id,
+    organizationId: row.organizationId,
     userId: row.userId,
     patientId: row.patientId,
+    encounterId: row.encounterId,
     noteId: row.noteId,
     status: row.status,
     transcript: row.transcript,
+    liveTranscript: row.liveTranscript,
     structuredBody: row.structuredBody,
     errorMessage: row.errorMessage,
     createdAt: row.createdAt,
@@ -53,9 +57,9 @@ function serializeSegment(
   };
 }
 
-// Look up a job by id AND owner so any handler that returns 404 also
-// hides existence of cross-user rows.
-async function getOwnedJob(jobId: string, userId: string) {
+// Look up a job by id AND owner AND org so any handler that returns 404
+// also hides existence of cross-user OR cross-org rows.
+async function getOwnedJob(jobId: string, userId: string, organizationId: string) {
   const [row] = await getDb()
     .select()
     .from(recordingJobsTable)
@@ -63,6 +67,7 @@ async function getOwnedJob(jobId: string, userId: string) {
       and(
         eq(recordingJobsTable.id, jobId),
         eq(recordingJobsTable.userId, userId),
+        eq(recordingJobsTable.organizationId, organizationId),
       ),
     )
     .limit(1);
@@ -75,6 +80,8 @@ router.post("/recordings", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const parsed = CreateRecordingBody.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({
@@ -86,10 +93,16 @@ router.post("/recordings", async (req, res) => {
 
   const patientId = parsed.data.patientId ?? null;
   if (patientId) {
+    // Scope by org so a leaked patient id from another tenant returns 404.
     const [p] = await getDb()
       .select({ id: patientsTable.id })
       .from(patientsTable)
-      .where(eq(patientsTable.id, patientId))
+      .where(
+        and(
+          eq(patientsTable.id, patientId),
+          eq(patientsTable.organizationId, orgId),
+        ),
+      )
       .limit(1);
     if (!p) {
       res.status(404).json({ error: "patient_not_found" });
@@ -100,6 +113,7 @@ router.post("/recordings", async (req, res) => {
   const [row] = await getDb()
     .insert(recordingJobsTable)
     .values({
+      organizationId: orgId,
       userId: user.id,
       patientId,
     })
@@ -131,7 +145,9 @@ router.post(
       res.status(401).json({ error: "unauthenticated" });
       return;
     }
-    const job = await getOwnedJob(req.params["id"] ?? "", user.id);
+    const orgId = getActiveOrgId(req, res);
+    if (!orgId) return;
+    const job = await getOwnedJob(req.params["id"] ?? "", user.id, orgId);
     if (!job) {
       res.status(404).json({ error: "recording_not_found" });
       return;
@@ -227,7 +243,9 @@ router.post("/recordings/:id/finalize", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  const job = await getOwnedJob(req.params["id"] ?? "", user.id);
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const job = await getOwnedJob(req.params["id"] ?? "", user.id, orgId);
   if (!job) {
     res.status(404).json({ error: "recording_not_found" });
     return;
@@ -256,12 +274,16 @@ router.post("/recordings/:id/finalize", async (req, res) => {
     return;
   }
 
-  // Kick off the placeholder worker without awaiting it — the client
-  // polls GET /recordings/{id} to learn when it lands. Slice 3 swaps
-  // this stub for the real Deepgram + Claude pipeline.
-  void runPlaceholderPipeline(queued.id).catch((err) => {
-    logger.error({ err, jobId: queued.id }, "recordings: pipeline crashed");
-  });
+  // Kick off the pipeline without awaiting it — the client polls
+  // GET /recordings/{id} to learn when it lands. The pipeline
+  // implementation is selected at boot by `getRecordingPipeline()`:
+  // placeholder in dev/CI without keys, real Deepgram+Claude when
+  // `RECORDING_PIPELINE=real` (or `auto` + both keys present).
+  void getRecordingPipeline()
+    .run(queued.id)
+    .catch((err) => {
+      logger.error({ err, jobId: queued.id }, "recordings: pipeline crashed");
+    });
 
   res.json(serializeJob(queued));
 });
@@ -272,7 +294,9 @@ router.get("/recordings/:id", async (req, res) => {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  const job = await getOwnedJob(req.params["id"] ?? "", user.id);
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const job = await getOwnedJob(req.params["id"] ?? "", user.id, orgId);
   if (!job) {
     res.status(404).json({ error: "recording_not_found" });
     return;
@@ -287,66 +311,5 @@ router.get("/recordings/:id", async (req, res) => {
     segments: segments.map(serializeSegment),
   });
 });
-
-// ---------------------------------------------------------------------------
-// Placeholder worker (Slice 2)
-// ---------------------------------------------------------------------------
-// Drives the job state machine end-to-end with a fake delay and a
-// hard-coded structured body. Slice 3 replaces this with: pull each
-// segment from storage → send to Deepgram (with diarization) → take
-// the merged transcript + patient context + the user's last 10 notes
-// (style memory) → Claude Opus structuring pass → save result.
-
-async function setStatus(
-  jobId: string,
-  next: RecordingStatus,
-  patch: Partial<typeof recordingJobsTable.$inferInsert> = {},
-) {
-  await getDb()
-    .update(recordingJobsTable)
-    .set({ ...patch, status: next, updatedAt: new Date() })
-    .where(eq(recordingJobsTable.id, jobId));
-}
-
-async function runPlaceholderPipeline(jobId: string): Promise<void> {
-  const startedAt = Date.now();
-  try {
-    await setStatus(jobId, "transcribing");
-    await new Promise((r) => setTimeout(r, 1500));
-    const transcript =
-      "[placeholder transcript — Slice 3 will replace this with a real Deepgram pass]";
-
-    await setStatus(jobId, "structuring", { transcript });
-    await new Promise((r) => setTimeout(r, 1500));
-    const structuredBody = [
-      "Subjective:",
-      "  [Placeholder — Slice 3 wires Claude Opus to produce a structured clinical note from the audio.]",
-      "",
-      "Objective:",
-      "  [Vitals, exam findings, etc.]",
-      "",
-      "Assessment & Plan:",
-      "  [AI-generated assessment and plan goes here.]",
-      "",
-    ].join("\n");
-
-    await setStatus(jobId, "done", {
-      transcript,
-      structuredBody,
-      completedAt: new Date(),
-    });
-    logger.info(
-      { jobId, durationMs: Date.now() - startedAt },
-      "recordings: placeholder pipeline done",
-    );
-  } catch (err) {
-    await setStatus(jobId, "failed", {
-      errorMessage:
-        err instanceof Error ? err.message : "Placeholder pipeline error",
-      completedAt: new Date(),
-    }).catch(() => {});
-    logger.error({ err, jobId }, "recordings: placeholder pipeline failed");
-  }
-}
 
 export default router;

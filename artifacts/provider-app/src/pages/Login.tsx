@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { ApiError } from "@workspace/api-client-react";
 import { useAuth } from "@/lib/auth";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { redirectAfterLogin, safeNext } from "@/lib/safe-redirect";
 
 export function LoginPage() {
   const { signIn } = useAuth();
@@ -16,6 +17,15 @@ export function LoginPage() {
   const [totpRequired, setTotpRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Resume target for flows that bounce through /login — currently
+  // the Cerner SMART EHR launch (api-server 303s unauthenticated
+  // residents here with ?next=/api/auth/ehr/cerner/launch?...).
+  // Validated once on mount; invalid values fall back to "/".
+  const nextTarget = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return safeNext(params.get("next"));
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -35,7 +45,10 @@ export function LoginPage() {
         password,
         totpRequired ? totpCode.trim() : undefined,
       );
-      navigate("/");
+      // If a validated resume target survived the safeNext gate, do
+      // a full-page nav to it (required for /api/* targets like the
+      // Cerner launch). Otherwise wouter SPA-nav to "/".
+      redirectAfterLogin(nextTarget, () => navigate("/"));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         const code =
@@ -71,7 +84,12 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center">
+    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6">
+      <img
+        src="/halonote-logo-on-light.svg"
+        alt="HaloNote"
+        className="h-8 w-auto"
+      />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Sign in</CardTitle>

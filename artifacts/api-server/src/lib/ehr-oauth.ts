@@ -6,9 +6,11 @@ import {
   getDb,
   type EhrConnection,
 } from "@workspace/db";
+import { JwksClient, verifyJwt, JwtVerificationError } from "@workspace/ehr";
 import { decryptToken, encryptToken } from "./token-crypto";
+import { cernerConfig } from "./cerner-launch";
 
-export type EhrProvider = "athenahealth" | "epic";
+export type EhrProvider = "athenahealth" | "epic" | "cerner";
 
 export class OauthStateError extends Error {
   override readonly name = "OauthStateError";
@@ -36,6 +38,22 @@ interface ProviderConfig {
   clientSecret: string;
   scope: string;
   redirectUri: string;
+  // Optional. When set, id_tokens returned from the token endpoint are
+  // signature-verified against the JWKS at this URL before any claim
+  // (practitioner id, fhirUser, etc.) is trusted. Providers without a
+  // configured jwksUri fall back to TLS-trusted top-level token-response
+  // fields only — the unverified id_token payload is NEVER read.
+  jwksUri?: string;
+  // Optional. When set, the access token minted at callback time is
+  // introspected (RFC 7662) before the connection is persisted. The
+  // returned `scope` is checked against `requiredScopes` — a missing
+  // required scope fails the OAuth flow rather than letting the user
+  // hit a confusing 4xx on first write-back.
+  introspectUrl?: string;
+  // Optional. When set, every scope in this list must appear in the
+  // introspect response's granted-scope set. Empty / unset = no
+  // enforcement (callback succeeds with whatever scopes Athena granted).
+  requiredScopes?: string[];
 }
 
 function requireEnv(name: string): string {
@@ -62,19 +80,39 @@ function athenahealthConfig(): ProviderConfig {
   const authorizeUrl =
     maybeEnv("ATHENA_AUTHORIZE_URL") ??
     tokenUrl.replace(/\/token(\b|$)/, "/authorize$1");
+  const clientId = requireEnv("ATHENA_CLIENT_ID");
+  // Athena (Okta-backed) JWKS is at the sibling `/keys` path and
+  // requires the `client_id` query param. See:
+  //   https://docs.athenahealth.com/api/guides/additional-oauth-endpoints
+  const jwksUri =
+    maybeEnv("ATHENA_JWKS_URL") ??
+    `${tokenUrl.replace(/\/token(\b|$)/, "/keys$1")}?client_id=${encodeURIComponent(clientId)}`;
+  // Introspect is a sibling of `/token` per Athena's docs.
+  const introspectUrl =
+    maybeEnv("ATHENA_INTROSPECT_URL") ??
+    tokenUrl.replace(/\/token(\b|$)/, "/introspect$1");
+  // Operators set this to enforce a minimum scope set at connect-time.
+  // Example: "openid fhirUser user/DocumentReference.write patient/*.read"
+  const requiredScopes = maybeEnv("ATHENA_REQUIRED_SCOPES")
+    ?.split(/\s+/)
+    .filter(Boolean);
   return {
     authorizeUrl,
     tokenUrl,
     fhirBaseUrl,
-    clientId: requireEnv("ATHENA_CLIENT_ID"),
+    clientId,
     clientSecret: requireEnv("ATHENA_CLIENT_SECRET"),
     scope: process.env["ATHENA_SCOPE"] ?? "openid fhirUser",
     redirectUri: requireEnv("ATHENA_REDIRECT_URI"),
+    jwksUri,
+    introspectUrl,
+    requiredScopes,
   };
 }
 
 export function providerConfig(provider: EhrProvider): ProviderConfig {
   if (provider === "athenahealth") return athenahealthConfig();
+  if (provider === "cerner") return cernerConfig();
   // Epic uses the same SMART flow but a different env-var family. Wire
   // when needed — the rest of this module is provider-agnostic.
   throw new Error(`SMART OAuth not configured for provider "${provider}".`);
@@ -100,13 +138,28 @@ export interface StartFlowResult {
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 export async function startOauthFlow({
+  organizationId,
   userId,
   provider,
   returnPath,
+  launch,
 }: {
+  // The org the connection will be created for. Locked at /start time
+  // so a mid-flow org-switch can't cause the callback to write the
+  // connection into the wrong tenant.
+  organizationId: string;
   userId: string;
   provider: EhrProvider;
   returnPath?: string;
+  /**
+   * SMART EHR-launch token. When present, the authorize URL carries
+   * `launch=<token>` so the IdP knows which clinical-context bundle
+   * to associate with the authorize request. Cerner-launched flows
+   * always supply this; Athena's standalone-launch flow does not.
+   * Per SMART, the `launch` scope must also be in the scope set
+   * when this is used — callers configure that via providerConfig.
+   */
+  launch?: string;
 }): Promise<StartFlowResult> {
   const cfg = providerConfig(provider);
   const state = generateState();
@@ -114,6 +167,7 @@ export async function startOauthFlow({
 
   await getDb().insert(ehrOauthStatesTable).values({
     state,
+    organizationId,
     userId,
     provider,
     codeVerifier: verifier,
@@ -122,6 +176,9 @@ export async function startOauthFlow({
 
   // Athena requires `aud` set to the FHIR base URL — without it the
   // authorize endpoint 400s. PKCE S256 + state are SMART-standard.
+  // Cerner additionally consumes `launch` here for the EHR-launch
+  // flow (`aud` is the iss the EHR passed us, which our config has
+  // pinned to CERNER_FHIR_BASE_URL).
   const url = new URL(cfg.authorizeUrl);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", cfg.clientId);
@@ -131,11 +188,17 @@ export async function startOauthFlow({
   url.searchParams.set("aud", cfg.fhirBaseUrl);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
+  if (launch) {
+    url.searchParams.set("launch", launch);
+  }
 
   return { authorizeUrl: url.toString(), state };
 }
 
 interface PendingState {
+  // Nullable for backfill on rows created before migration 0022.
+  // completeOauthFlow throws if this is null when finalizing.
+  organizationId: string | null;
   userId: string;
   provider: EhrProvider;
   codeVerifier: string;
@@ -162,6 +225,7 @@ export async function consumeOauthState(state: string): Promise<PendingState> {
     throw new OauthStateError("state_expired");
   }
   return {
+    organizationId: row.organizationId,
     userId: row.userId,
     provider: row.provider as EhrProvider,
     codeVerifier: row.codeVerifier,
@@ -187,29 +251,65 @@ interface TokenResponse {
   id_token?: string;
 }
 
-function readJwtPractitioner(idToken: string | undefined): string | null {
-  if (!idToken) return null;
-  const parts = idToken.split(".");
-  if (parts.length < 2) return null;
-  try {
-    const payload = JSON.parse(
-      Buffer.from(parts[1]!, "base64url").toString("utf8"),
-    ) as Record<string, unknown>;
-    // SMART id_tokens carry `fhirUser` as a reference like
-    // "Practitioner/abc-123". Some IdPs also use `profile`.
-    const candidates = [payload["fhirUser"], payload["profile"]];
-    for (const c of candidates) {
-      if (typeof c === "string" && c.includes("Practitioner/")) {
-        return c.slice(c.lastIndexOf("/") + 1);
-      }
+// Module-level cache of JwksClient keyed by jwksUri — one client per
+// (provider, deployment) URL. The client itself caches the JWKS document
+// internally; this map just deduplicates client instances so we don't
+// hold a separate TTL clock per callback.
+const jwksClients = new Map<string, JwksClient>();
+
+function getJwksClient(jwksUri: string): JwksClient {
+  let client = jwksClients.get(jwksUri);
+  if (!client) {
+    client = new JwksClient({ jwksUri });
+    jwksClients.set(jwksUri, client);
+  }
+  return client;
+}
+
+/** Exported for tests; do not call from production code. */
+export function _resetJwksCacheForTests(): void {
+  jwksClients.clear();
+}
+
+async function readVerifiedJwtClaims(
+  idToken: string,
+  cfg: ProviderConfig,
+): Promise<Record<string, unknown>> {
+  if (!cfg.jwksUri) {
+    // Provider has no JWKS configured. Refuse to read claims from an
+    // unsigned id_token — the caller will fall through to the
+    // TLS-trusted top-level fields. This is intentional: silently
+    // trusting an unverified id_token would defeat the whole point of
+    // adding signature verification.
+    throw new JwtVerificationError("no_jwks_configured");
+  }
+  const { claims } = await verifyJwt({
+    token: idToken,
+    jwks: getJwksClient(cfg.jwksUri),
+    // OIDC: aud of an id_token is the client_id it was issued to.
+    expectedAudience: cfg.clientId,
+  });
+  return claims;
+}
+
+function practitionerFromClaims(
+  claims: Record<string, unknown>,
+): string | null {
+  // SMART id_tokens carry `fhirUser` as a reference like
+  // "Practitioner/abc-123". Some IdPs also use `profile`.
+  const candidates = [claims["fhirUser"], claims["profile"]];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.includes("Practitioner/")) {
+      return c.slice(c.lastIndexOf("/") + 1);
     }
-  } catch {
-    // best effort
   }
   return null;
 }
 
-function extractPractitionerId(json: TokenResponse): string | null {
+async function extractPractitionerId(
+  json: TokenResponse,
+  cfg: ProviderConfig,
+): Promise<string | null> {
   if (typeof json.practitioner === "string" && json.practitioner.length > 0) {
     // Sometimes returned as "Practitioner/123" — keep only the id part.
     const ref = json.practitioner;
@@ -221,8 +321,14 @@ function extractPractitionerId(json: TokenResponse): string | null {
       return ref.slice("Practitioner/".length);
     }
   }
-  const fromJwt = readJwtPractitioner(json.id_token);
-  if (fromJwt) return fromJwt;
+  if (json.id_token && cfg.jwksUri) {
+    // Signature-verified id_token. A verification failure here is treated
+    // as a hard error by the caller — better to refuse the connection
+    // than to attribute notes to a practitioner id we can't authenticate.
+    const claims = await readVerifiedJwtClaims(json.id_token, cfg);
+    const fromJwt = practitionerFromClaims(claims);
+    if (fromJwt) return fromJwt;
+  }
   return null;
 }
 
@@ -241,21 +347,91 @@ function basicAuthHeader(clientId: string, clientSecret: string): string {
   ).toString("base64");
 }
 
+interface IntrospectResponse {
+  active: boolean;
+  scope?: string;
+  exp?: number;
+}
+
+/**
+ * RFC 7662 token introspection. Athena requires client authentication
+ * via Basic header (see additional-oauth-endpoints docs). Returns the
+ * parsed response on success; throws OauthExchangeError on non-2xx so
+ * callers see a clear failure mode rather than a silent "no enforcement
+ * happened" path.
+ */
+export async function introspectToken(
+  cfg: ProviderConfig,
+  accessToken: string,
+): Promise<IntrospectResponse> {
+  if (!cfg.introspectUrl) {
+    throw new Error("introspectToken called without introspectUrl");
+  }
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/x-www-form-urlencoded",
+    authorization: `Basic ${basicAuthHeader(cfg.clientId, cfg.clientSecret)}`,
+  };
+  const body = new URLSearchParams();
+  body.set("token", accessToken);
+  body.set("token_type_hint", "access_token");
+  const res = await fetch(cfg.introspectUrl, {
+    method: "POST",
+    headers,
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    // Body is intentionally not echoed — introspect responses include
+    // scope strings and token metadata that we don't want in logs.
+    throw new OauthExchangeError(
+      `Token introspection failed: ${res.status} ${res.statusText}`,
+      res.status,
+    );
+  }
+  return (await res.json()) as IntrospectResponse;
+}
+
+function checkRequiredScopes(
+  granted: string | undefined,
+  required: string[],
+): void {
+  const grantedSet = new Set(
+    (granted ?? "").split(/\s+/).filter((s) => s.length > 0),
+  );
+  const missing = required.filter((s) => !grantedSet.has(s));
+  if (missing.length > 0) {
+    // Don't echo the granted scope string — it's not PHI but it is
+    // operator-tier configuration data that doesn't belong in client-
+    // facing errors. The missing-scope list IS safe to surface (the
+    // operator chose those values).
+    throw new OauthExchangeError(
+      `Required scopes not granted: ${missing.join(" ")}`,
+      403,
+    );
+  }
+}
+
 async function postTokenEndpoint(
   cfg: ProviderConfig,
   body: URLSearchParams,
 ): Promise<TokenResponse> {
-  // Athena's preview accepts the client_secret in either the Basic
-  // header or the body. We use Basic so the secret never appears in
-  // any logged request body.
-  const basic = basicAuthHeader(cfg.clientId, cfg.clientSecret);
+  // Confidential clients: send credentials via Basic so the secret
+  // never appears in any logged request body.
+  // Public clients (Cerner pilot registers as public): the secret is
+  // empty; SMART says to put `client_id` in the body and omit Basic
+  // entirely. PKCE still authenticates the client.
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  if (cfg.clientSecret.length > 0) {
+    headers["authorization"] = `Basic ${basicAuthHeader(cfg.clientId, cfg.clientSecret)}`;
+  } else if (!body.has("client_id")) {
+    body.set("client_id", cfg.clientId);
+  }
   const res = await fetch(cfg.tokenUrl, {
     method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/x-www-form-urlencoded",
-      authorization: `Basic ${basic}`,
-    },
+    headers,
     body: body.toString(),
   });
   const text = await res.text();
@@ -286,11 +462,25 @@ async function postTokenEndpoint(
 }
 
 export interface CompletedConnection {
+  organizationId: string;
   userId: string;
   provider: EhrProvider;
   practitionerId: string | null;
   expiresAt: Date;
   returnPath: string | null;
+  /**
+   * SMART launch context returned by the IdP in the token response.
+   * Populated when present (Cerner EHR-launch flows always include
+   * them; Athena's standalone flow leaves them null). The plaintext
+   * access token is included so the caller can do a one-shot FHIR
+   * read for patient sync — it is NOT persisted in plaintext
+   * (upsertConnection already encrypted the stored copy).
+   */
+  launchContext: {
+    patient: string | null;
+    encounter: string | null;
+    accessToken: string;
+  } | null;
 }
 
 export async function completeOauthFlow({
@@ -313,24 +503,93 @@ export async function completeOauthFlow({
   const json = await postTokenEndpoint(cfg, body);
   const expiresInSec = clampExpiresIn(json.expires_in);
   const expiresAt = new Date(Date.now() + expiresInSec * 1000);
-  const practitionerId = extractPractitionerId(json);
+  let practitionerId: string | null;
+  try {
+    practitionerId = await extractPractitionerId(json, cfg);
+  } catch (err) {
+    if (err instanceof JwtVerificationError) {
+      // Tampered or invalid id_token signature — refuse the whole
+      // connection. The token endpoint response is TLS-trusted, but a
+      // valid id_token signature is the OIDC-spec defense against
+      // misissued or replayed tokens and the binding for practitioner
+      // attribution. Failing closed here is a HIPAA-integrity choice.
+      throw new OauthExchangeError(
+        `id_token verification failed (${err.reason})`,
+        401,
+      );
+    }
+    throw err;
+  }
 
+  // Introspect + scope enforcement. Gated on both `introspectUrl` and a
+  // non-empty `requiredScopes` so unconfigured providers (Cerner, Epic
+  // until wired) and operators who haven't opted in skip the extra
+  // round-trip. The granted-scope source of truth is the introspect
+  // response — NOT the token response's `scope` field — because some
+  // IdPs return a permissive `scope` echo in the token response and a
+  // narrower actually-granted set via introspect.
+  let grantedScope = json.scope ?? null;
+  if (
+    cfg.introspectUrl &&
+    cfg.requiredScopes &&
+    cfg.requiredScopes.length > 0
+  ) {
+    const introspected = await introspectToken(cfg, json.access_token);
+    if (!introspected.active) {
+      throw new OauthExchangeError("introspected_token_inactive", 401);
+    }
+    checkRequiredScopes(introspected.scope, cfg.requiredScopes);
+    if (introspected.scope) grantedScope = introspected.scope;
+  }
+
+  if (!pending.organizationId) {
+    // Legacy state row created before 0022. We could fall back to the
+    // user's primary membership, but failing closed is safer: this
+    // would only happen for in-flight flows that crossed the migration
+    // boundary, and forcing a restart is benign.
+    throw new OauthStateError("state_missing_organization");
+  }
   await upsertConnection({
+    organizationId: pending.organizationId,
     userId: pending.userId,
     provider: pending.provider,
     accessToken: json.access_token,
     refreshToken: json.refresh_token ?? null,
     expiresAt,
     practitionerId,
-    scope: json.scope ?? null,
+    scope: grantedScope,
   });
 
+  // Parse SMART launch context from the token response. Patient
+  // comes back as a bare id (per SMART) but defensively strip a
+  // `Patient/` prefix if a server adds one. Same for encounter.
+  const stripRef = (ref: string | undefined, type: string): string | null => {
+    if (!ref) return null;
+    if (ref.startsWith(`${type}/`)) return ref.slice(type.length + 1);
+    return ref;
+  };
+  const launchContext =
+    json.patient || json.encounter
+      ? {
+          patient: stripRef(json.patient, "Patient"),
+          encounter: stripRef(json.encounter, "Encounter"),
+          // The caller decrypts again later via getValidAccessToken
+          // for any persistent operations; but for the one-shot
+          // FHIR Patient read at callback time we have the plaintext
+          // right here. Persisted copy is already encrypted above.
+          accessToken: json.access_token,
+        }
+      : null;
+
   return {
+    // Non-null is guaranteed by the throw above on pending.organizationId.
+    organizationId: pending.organizationId,
     userId: pending.userId,
     provider: pending.provider,
     practitionerId,
     expiresAt,
     returnPath: pending.returnPath,
+    launchContext,
   };
 }
 
@@ -348,6 +607,7 @@ function clampExpiresIn(value: unknown): number {
 // Exported for tests that assert the at-rest encryption boundary.
 // Production callers should still go through `completeOauthFlow`.
 export async function upsertConnection(input: {
+  organizationId: string;
   userId: string;
   provider: EhrProvider;
   accessToken: string;
@@ -368,6 +628,7 @@ export async function upsertConnection(input: {
     await tx
       .insert(ehrConnectionsTable)
       .values({
+        organizationId: input.organizationId,
         userId: input.userId,
         provider: input.provider,
         accessToken: encryptedAccess,

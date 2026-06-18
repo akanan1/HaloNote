@@ -85,7 +85,20 @@ export function AuditLogPage() {
       </section>
 
       {query.isPending ? (
-        <p className="text-(--color-muted-foreground)">Loading…</p>
+        <Card
+          className="overflow-hidden"
+          role="status"
+          aria-label="Loading audit entries"
+        >
+          <ul className="divide-y divide-(--color-border)">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-3">
+                <div className="h-3 w-24 animate-pulse rounded bg-(--color-muted)" />
+                <div className="h-3 flex-1 animate-pulse rounded bg-(--color-muted)" />
+              </li>
+            ))}
+          </ul>
+        </Card>
       ) : query.isError ? (
         <ErrorMessage error={query.error} />
       ) : query.data.data.length === 0 ? (

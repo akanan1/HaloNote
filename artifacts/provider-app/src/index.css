@@ -2,21 +2,28 @@
 @import "tw-animate-css";
 
 @theme {
+  /* Brand typeface — Urbanist per HaloNote Brand Guidelines 2026.
+     Loaded from Google Fonts in index.html. */
   --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Urbanist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --color-background: hsl(210 20% 99%);
-  --color-foreground: hsl(220 18% 12%);
-  --color-muted: hsl(210 16% 96%);
-  --color-muted-foreground: hsl(220 9% 46%);
+  /* Brand palette mirrors marketing-site (HSL): primary = brand blue
+     224 84% 54%. Background tinted toward the same hue family so the
+     whole UI reads as part of one brand. */
+  --color-background: hsl(210 20% 96%);
+  --color-foreground: hsl(215 25% 12%);
+  --color-muted: hsl(210 16% 93%);
+  --color-muted-foreground: hsl(215 12% 46%);
   --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(220 18% 12%);
-  --color-border: hsl(220 13% 91%);
-  --color-input: hsl(220 13% 91%);
-  --color-ring: hsl(217 91% 60%);
-  --color-primary: hsl(217 91% 47%);
+  --color-card-foreground: hsl(215 25% 12%);
+  --color-border: hsl(210 14% 86%);
+  --color-input: hsl(210 14% 88%);
+  --color-ring: hsl(224 84% 54%);
+  --color-primary: hsl(224 84% 54%);
   --color-primary-foreground: hsl(0 0% 100%);
-  --color-destructive: hsl(0 72% 51%);
+  --color-accent: hsl(207 40% 88%);
+  --color-accent-foreground: hsl(207 75% 30%);
+  --color-destructive: hsl(0 75% 50%);
   --color-destructive-foreground: hsl(0 0% 100%);
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -39,7 +46,9 @@
 
 /* Print styles for clinical notes — strip UI chrome and lay out the
    note body for paper. Hide elements with `print:hidden` (Tailwind),
-   reveal print-only blocks with `print:block`. */
+   reveal print-only blocks with `print:block`. The print-header
+   below is rendered in JSX with `print:block hidden` so the
+   patient/DOB/date/provider banner only appears on paper or in PDF. */
 @media print {
   @page {
     margin: 0.75in;
@@ -49,9 +58,110 @@
     background: white !important;
     color: black !important;
   }
-  /* Make the note body more readable on paper than on screen. */
+  /* Clinical notes have read like this on chart paper for decades.
+     Tailwind's sans default looks out of place when printed. */
+  body {
+    font-family: "Times New Roman", Times, serif;
+  }
+  /* Make the note body more readable on paper than on screen.
+     white-space:pre-wrap preserves the paragraph spacing the clinician
+     typed (newlines, indentation) without collapsing whitespace. */
   .print-note-body {
     font-size: 12pt;
     line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  /* Print-only patient/visit banner. Hidden on screen via Tailwind. */
+  .print-header {
+    border-bottom: 1.5pt solid black;
+    margin-bottom: 18pt;
+    padding-bottom: 8pt;
+  }
+  .print-header h1 {
+    font-size: 16pt;
+    font-weight: 600;
+    margin-bottom: 6pt;
+    letter-spacing: 0.02em;
+  }
+  .print-header dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 12pt;
+    row-gap: 2pt;
+    font-size: 11pt;
+  }
+  .print-header dt {
+    font-weight: 600;
+  }
+  .print-header dd {
+    margin: 0;
+  }
+  /* Don't break between the heading and the first line of the note. */
+  .print-header + * {
+    break-before: avoid-page;
   }
 }
+
+/* Patient-summary print mode. Toggled by the Print button on the
+   PatientSummaryPanel: sets body.print-mode-summary, calls window.print(),
+   and removes the class on the 'afterprint' event. CSS here hides
+   everything EXCEPT the .print-summary-root and lays the summary out as
+   a handout (sans-serif, looser leading, the 'Call us right away if…'
+   block kept on its own page if it's the last section). */
+@media print {
+  body.print-mode-summary > *:not(.print-summary-root) {
+    display: none !important;
+  }
+  body.print-mode-summary .print-summary-root {
+    display: block !important;
+    color: black !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      sans-serif;
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+  body.print-mode-summary .print-summary-header {
+    display: block !important;
+    border-bottom: 1.5pt solid black;
+    margin-bottom: 18pt;
+    padding-bottom: 8pt;
+  }
+  body.print-mode-summary .print-summary-header h1 {
+    font-size: 18pt;
+    font-weight: 700;
+    margin-bottom: 4pt;
+  }
+  body.print-mode-summary .print-summary-header p {
+    font-size: 10pt;
+    color: #444;
+    margin: 0;
+  }
+  body.print-mode-summary .print-summary-section h2 {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 14pt;
+    margin-bottom: 4pt;
+  }
+  body.print-mode-summary .print-summary-section ul {
+    margin-left: 18pt;
+    padding-left: 0;
+  }
+  body.print-mode-summary .print-summary-warning {
+    border: 1pt solid #b91c1c;
+    background: #fef2f2;
+    color: #7f1d1d;
+    padding: 10pt 12pt;
+    margin-top: 14pt;
+    break-inside: avoid-page;
+  }
+  body.print-mode-summary .print-summary-footer {
+    margin-top: 24pt;
+    border-top: 0.75pt solid #999;
+    padding-top: 8pt;
+    font-size: 9pt;
+    color: #555;
+  }
+}
+

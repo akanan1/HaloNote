@@ -85,6 +85,181 @@
       "when": 1778873853470,
       "tag": "0011_recordings",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781031181324,
+      "tag": "0012_add-writing-style-profile-to-users",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781043512719,
+      "tag": "0013_add-provider-phrase-mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781044813160,
+      "tag": "0014_add-provider-note-defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781046167589,
+      "tag": "0015_add-onboarding-completed-at",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781047717751,
+      "tag": "0016_add-legal-acceptances",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781049201936,
+      "tag": "0017_add-is-founder",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781117333236,
+      "tag": "0018_add-legal-reaccept-required-at",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781122639356,
+      "tag": "0019_add-legal-document-overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1781624501173,
+      "tag": "0020_add_organizations",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1781624732198,
+      "tag": "0021_add_organization_id_to_phi",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1781625567841,
+      "tag": "0022_add_org_to_oauth_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1781630436091,
+      "tag": "0023_add_encounters_and_note_approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1781632639857,
+      "tag": "0024_add_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1781633352253,
+      "tag": "0025_add_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1781634002875,
+      "tag": "0026_add_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1781646412384,
+      "tag": "0027_add_extracted_vitals",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781648522495,
+      "tag": "0028_add_smart_phrases",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1781659911928,
+      "tag": "0029_add_auto_push_to_ehr",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1781668003646,
+      "tag": "0030_add_silence_auto_stop",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1781668800000,
+      "tag": "0031_switch_to_auto_push_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781700534892,
+      "tag": "0032_add_auto_pushed_without_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781702411575,
+      "tag": "0033_add_verbal_cues_and_live_transcript",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781704518547,
+      "tag": "0034_add_ehr_push_columns_to_orders_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1781712526337,
+      "tag": "0035_add_auto_push_orders_meds",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781715077139,
+      "tag": "0036_add_ehr_patient_id",
+      "breakpoints": true
     }
   ]
 }

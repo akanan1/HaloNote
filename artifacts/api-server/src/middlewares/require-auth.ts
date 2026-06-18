@@ -6,6 +6,12 @@ declare module "express-serve-static-core" {
   interface Request {
     user?: User;
     sessionId?: string;
+    // The org the session is currently acting on behalf of. Set when
+    // the session's `active_organization_id` is non-null AND the user
+    // still has an active membership in that org. Null otherwise —
+    // routes that touch PHI must gate on this being a string (use the
+    // `getActiveOrgId(req)` helper to assert + extract).
+    activeOrganizationId?: string;
   }
 }
 
@@ -24,6 +30,10 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
 
   req.user = result.user;
   req.sessionId = result.session.id;
+  // Trust the session's stored active org for now. Phase 0c will add a
+  // freshness check against organization_members.is_active and tighten
+  // this to refuse requests whose membership has been revoked.
+  req.activeOrganizationId = result.session.activeOrganizationId ?? undefined;
   next();
 };
 

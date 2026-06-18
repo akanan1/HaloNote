@@ -39,3 +39,25 @@ export async function getAthenahealthClientForUser(
     practitionerId: conn.practitionerId,
   };
 }
+
+// Mirrors the Athena helper above so callers can request per-user
+// Cerner FHIR access the same way they do Athena. Cerner-launched
+// residents must hit this path — falling back to the env-driven
+// global Athena/Epic client would surface another tenant's chart
+// data, which is the kind of bug we don't get to ship.
+export async function getCernerClientForUser(
+  userId: string,
+): Promise<UserEhrClient | null> {
+  const conn = await getConnection(userId, "cerner");
+  if (!conn) return null;
+
+  const fhir = new FhirClient({
+    baseUrl: requireEnv("CERNER_FHIR_BASE_URL"),
+    getToken: () => getValidAccessToken(userId, "cerner"),
+  });
+  return {
+    fhir,
+    documentReference: new DocumentReferencePusher(fhir),
+    practitionerId: conn.practitionerId,
+  };
+}

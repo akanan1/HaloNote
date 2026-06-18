@@ -15,8 +15,20 @@ pnpm --filter @workspace/provider-app run dev # Vite on :5173
 ```
 
 Demo users seed automatically in non-production mode:
-`alice@halonote.app` (admin) / `bob@halonote.app` (member), password
-`password123`.
+
+- `alice@halonote.example` — admin, password `hunter2`
+- `bob@halonote.example` — member, password `hunter2`
+
+Admin accounts must have TOTP enrolled (`auth.ts` refuses admin login
+without it). Alice is pre-enrolled with a deterministic dev-only secret
+so local sign-in works out of the box:
+
+- **Dev TOTP secret (alice):** `JBSWY3DPEHPK3PXP`
+- `otpauth://totp/HaloNote:alice@halonote.example?secret=JBSWY3DPEHPK3PXP&issuer=HaloNote`
+- Or from the shell: `oathtool --totp -b JBSWY3DPEHPK3PXP`
+
+This is the canonical RFC 4226 test vector — not real secret material —
+and is gated behind `NODE_ENV !== "production"` in the seeder.
 
 ## Commands
 

@@ -6,13 +6,20 @@ import {
   LoginBody,
   RequestPasswordResetBody,
   SignupBody,
+  UpdateMeBody,
 } from "@workspace/api-zod";
-import { getDb, usersTable } from "@workspace/db";
+import {
+  getDb,
+  organizationMembersTable,
+  organizationsTable,
+  usersTable,
+} from "@workspace/db";
 import {
   createSession,
   destroySession,
   findUserByEmail,
   hashPassword,
+  resolveSessionCookieMode,
   SESSION_COOKIE,
   SESSION_TTL_MS,
   verifyPassword,
@@ -45,11 +52,11 @@ import { devRoutesEnabled } from "../lib/dev-routes";
 const router: IRouter = Router();
 
 function cookieOptions(): CookieOptions {
-  const isProd = process.env["NODE_ENV"] === "production";
+  const mode = resolveSessionCookieMode();
   return {
     httpOnly: true,
-    sameSite: "lax",
-    secure: isProd,
+    sameSite: mode.sameSite,
+    secure: mode.secure,
     path: "/",
     maxAge: SESSION_TTL_MS,
   };
@@ -118,16 +125,62 @@ router.post(
 
     try {
       const passwordHash = await hashPassword(parsed.data.password);
-      const [user] = await getDb()
-        .insert(usersTable)
-        .values({
-          id: `usr_${randomUUID()}`,
-          email,
-          displayName,
-          passwordHash,
-        })
-        .returning();
-      if (!user) throw new Error("Insert returned no row");
+
+      // Atomic: user, their personal organization, and their owner
+      // membership are created together. A signup must never produce
+      // a user with no org (which would 409 every subsequent PHI
+      // request via getActiveOrgId). The org defaults to a generic
+      // name + slug — the user can rename it from Settings later.
+      const orgId = `org_${randomUUID()}`;
+      const orgSlug = `org-${orgId.slice(4, 12)}`;
+      const orgName = `${displayName}'s Organization`;
+
+      const user = await getDb().transaction(async (tx) => {
+        const [u] = await tx
+          .insert(usersTable)
+          .values({
+            id: `usr_${randomUUID()}`,
+            email,
+            displayName,
+            passwordHash,
+          })
+          .returning();
+        if (!u) throw new Error("User insert returned no row");
+
+        await tx.insert(organizationsTable).values({
+          id: orgId,
+          name: orgName,
+          slug: orgSlug,
+        });
+
+        await tx.insert(organizationMembersTable).values({
+          organizationId: orgId,
+          userId: u.id,
+          role: "owner",
+          joinedAt: new Date(),
+        });
+
+        return u;
+      });
+
+      // Welcome email — fire-and-forget. Signup must not fail if the
+      // email provider is degraded; the user already has an account
+      // and an active session by this point.
+      sendEmail({
+        to: user.email,
+        subject: "Welcome to HaloNote",
+        body:
+          `Hi ${user.displayName},\n\n` +
+          `Welcome to HaloNote. Your account is ready — you're already signed in.\n\n` +
+          `Next steps:\n` +
+          `  • Connect your EHR (Athena, Cerner, or Epic) so notes can be pushed back to the chart.\n` +
+          `  • Record your first encounter and review the generated note.\n` +
+          `  • Invite a colleague if your practice is rolling this out as a team.\n\n` +
+          `If anything's off, just reply to this email — it goes to a real person.\n\n` +
+          `— The HaloNote team`,
+      }).catch((err) => {
+        req.log.warn({ err, userId: user.id }, "welcome email failed to send");
+      });
 
       await startSession(res, user.id);
       res.status(201).json({
@@ -259,6 +312,23 @@ router.post(
       return;
     }
 
+    // Admin accounts MUST have TOTP enrolled. We enforce at promotion
+    // time (PATCH /users/:id refuses promoting a user without TOTP) but
+    // we re-check here so a legacy admin row (or DB tampering) still
+    // can't ride a password-only login into the audit log endpoint.
+    //
+    // The user is told what's wrong but doesn't get a session. Recovery
+    // runbook: another admin demotes them to `member`, they enroll TOTP
+    // (POST /auth/2fa/setup + verify-setup), then get re-promoted.
+    if (user.role === "admin" && !user.totpEnabledAt) {
+      req.log.warn(
+        { userId: user.id },
+        "auth: refusing admin login — TOTP not enrolled",
+      );
+      res.status(403).json({ error: "totp_required_for_admin" });
+      return;
+    }
+
     if (user.totpEnabledAt && user.totpSecret) {
       // Password is valid but 2FA is required. Caller resubmits with
       // `totpCode`. Returning 401 with a specific error makes the flow
@@ -384,6 +454,13 @@ router.post("/auth/2fa/disable", requireAuth, async (req, res) => {
     res.status(409).json({ error: "totp_not_enabled" });
     return;
   }
+  // Admins can't un-enroll TOTP — they'd be locked out by the login
+  // enforcement above. The supported path is: get demoted to `member`
+  // first, then disable. Keeps the "admin always has TOTP" invariant.
+  if (fresh.role === "admin") {
+    res.status(403).json({ error: "totp_required_for_admin" });
+    return;
+  }
   if (!verifyTotpCode(fresh.totpSecret, code)) {
     res.status(400).json({ error: "invalid_totp_code" });
     return;
@@ -406,6 +483,22 @@ router.post("/auth/logout", async (req, res) => {
   res.status(204).end();
 });
 
+function serializeMe(user: typeof usersTable.$inferSelect) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    twoFactorEnabled: Boolean(user.totpEnabledAt),
+    onboardingCompleted: Boolean(user.onboardingCompletedAt),
+    isFounder: Boolean(user.isFounder),
+    autoPushMode: user.autoPushMode,
+    silenceAutoStopSec: user.silenceAutoStopSec,
+    autoPushOrders: Boolean(user.autoPushOrders),
+    autoPushMedications: Boolean(user.autoPushMedications),
+  };
+}
+
 router.get("/auth/me", requireAuth, (req, res) => {
   const user = req.user;
   if (!user) {
@@ -415,13 +508,57 @@ router.get("/auth/me", requireAuth, (req, res) => {
   if (!req.cookies?.[CSRF_COOKIE]) {
     setCsrfCookie(res, generateCsrfToken());
   }
-  res.json({
-    id: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    role: user.role,
-    twoFactorEnabled: Boolean(user.totpEnabledAt),
-  });
+  res.json(serializeMe(user));
+});
+
+// Self-update of the signed-in user's preferences. Currently scoped
+// to autoPushMode + silenceAutoStopSec; expand the body schema rather than adding more
+// endpoints when more knobs land. CSRF + auth come from the global
+// middleware stack; we explicitly require auth here too as belt+
+// suspenders.
+router.patch("/auth/me", requireAuth, async (req, res) => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const parsed = UpdateMeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "invalid_request", issues: parsed.error.issues });
+    return;
+  }
+  const updates: Partial<typeof usersTable.$inferInsert> = {};
+  if (parsed.data.autoPushMode !== undefined) {
+    updates.autoPushMode = parsed.data.autoPushMode;
+  }
+  if (parsed.data.silenceAutoStopSec !== undefined) {
+    updates.silenceAutoStopSec = parsed.data.silenceAutoStopSec;
+  }
+  if (parsed.data.autoPushOrders !== undefined) {
+    updates.autoPushOrders = parsed.data.autoPushOrders;
+  }
+  if (parsed.data.autoPushMedications !== undefined) {
+    updates.autoPushMedications = parsed.data.autoPushMedications;
+  }
+  if (Object.keys(updates).length === 0) {
+    // No-op patch — just echo the current state. Saves a write but
+    // keeps the response shape consistent so callers don't have to
+    // branch on the partial-vs-empty body case.
+    res.json(serializeMe(user));
+    return;
+  }
+  const [updated] = await getDb()
+    .update(usersTable)
+    .set(updates)
+    .where(eq(usersTable.id, user.id))
+    .returning();
+  if (!updated) {
+    res.status(500).json({ error: "persistence_failed" });
+    return;
+  }
+  res.json(serializeMe(updated));
 });
 
 export default router;

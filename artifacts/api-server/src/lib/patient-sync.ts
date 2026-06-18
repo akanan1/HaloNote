@@ -9,6 +9,11 @@ export interface SyncedPatientFields {
   lastName: string;
   dateOfBirth: string;
   mrn: string;
+  /** The EHR-side Patient.id the caller passed in. Persisted on the
+   *  local row so downstream features (Phase 33 chart-note fetch,
+   *  the existing chart-context panel) can address the patient in
+   *  the EHR without re-deriving the id from FHIR Bundle entries. */
+  ehrPatientId: string;
   provider: "athenahealth" | "epic" | "mock";
 }
 
@@ -59,7 +64,7 @@ export async function syncPatientFromEhr(
           externalId,
         );
         const mapped = mapFhirPatient(fhirPatient);
-        return { ...mapped, provider: "athenahealth" };
+        return { ...mapped, ehrPatientId: externalId, provider: "athenahealth" };
       } catch (err) {
         if (err instanceof FhirError) {
           const status = err.status === 404 ? 404 : 502;
@@ -79,6 +84,7 @@ export async function syncPatientFromEhr(
       lastName: `Patient-${externalId.slice(0, 6)}`,
       dateOfBirth: "1980-01-01",
       mrn: `MRN-${externalId}`,
+      ehrPatientId: externalId,
       provider: "mock",
     };
   }
@@ -91,7 +97,7 @@ export async function syncPatientFromEhr(
       externalId,
     );
     const mapped = mapFhirPatient(fhirPatient);
-    return { ...mapped, provider };
+    return { ...mapped, ehrPatientId: externalId, provider };
   } catch (err) {
     if (err instanceof FhirError) {
       // 404 on the EHR side → 404 to the caller; everything else is a 502.

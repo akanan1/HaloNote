@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Route, Switch, Redirect } from "wouter";
+import { Route, Switch, Redirect, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { AppLayout } from "@/components/AppLayout";
 
@@ -50,14 +50,41 @@ const SettingsPage = lazy(() =>
 const TodayPage = lazy(() =>
   import("@/pages/Today").then((m) => ({ default: m.TodayPage })),
 );
+const TasksPage = lazy(() =>
+  import("@/pages/Tasks").then((m) => ({ default: m.TasksPage })),
+);
+const EncounterReviewPage = lazy(() =>
+  import("@/pages/EncounterReview").then((m) => ({
+    default: m.EncounterReviewPage,
+  })),
+);
+const OnboardingPage = lazy(() =>
+  import("@/pages/Onboarding").then((m) => ({ default: m.OnboardingPage })),
+);
+const FounderPage = lazy(() =>
+  import("@/pages/Founder").then((m) => ({ default: m.FounderPage })),
+);
+const FounderUserDetailPage = lazy(() =>
+  import("@/pages/FounderUserDetail").then((m) => ({
+    default: m.FounderUserDetailPage,
+  })),
+);
 const DevSandboxPage = lazy(() =>
   import("@/pages/DevSandbox").then((m) => ({ default: m.DevSandboxPage })),
 );
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const [location] = useLocation();
   if (loading) return <SplashLoader />;
   if (!user) return <Redirect to="/login" />;
+  // First-run gate: any authed user whose onboarding flag is still
+  // false gets bounced to /onboarding, EXCEPT when they're already on
+  // it (else infinite redirect). Backfill migration set every
+  // existing user to "completed" so this only fires for new signups.
+  if (!user.onboardingCompleted && location !== "/onboarding") {
+    return <Redirect to="/onboarding" />;
+  }
   return <>{children}</>;
 }
 
@@ -78,6 +105,11 @@ export default function App() {
           <Route path="/signup" component={SignupPage} />
           <Route path="/forgot-password" component={ForgotPasswordPage} />
           <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/onboarding">
+            <RequireAuth>
+              <OnboardingPage />
+            </RequireAuth>
+          </Route>
           <Route path="/">
             <RequireAuth>
               <TodayPage />
@@ -88,10 +120,25 @@ export default function App() {
               <PatientsPage />
             </RequireAuth>
           </Route>
+          <Route path="/tasks">
+            <RequireAuth>
+              <TasksPage />
+            </RequireAuth>
+          </Route>
           <Route path="/patients/new">
             <RequireAuth>
               <NewPatientPage />
             </RequireAuth>
+          </Route>
+          <Route path="/patients/:id/encounters/:eid">
+            {(params) => (
+              <RequireAuth>
+                <EncounterReviewPage
+                  patientId={params.id}
+                  encounterId={params.eid}
+                />
+              </RequireAuth>
+            )}
           </Route>
           <Route path="/patients/:id/notes/new">
             {(params) => (
@@ -128,6 +175,18 @@ export default function App() {
             <RequireAuth>
               <SettingsPage />
             </RequireAuth>
+          </Route>
+          <Route path="/founder">
+            <RequireAuth>
+              <FounderPage />
+            </RequireAuth>
+          </Route>
+          <Route path="/founder/users/:id">
+            {(params) => (
+              <RequireAuth>
+                <FounderUserDetailPage userId={params.id} />
+              </RequireAuth>
+            )}
           </Route>
           <Route path="/dev/sandbox">
             <RequireAuth>

@@ -6,7 +6,10 @@ import {
 } from "@workspace/ehr";
 import { getAthenahealthClient } from "./athena";
 import { getEpicClient } from "./epic";
-import { getAthenahealthClientForUser } from "./ehr-user-client";
+import {
+  getAthenahealthClientForUser,
+  getCernerClientForUser,
+} from "./ehr-user-client";
 import { logger } from "./logger";
 
 export interface ScheduledAppointment {
@@ -105,10 +108,18 @@ export async function getSchedule(
   // the provider's own EHR identity. Fall back to org-level
   // client_credentials (EHR_MODE) only when the user hasn't connected
   // yet, and to mock if nothing else is configured.
+  //
+  // Cerner before Athena: residents launched from PowerChart have a
+  // `cerner` row only; without this branch they'd fall through to the
+  // env-driven global Athena client and see another tenant's schedule.
   if (userId) {
-    const userClient = await getAthenahealthClientForUser(userId);
-    if (userClient) {
-      return runFhirSearch(userClient.fhir, practitionerId, start, end);
+    const cernerClient = await getCernerClientForUser(userId);
+    if (cernerClient) {
+      return runFhirSearch(cernerClient.fhir, practitionerId, start, end);
+    }
+    const athenaClient = await getAthenahealthClientForUser(userId);
+    if (athenaClient) {
+      return runFhirSearch(athenaClient.fhir, practitionerId, start, end);
     }
   }
 

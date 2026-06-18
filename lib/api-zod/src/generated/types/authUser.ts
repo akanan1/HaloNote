@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthUserAutoPushMode } from "./authUserAutoPushMode";
 import type { AuthUserRole } from "./authUserRole";
 
 export interface AuthUser {
@@ -14,4 +15,20 @@ export interface AuthUser {
   role: AuthUserRole;
   /** True when the user has TOTP 2FA enrolled. */
   twoFactorEnabled?: boolean;
+  /** False when the user hasn't finished (or skipped) the first-run onboarding flow. The frontend uses this to route new users to /onboarding on sign-in. */
+  onboardingCompleted?: boolean;
+  /** Founder-tier access. Stricter than admin — gates the cross-tenant Founder dashboard (analytics + per-user legal acceptance tracking). Granted manually for the HaloNote team only. */
+  isFounder?: boolean;
+  /** Controls when a completed note ships to the EHR. `off` — manual Send to EHR (default). `after_approve` — /notes/:id/approve pushes inline. `after_transcription` — the recording pipeline approves and pushes the AI-structured note immediately, skipping the provider review step. Amendments still flow through the existing replaces chain. */
+  autoPushMode?: AuthUserAutoPushMode;
+  /**
+   * Seconds of continuous silence before the recorder auto-stops. 0 disables. Typical opt-in value is 45.
+   * @minimum 0
+   * @maximum 600
+   */
+  silenceAutoStopSec?: number;
+  /** When true, /orders/:id/mark-export-ready also pushes non-medication orders to the EHR inline. Medication orders are governed by autoPushMedications instead. */
+  autoPushOrders?: boolean;
+  /** When true, /orders/:id/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab/imaging auto-push while still hand-confirming every prescription. */
+  autoPushMedications?: boolean;
 }

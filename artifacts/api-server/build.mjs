@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { cp, rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -121,6 +121,18 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // Copy versioned legal-document markdown into the bundle so the
+  // runtime read in `@workspace/legal` (which uses `import.meta.url`
+  // → relative path) resolves. lib/legal is bundled into index.mjs
+  // so `import.meta.url` points at `dist/index.mjs`; the documents
+  // therefore need to live at `dist/documents/`.
+  const legalSrc = path.resolve(
+    artifactDir,
+    "../../lib/legal/src/documents",
+  );
+  const legalDst = path.resolve(distDir, "documents");
+  await cp(legalSrc, legalDst, { recursive: true });
 }
 
 buildAll().catch((err) => {

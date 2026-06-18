@@ -31,7 +31,12 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center">
+    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6">
+      <img
+        src="/halonote-logo-on-light.svg"
+        alt="HaloNote"
+        className="h-8 w-auto"
+      />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Reset your password</CardTitle>

@@ -1,9 +1,41 @@
+import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { CreateNoteBody, UpdateNoteBody } from "@workspace/api-zod";
-import { getDb, notesTable, usersTable } from "@workspace/db";
-import { EhrPushError, pushNoteToEhr } from "../lib/ehr-push";
-import { findPatient } from "../lib/patients";
+import {
+  encountersTable,
+  getDb,
+  notesTable,
+  patientsTable,
+  usersTable,
+} from "@workspace/db";
+import { EhrPushError } from "../lib/ehr-push";
+import { pushApprovedNote } from "../lib/auto-push";
+import { getActiveOrgId } from "../lib/active-org";
+import { analyzeNoteGaps } from "../lib/note-gap-analyzer";
+import {
+  generatePatientSummary,
+  SUMMARY_LANGUAGES,
+  type SummaryLanguage,
+} from "../lib/patient-summary-generator";
+import { refineNote } from "../lib/note-refiner";
+import { extractVitals } from "../lib/vital-extractor";
+import { z } from "@workspace/api-zod";
+
+// Statuses that lock the note body from further direct edits. Once a
+// note is approved/exported/withdrawn, the only way to change the body
+// is to create a successor via the FHIR replaces chain. PATCH on a
+// locked note returns 409 with a stable code so the frontend can
+// route the provider to "amend" instead.
+const LOCKED_STATUSES = new Set<typeof notesTable.$inferSelect.status>([
+  "approved",
+  "exported",
+  "entered-in-error",
+]);
+
+function sha256Hex(s: string): string {
+  return createHash("sha256").update(s, "utf8").digest("hex");
+}
 
 const router: IRouter = Router();
 
@@ -16,32 +48,42 @@ const MAX_PAGE_LIMIT = 200;
 const noteSelect = {
   id: notesTable.id,
   patientId: notesTable.patientId,
+  encounterId: notesTable.encounterId,
   body: notesTable.body,
   createdAt: notesTable.createdAt,
   updatedAt: notesTable.updatedAt,
   authorId: notesTable.authorId,
   status: notesTable.status,
+  approvedAt: notesTable.approvedAt,
+  approvedByUserId: notesTable.approvedByUserId,
+  signedNoteHash: notesTable.signedNoteHash,
   replacesNoteId: notesTable.replacesNoteId,
   ehrProvider: notesTable.ehrProvider,
   ehrDocumentRef: notesTable.ehrDocumentRef,
   ehrPushedAt: notesTable.ehrPushedAt,
   ehrError: notesTable.ehrError,
+  autoPushedWithoutReview: notesTable.autoPushedWithoutReview,
   authorDisplayName: usersTable.displayName,
 } as const;
 
 type NoteRow = {
   id: string;
   patientId: string;
+  encounterId: string | null;
   body: string;
   createdAt: Date;
   updatedAt: Date;
   authorId: string | null;
-  status: "active" | "entered-in-error";
+  status: typeof notesTable.$inferSelect.status;
+  approvedAt: Date | null;
+  approvedByUserId: string | null;
+  signedNoteHash: string | null;
   replacesNoteId: string | null;
   ehrProvider: string | null;
   ehrDocumentRef: string | null;
   ehrPushedAt: Date | null;
   ehrError: string | null;
+  autoPushedWithoutReview: boolean;
   authorDisplayName: string | null;
 };
 
@@ -49,6 +91,7 @@ function serializeNote(row: NoteRow) {
   return {
     id: row.id,
     patientId: row.patientId,
+    encounterId: row.encounterId,
     body: row.body,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -57,20 +100,34 @@ function serializeNote(row: NoteRow) {
         ? { id: row.authorId, displayName: row.authorDisplayName }
         : null,
     status: row.status,
+    approvedAt: row.approvedAt,
+    approvedByUserId: row.approvedByUserId,
+    // signedNoteHash is intentionally exposed: the frontend can show
+    // a tamper-evident indicator and a downstream auditor can verify
+    // a note matches the body they see by recomputing sha256.
+    signedNoteHash: row.signedNoteHash,
     replacesNoteId: row.replacesNoteId,
     ehrProvider: row.ehrProvider,
     ehrDocumentRef: row.ehrDocumentRef,
     ehrPushedAt: row.ehrPushedAt,
     ehrError: row.ehrError,
+    autoPushedWithoutReview: row.autoPushedWithoutReview,
   };
 }
 
 router.get("/notes/:id", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const rows = await getDb()
     .select(noteSelect)
     .from(notesTable)
     .leftJoin(usersTable, eq(notesTable.authorId, usersTable.id))
-    .where(eq(notesTable.id, req.params.id))
+    .where(
+      and(
+        eq(notesTable.id, req.params.id),
+        eq(notesTable.organizationId, orgId),
+      ),
+    )
     .limit(1);
   const row = rows[0];
   if (!row) {
@@ -81,6 +138,8 @@ router.get("/notes/:id", async (req, res) => {
 });
 
 router.get("/notes", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const patientId =
     typeof req.query["patientId"] === "string"
       ? req.query["patientId"].trim() || undefined
@@ -88,31 +147,53 @@ router.get("/notes", async (req, res) => {
   const before = parseIsoDate(req.query["before"]);
   const limit = clampLimit(req.query["limit"]);
 
-  const conditions = [];
+  // Optional status filter for the Today action queue. Allowed values
+  // line up 1:1 with the note status union. Unknown values are silently
+  // ignored so a stale frontend sending the old 'active' / new
+  // 'approved' against a mismatched server doesn't get an error.
+  const statusRaw =
+    typeof req.query["status"] === "string"
+      ? req.query["status"].trim()
+      : undefined;
+  const ALLOWED_STATUSES = new Set([
+    "draft",
+    "approved",
+    "exported",
+    "entered-in-error",
+    "active",
+  ]);
+  const status =
+    statusRaw && ALLOWED_STATUSES.has(statusRaw) ? statusRaw : undefined;
+
+  // Optional authorId filter so the Today widget can show only the
+  // current provider's drafts. "me" shorthand resolves on the server.
+  const authorRaw =
+    typeof req.query["authorId"] === "string"
+      ? req.query["authorId"].trim()
+      : undefined;
+  const authorId =
+    authorRaw === "me" ? req.user?.id : authorRaw || undefined;
+
+  // Tenant scope is always-on. Additional filters narrow within the org.
+  const conditions = [eq(notesTable.organizationId, orgId)];
   if (patientId) conditions.push(eq(notesTable.patientId, patientId));
   if (before) conditions.push(lt(notesTable.createdAt, before));
-
-  const where =
-    conditions.length === 0
-      ? undefined
-      : conditions.length === 1
-        ? conditions[0]
-        : and(...conditions);
+  if (status)
+    conditions.push(
+      eq(notesTable.status, status as typeof notesTable.$inferSelect.status),
+    );
+  if (authorId) conditions.push(eq(notesTable.authorId, authorId));
 
   // Fetch limit+1 to know if there's another page without a separate
   // count query.
   const db = getDb();
-  const builder = db
+  const rows = await db
     .select(noteSelect)
     .from(notesTable)
-    .leftJoin(usersTable, eq(notesTable.authorId, usersTable.id));
-
-  const rows = where
-    ? await builder
-        .where(where)
-        .orderBy(desc(notesTable.createdAt))
-        .limit(limit + 1)
-    : await builder.orderBy(desc(notesTable.createdAt)).limit(limit + 1);
+    .leftJoin(usersTable, eq(notesTable.authorId, usersTable.id))
+    .where(and(...conditions))
+    .orderBy(desc(notesTable.createdAt))
+    .limit(limit + 1);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
@@ -123,6 +204,9 @@ router.get("/notes", async (req, res) => {
 });
 
 router.post("/notes", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
   const parsed = CreateNoteBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -138,19 +222,35 @@ router.post("/notes", async (req, res) => {
     return;
   }
 
-  // If replacing, verify the predecessor exists and isn't itself entered-
-  // in-error. Replacing a withdrawn note would create a confusing chain.
+  // Verify the patient belongs to the active org. A 404 (not 403) is
+  // deliberate: revealing "exists but in another org" is itself a
+  // cross-tenant leak.
+  const [patient] = await getDb()
+    .select({ id: patientsTable.id, organizationId: patientsTable.organizationId })
+    .from(patientsTable)
+    .where(eq(patientsTable.id, parsed.data.patientId))
+    .limit(1);
+  if (!patient || patient.organizationId !== orgId) {
+    res.status(404).json({ error: "patient_not_found" });
+    return;
+  }
+
+  // If replacing, verify the predecessor exists, isn't itself entered-
+  // in-error, and belongs to the same org. Replacing a withdrawn note
+  // would create a confusing chain; replacing across orgs would break
+  // tenant isolation.
   if (parsed.data.replacesNoteId) {
     const [predecessor] = await getDb()
       .select({
         id: notesTable.id,
         status: notesTable.status,
         patientId: notesTable.patientId,
+        organizationId: notesTable.organizationId,
       })
       .from(notesTable)
       .where(eq(notesTable.id, parsed.data.replacesNoteId))
       .limit(1);
-    if (!predecessor) {
+    if (!predecessor || predecessor.organizationId !== orgId) {
       res.status(404).json({ error: "predecessor_not_found" });
       return;
     }
@@ -166,13 +266,39 @@ router.post("/notes", async (req, res) => {
     }
   }
 
+  // Optional encounter linkage now carried by the OpenAPI-generated
+  // CreateNoteBody. Verify the encounter belongs to the same tenant and
+  // patient — same 404-not-403 semantics as the patient check above.
+  const encounterId = parsed.data.encounterId ?? null;
+  if (encounterId) {
+    const [enc] = await getDb()
+      .select({
+        id: encountersTable.id,
+        organizationId: encountersTable.organizationId,
+        patientId: encountersTable.patientId,
+      })
+      .from(encountersTable)
+      .where(eq(encountersTable.id, encounterId))
+      .limit(1);
+    if (!enc || enc.organizationId !== orgId) {
+      res.status(404).json({ error: "encounter_not_found" });
+      return;
+    }
+    if (enc.patientId !== parsed.data.patientId) {
+      res.status(400).json({ error: "encounter_patient_mismatch" });
+      return;
+    }
+  }
+
   try {
     const inserted = await getDb()
       .insert(notesTable)
       .values({
+        organizationId: orgId,
         patientId: parsed.data.patientId,
         body: parsed.data.body,
         authorId: author.id,
+        ...(encounterId ? { encounterId } : {}),
         ...(parsed.data.replacesNoteId
           ? { replacesNoteId: parsed.data.replacesNoteId }
           : {}),
@@ -195,6 +321,8 @@ router.post("/notes", async (req, res) => {
 });
 
 router.patch("/notes/:id", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const parsed = UpdateNoteBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -207,27 +335,53 @@ router.patch("/notes/:id", async (req, res) => {
   const noteId = req.params.id;
   const db = getDb();
 
+  // Pre-fetch to enforce the state machine: only `draft` notes accept
+  // body edits. Approved/exported/withdrawn notes need a replaces-chain
+  // amendment instead. Doing this in a separate SELECT (vs WHERE on the
+  // UPDATE) lets us return a precise 409 with the locked status the
+  // frontend can act on.
+  const [existing] = await db
+    .select({
+      id: notesTable.id,
+      status: notesTable.status,
+      organizationId: notesTable.organizationId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  if (LOCKED_STATUSES.has(existing.status)) {
+    res.status(409).json({
+      error: "note_locked",
+      status: existing.status,
+    });
+    return;
+  }
+
   try {
-    const updated = await db
+    await db
       .update(notesTable)
       .set({
         body: parsed.data.body,
         updatedAt: new Date(),
       })
-      .where(eq(notesTable.id, noteId))
-      .returning();
-    const note = updated[0];
-    if (!note) {
-      res.status(404).json({ error: "note_not_found" });
-      return;
-    }
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      );
 
     // Re-read with the author join so the response includes author.
     const rows = await db
       .select(noteSelect)
       .from(notesTable)
       .leftJoin(usersTable, eq(notesTable.authorId, usersTable.id))
-      .where(eq(notesTable.id, noteId))
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
       .limit(1);
     const row = rows[0];
     if (!row) {
@@ -241,15 +395,20 @@ router.patch("/notes/:id", async (req, res) => {
 });
 
 router.delete("/notes/:id", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const noteId = req.params.id;
   // Soft delete — set status to entered-in-error. The row stays in the
   // database for audit traceability + amendment-chain integrity. Returns
-  // 404 only when the row genuinely doesn't exist; re-deleting an
-  // already-entered-in-error note is idempotent.
+  // 404 only when the row genuinely doesn't exist (in this org); re-
+  // deleting an already-entered-in-error note is idempotent. Tenant-
+  // scoping in the WHERE keeps cross-org deletes from succeeding.
   const result = await getDb()
     .update(notesTable)
     .set({ status: "entered-in-error", updatedAt: new Date() })
-    .where(eq(notesTable.id, noteId))
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
     .returning({ id: notesTable.id });
   if (result.length === 0) {
     res.status(404).json({ error: "note_not_found" });
@@ -258,14 +417,514 @@ router.delete("/notes/:id", async (req, res) => {
   res.status(204).end();
 });
 
+// Provider approval. Transitions draft → approved, stamps approved_at,
+// approved_by_user_id, and signed_note_hash. The body is locked at this
+// hash — any subsequent direct edit is refused by the PATCH lock check
+// above. Amendments go through the FHIR replaces chain.
+//
+// Idempotent on already-approved notes when the same approver re-hits
+// the endpoint with the same body hash (no row change, returns 200).
+// Already-exported notes 409 because exporting implies the upstream
+// EHR has the approved version and we should not silently overwrite.
+router.post("/notes/:id/approve", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const approver = req.user;
+  if (!approver) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [existing] = await db
+    .select()
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  if (existing.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+  if (existing.status === "exported") {
+    res.status(409).json({ error: "note_already_exported" });
+    return;
+  }
+
+  const hash = sha256Hex(existing.body);
+
+  if (existing.status === "approved") {
+    // Idempotent: re-approving the same body by the same approver is a
+    // no-op (200). If the hash differs from what's stored, that means
+    // the body was somehow mutated without going through the PATCH
+    // lock — return 409 so callers notice rather than silently re-sign.
+    if (existing.signedNoteHash && existing.signedNoteHash !== hash) {
+      res.status(409).json({
+        error: "signed_hash_mismatch",
+        message: "Stored hash does not match current body; possible tampering.",
+      });
+      return;
+    }
+    const rows = await db
+      .select(noteSelect)
+      .from(notesTable)
+      .leftJoin(usersTable, eq(notesTable.authorId, usersTable.id))
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) throw new Error("Note vanished between SELECT and re-SELECT");
+    res.json(serializeNote(row));
+    return;
+  }
+
+  try {
+    await db
+      .update(notesTable)
+      .set({
+        status: "approved",
+        approvedAt: new Date(),
+        approvedByUserId: approver.id,
+        signedNoteHash: hash,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      );
+
+    // Auto-push: when the approving user has opted in, push to the EHR
+    // synchronously before returning. Failure here intentionally does
+    // NOT roll back the approval — the note is still approved, just
+    // not yet exported, and the manual Send to EHR button can retry.
+    // ehrError lands on the row via pushApprovedNote's catch path so
+    // the UI can surface the message without an extra query.
+    if (approver.autoPushMode === "after_approve") {
+      // Re-read the row so pushApprovedNote sees the freshly-stamped
+      // approval state. We have `existing` from above but it's pre-
+      // update; using it would set status=exported on a row that the
+      // DB just transitioned through approved, which is fine but
+      // confusing. The extra SELECT keeps the helper's preconditions
+      // unambiguous.
+      const [fresh] = await db
+        .select()
+        .from(notesTable)
+        .where(
+          and(
+            eq(notesTable.id, noteId),
+            eq(notesTable.organizationId, orgId),
+          ),
+        )
+        .limit(1);
+      if (fresh) {
+        await pushApprovedNote(fresh, orgId, approver.id, req.log).catch(
+          () => {
+            // Swallowed: error is already persisted on the row as
+            // ehrError, and the response below will reflect that
+            // when serializeNote re-reads. Do not 500 the approve
+            // request — the approval itself succeeded.
+          },
+        );
+      }
+    }
+
+    const rows = await db
+      .select(noteSelect)
+      .from(notesTable)
+      .leftJoin(usersTable, eq(notesTable.authorId, usersTable.id))
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) throw new Error("Note vanished between UPDATE and SELECT");
+    res.json(serializeNote(row));
+  } catch (err) {
+    req.log.error({ err, noteId }, "Failed to approve note");
+    res.status(500).json({ error: "persistence_failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/analyze-gaps — second AI pass that flags what the note
+// is missing or ambiguous. Read-only (no DB writes); the result is
+// surfaced inline in the UI for the provider to address before signing.
+// Re-runnable cheaply since the note body is the only input.
+// ---------------------------------------------------------------------------
+router.post("/notes/:id/analyze-gaps", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+      encounterId: notesTable.encounterId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  // Withdrawn notes have nothing to analyze; refuse instead of returning
+  // empty so the UI surfaces a clear error.
+  if (note.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+
+  // Encounter context biases the analyzer (a new-patient visit gets
+  // different gap expectations than a follow-up). Nullable: when a
+  // note has no linked encounter (rare for retroactive documentation),
+  // fall back to neutral context.
+  let encounterContext: {
+    visitType: import("@workspace/db").VisitType;
+    customLabel: string | null;
+    isTelehealth: boolean;
+  } = {
+    visitType: "follow_up",
+    customLabel: null,
+    isTelehealth: false,
+  };
+  if (note.encounterId) {
+    const [enc] = await db
+      .select({
+        visitType: encountersTable.visitType,
+        customLabel: encountersTable.customLabel,
+        isTelehealth: encountersTable.isTelehealth,
+      })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, note.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    if (enc) encounterContext = enc;
+  }
+
+  const { result, source } = await analyzeNoteGaps({
+    noteId: note.id,
+    noteBody: note.body,
+    encounter: encounterContext,
+  });
+  res.json({ ...result, source });
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/generate-summary — AI generates a 6th-grade
+// reading-level patient handout from the note. Read-only (no DB writes
+// in v1); the frontend renders it and the provider can copy or hand off
+// to a future PDF / portal export.
+// ---------------------------------------------------------------------------
+router.post("/notes/:id/generate-summary", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+      patientId: notesTable.patientId,
+      encounterId: notesTable.encounterId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  if (note.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+
+  // Patient first name + DOB go into the prompt so the AI can address
+  // the patient by name and (later) check for pediatric / geriatric
+  // language. Tenant-scoped lookup; cross-org returns 404 like the
+  // patient-detail page.
+  const [patient] = await db
+    .select({
+      firstName: patientsTable.firstName,
+      dateOfBirth: patientsTable.dateOfBirth,
+    })
+    .from(patientsTable)
+    .where(
+      and(
+        eq(patientsTable.id, note.patientId),
+        eq(patientsTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+  if (!patient) {
+    res.status(404).json({ error: "patient_not_found" });
+    return;
+  }
+
+  let encounterContext: {
+    visitType: import("@workspace/db").VisitType;
+    customLabel: string | null;
+    isTelehealth: boolean;
+  } = {
+    visitType: "follow_up",
+    customLabel: null,
+    isTelehealth: false,
+  };
+  if (note.encounterId) {
+    const [enc] = await db
+      .select({
+        visitType: encountersTable.visitType,
+        customLabel: encountersTable.customLabel,
+        isTelehealth: encountersTable.isTelehealth,
+      })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, note.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    if (enc) encounterContext = enc;
+  }
+
+  // Patient-facing output language. Defaults to English when absent
+  // or unknown. Validated against the explicit allowlist so unknown
+  // codes default to English rather than being silently fed to the
+  // prompt (which would produce confusing "I don't know that
+  // language" output).
+  const langRaw =
+    typeof req.query["lang"] === "string"
+      ? req.query["lang"].trim().toLowerCase()
+      : "";
+  const language: SummaryLanguage = (
+    SUMMARY_LANGUAGES as readonly string[]
+  ).includes(langRaw)
+    ? (langRaw as SummaryLanguage)
+    : "en";
+
+  const { result, source } = await generatePatientSummary({
+    noteId: note.id,
+    noteBody: note.body,
+    patient,
+    encounter: encounterContext,
+    language,
+  });
+  res.json({ ...result, source, language });
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/refine — conversational rewrite. Provider sends a
+// natural-language instruction; AI returns a refined body that the route
+// persists in-place. Only works on DRAFT notes — approved/exported/
+// entered-in-error are locked, and the signed-hash invariant on
+// approved notes means the body cannot change once signed without going
+// through the FHIR replaces chain (a separate flow).
+// ---------------------------------------------------------------------------
+const RefineNoteBody = z.object({
+  instruction: z.string().min(1).max(2000),
+});
+
+router.post("/notes/:id/refine", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const parsed = RefineNoteBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "invalid_request", issues: parsed.error.issues });
+    return;
+  }
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+      encounterId: notesTable.encounterId,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  // Lock invariant — once a note leaves draft, body is immutable.
+  // The 409 carries the actual locked status so the UI can route the
+  // provider to 'amend' (FHIR replaces-chain create) instead.
+  if (note.status !== "draft") {
+    res.status(409).json({ error: "note_locked", status: note.status });
+    return;
+  }
+
+  // Encounter context biases the refiner the same way it biases the gap
+  // analyzer + summary generator — visit type affects tone, expected
+  // sections, telehealth modifier expectations.
+  let encounterContext: {
+    visitType: import("@workspace/db").VisitType;
+    customLabel: string | null;
+    isTelehealth: boolean;
+  } = {
+    visitType: "follow_up",
+    customLabel: null,
+    isTelehealth: false,
+  };
+  if (note.encounterId) {
+    const [enc] = await db
+      .select({
+        visitType: encountersTable.visitType,
+        customLabel: encountersTable.customLabel,
+        isTelehealth: encountersTable.isTelehealth,
+      })
+      .from(encountersTable)
+      .where(
+        and(
+          eq(encountersTable.id, note.encounterId),
+          eq(encountersTable.organizationId, orgId),
+        ),
+      )
+      .limit(1);
+    if (enc) encounterContext = enc;
+  }
+
+  const { result, source } = await refineNote({
+    noteId: note.id,
+    body: note.body,
+    instruction: parsed.data.instruction,
+    encounter: encounterContext,
+  });
+
+  // Persist verbatim. The route is the only writer of body content on
+  // draft notes outside of PATCH; both go through the same lock check
+  // above. updatedAt bumps so autosave-listening clients invalidate.
+  try {
+    const [updated] = await db
+      .update(notesTable)
+      .set({ body: result.newBody, updatedAt: new Date() })
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
+      .returning({
+        id: notesTable.id,
+        body: notesTable.body,
+        updatedAt: notesTable.updatedAt,
+      });
+    if (!updated) {
+      res.status(404).json({ error: "note_not_found" });
+      return;
+    }
+    res.json({
+      note: updated,
+      changeSummary: result.changeSummary,
+      source,
+    });
+  } catch (err) {
+    req.log.error({ err, noteId }, "Failed to persist refined note");
+    res.status(500).json({ error: "persistence_failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /notes/:id/extract-vitals — AI extracts structured vitals (BP, HR,
+// temp, SpO2, weight, etc.) from the note body. Read-only — the panel
+// renders the result inline and provider can fact-check against the
+// note via the verbatim source excerpt on each field. v2 will persist
+// + push along with the note to the EHR.
+// ---------------------------------------------------------------------------
+router.post("/notes/:id/extract-vitals", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const noteId = req.params.id;
+  const db = getDb();
+
+  const [note] = await db
+    .select({
+      id: notesTable.id,
+      body: notesTable.body,
+      status: notesTable.status,
+    })
+    .from(notesTable)
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .limit(1);
+  if (!note) {
+    res.status(404).json({ error: "note_not_found" });
+    return;
+  }
+  if (note.status === "entered-in-error") {
+    res.status(409).json({ error: "note_entered_in_error" });
+    return;
+  }
+
+  const { result, source } = await extractVitals({
+    noteId: note.id,
+    noteBody: note.body,
+  });
+
+  // Persist the extraction so the longitudinal-trends endpoint can
+  // pull last-visit values without re-running the AI. Conditions:
+  //   - source === 'ai'   — stubs return nothing meaningful; persisting
+  //                         would pollute trend queries with empty rows
+  //   - status === 'draft' — approved/exported notes are body-locked,
+  //                         so the extracted body content is also
+  //                         immutable; refusing the write here keeps
+  //                         the signed-hash invariant honest.
+  if (source === "ai" && note.status === "draft") {
+    await db
+      .update(notesTable)
+      .set({ extractedVitals: result, updatedAt: new Date() })
+      .where(
+        and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+      )
+      .catch((err) => {
+        req.log.warn(
+          { err, noteId },
+          "Failed to persist extracted vitals — extraction still returned",
+        );
+      });
+  }
+
+  res.json({ ...result, source });
+});
+
 router.post("/notes/:id/send-to-ehr", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
   const noteId = req.params.id;
   const db = getDb();
 
   const rows = await db
     .select()
     .from(notesTable)
-    .where(eq(notesTable.id, noteId))
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
     .limit(1);
   const note = rows[0];
   if (!note) {
@@ -276,46 +935,33 @@ router.post("/notes/:id/send-to-ehr", async (req, res) => {
     res.status(409).json({ error: "note_entered_in_error" });
     return;
   }
-
-  const patient = await findPatient(note.patientId);
-  if (!patient) {
-    res.status(404).json({ error: "patient_not_found" });
+  // Only approved (or already-exported, for retry) notes go to the EHR.
+  // Pushing a draft would let an unsigned body land in the chart — the
+  // exact thing the approval step exists to prevent.
+  if (note.status === "draft") {
+    res.status(409).json({ error: "note_not_approved" });
+    return;
+  }
+  // Tamper check: the stored hash must still match the body. If it
+  // doesn't, refuse to push — a mismatch means the approved body has
+  // been altered without going through replaces-chain, and the EHR
+  // would receive content the provider never signed.
+  if (note.signedNoteHash && note.signedNoteHash !== sha256Hex(note.body)) {
+    req.log.error(
+      { noteId },
+      "send-to-ehr refused: signed hash does not match current body",
+    );
+    res.status(409).json({ error: "signed_hash_mismatch" });
     return;
   }
 
-  // Look up the predecessor's EHR doc ref so we can stamp a relatesTo on
-  // the new push. Only meaningful when the predecessor has been pushed
-  // upstream; an amendment of a never-pushed note has nothing to point at.
-  let predecessorEhrRef: string | undefined;
-  if (note.replacesNoteId) {
-    const [predecessor] = await db
-      .select({ ehrDocumentRef: notesTable.ehrDocumentRef })
-      .from(notesTable)
-      .where(eq(notesTable.id, note.replacesNoteId))
-      .limit(1);
-    if (predecessor?.ehrDocumentRef) {
-      predecessorEhrRef = predecessor.ehrDocumentRef;
-    }
-  }
-
   try {
-    const outcome = await pushNoteToEhr({
-      note: { id: note.id, body: note.body },
-      patient,
-      ...(predecessorEhrRef ? { replacesEhrRef: predecessorEhrRef } : {}),
-      ...(req.user?.id ? { userId: req.user.id } : {}),
-    });
-
-    await db
-      .update(notesTable)
-      .set({
-        ehrProvider: outcome.provider,
-        ehrDocumentRef: outcome.ehrDocumentRef,
-        ehrPushedAt: outcome.pushedAt,
-        ehrError: null,
-      })
-      .where(eq(notesTable.id, noteId));
-
+    const outcome = await pushApprovedNote(
+      note,
+      orgId,
+      req.user?.id ?? "",
+      req.log,
+    );
     res.status(200).json({
       provider: outcome.provider,
       ehrDocumentRef: outcome.ehrDocumentRef,
@@ -324,16 +970,6 @@ router.post("/notes/:id/send-to-ehr", async (req, res) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    req.log.error({ err, noteId }, "EHR push failed");
-
-    await db
-      .update(notesTable)
-      .set({ ehrError: message })
-      .where(eq(notesTable.id, noteId))
-      .catch(() => {
-        // best-effort error capture; ignore secondary failure
-      });
-
     if (err instanceof EhrPushError) {
       res.status(err.status).json({ error: "ehr_push_failed", message });
       return;

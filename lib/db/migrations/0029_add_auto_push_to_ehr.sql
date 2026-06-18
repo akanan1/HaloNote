@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "auto_push_to_ehr" boolean DEFAULT false NOT NULL;

@@ -9,7 +9,15 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EhrConnectionSection } from "@/components/EhrConnectionSection";
+import { AutoPushSection } from "@/components/AutoPushSection";
+import { OrdersAutoPushSection } from "@/components/OrdersAutoPushSection";
+import { SilenceAutoStopSection } from "@/components/SilenceAutoStopSection";
+import { VerbalCuesSection } from "@/components/VerbalCuesSection";
 import { TemplatesSection } from "@/components/TemplatesSection";
+import { SmartPhrasesSection } from "@/components/SmartPhrasesSection";
+import { PhraseMappingsSection } from "@/components/PhraseMappingsSection";
+import { NoteDefaultsSection } from "@/components/NoteDefaultsSection";
+import { LegalSection } from "@/components/LegalSection";
 
 interface SetupResponse {
   secret: string;
@@ -41,7 +49,23 @@ export function SettingsPage() {
 
       <EhrConnectionSection />
 
+      <AutoPushSection />
+
+      <OrdersAutoPushSection />
+
+      <SilenceAutoStopSection />
+
+      <VerbalCuesSection />
+
       <TemplatesSection />
+
+      <SmartPhrasesSection />
+
+      <PhraseMappingsSection />
+
+      <NoteDefaultsSection />
+
+      <LegalSection />
 
       <TwoFactorSection
         initiallyEnabled={Boolean(user?.twoFactorEnabled)}

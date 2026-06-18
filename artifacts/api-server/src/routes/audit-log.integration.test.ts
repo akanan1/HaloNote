@@ -11,7 +11,9 @@ import { sql } from "drizzle-orm";
 import { auditLogTable, getDb, patientsTable } from "@workspace/db";
 import app from "../app";
 import {
+  TEST_ADMIN_TOTP_SECRET,
   createTestUser,
+  currentTotpCode,
   resetTestDb,
   teardownTestDb,
 } from "../../test/helpers";
@@ -23,9 +25,13 @@ const DISPLAY = "Audit Reader";
 
 async function loginAgent() {
   const agent = request.agent(app);
-  const res = await agent
-    .post("/api/auth/login")
-    .send({ email: EMAIL, password: PASSWORD });
+  // Admin login requires TOTP — createTestUser auto-enrolled this user
+  // with TEST_ADMIN_TOTP_SECRET.
+  const res = await agent.post("/api/auth/login").send({
+    email: EMAIL,
+    password: PASSWORD,
+    totpCode: currentTotpCode(TEST_ADMIN_TOTP_SECRET),
+  });
   const cookies = res.headers["set-cookie"] as unknown as string[];
   const csrf = cookies.find((c) => c.startsWith("halonote_csrf="))!;
   const csrfToken = csrf.split("=")[1]!.split(";")[0]!;
@@ -37,6 +43,7 @@ async function seedPatient(id: string, mrn: string) {
     .insert(patientsTable)
     .values({
       id,
+      organizationId: "org_default",
       firstName: "Test",
       lastName: "Patient",
       dateOfBirth: "1990-01-01",

@@ -45,6 +45,7 @@ import { useAuth } from "@/lib/auth";
 import { useStreamingTranscript } from "@/lib/use-streaming-transcript";
 import { LiveTranscriptRibbon } from "@/components/LiveTranscriptRibbon";
 import { LiveBillingPanel } from "@/components/LiveBillingPanel";
+import { LiveCdsPanel } from "@/components/LiveCdsPanel";
 import { LiveNudgesPanel } from "@/components/LiveNudgesPanel";
 
 interface NewNotePageProps {
@@ -348,6 +349,8 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
       </header>
 
       <LiveTranscriptRibbon state={liveTranscript} />
+
+      <LiveCdsPanel warnings={liveTranscript.cdsWarnings} />
 
       <LiveBillingPanel suggestions={liveTranscript.billingSuggestions} />
 

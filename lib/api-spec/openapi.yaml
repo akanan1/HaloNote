@@ -2042,11 +2042,15 @@ components:
       required:
         - id
         - patientId
+        - encounterId
         - body
         - createdAt
         - updatedAt
         - author
         - status
+        - approvedAt
+        - approvedByUserId
+        - signedNoteHash
         - replacesNoteId
         - ehrProvider
         - ehrDocumentRef
@@ -2070,10 +2074,32 @@ components:
           oneOf:
             - $ref: "#/components/schemas/NoteAuthor"
             - type: "null"
+        encounterId:
+          type: ["string", "null"]
+          description: >-
+            Encounter this note documents, when the note was created
+            inside an encounter envelope. Null for free-floating notes.
         status:
           type: string
-          enum: [active, entered-in-error]
-          description: "active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn."
+          enum: [draft, approved, exported, entered-in-error, active]
+          description: >-
+            draft = provider-editable. approved = signed; body locked.
+            exported = pushed to EHR. entered-in-error = soft-deleted.
+            active is a legacy value kept in the enum so historical
+            rows still validate.
+        approvedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp of provider approval (status → approved).
+        approvedByUserId:
+          type: ["string", "null"]
+          description: User who approved the note.
+        signedNoteHash:
+          type: ["string", "null"]
+          description: >-
+            sha256 of the body at approval time. Drift between this
+            and the current body indicates tampering or amendment;
+            send-to-ehr refuses to push if they disagree.
         replacesNoteId:
           type: ["string", "null"]
           description: When set, this note supersedes the referenced one (FHIR DocumentReference relatesTo replaces).

@@ -27,12 +27,25 @@ export type WorkflowStatus =
   | "no_show" // Athena no-show
   | "unknown"; // appointment status we don't recognize + no note
 
+// Matches the generated NoteStatus from @workspace/api-client-react.
+// Inlined here (rather than imported) so this module stays usable from
+// non-react test contexts. Keep in lockstep with openapi.yaml's
+// Note.status enum.
+export type NoteSnapshotStatus =
+  | "draft"
+  | "approved"
+  | "exported"
+  | "entered-in-error"
+  | "active";
+
 export interface NoteSnapshot {
   id: string;
-  // "active" | "entered-in-error" — entered-in-error is treated as no
-  // note for the purposes of workflow status (the row stays for audit
-  // but should never block "Pending → In progress" for a fresh visit).
-  status: "active" | "entered-in-error";
+  // entered-in-error is treated as no note for the purposes of
+  // workflow status (the row stays for audit but should never block
+  // "Pending → In progress" for a fresh visit). draft / approved /
+  // exported all map to in_progress / completed depending on whether
+  // EHR push has landed.
+  status: NoteSnapshotStatus;
   ehrDocumentRef: string | null;
   ehrPushedAt: Date | string | null;
   ehrError: string | null;

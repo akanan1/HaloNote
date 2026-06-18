@@ -19,13 +19,16 @@ export interface Patient {
 }
 
 /**
- * active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn.
+ * draft = provider-editable. approved = signed; body locked. exported = pushed to EHR. entered-in-error = soft-deleted. active is a legacy value kept in the enum so historical rows still validate.
  */
 export type NoteStatus = (typeof NoteStatus)[keyof typeof NoteStatus];
 
 export const NoteStatus = {
-  active: "active",
+  draft: "draft",
+  approved: "approved",
+  exported: "exported",
   "entered-in-error": "entered-in-error",
+  active: "active",
 } as const;
 
 export interface NoteAuthor {
@@ -41,8 +44,28 @@ export interface Note {
   /** Most recent edit; equal to createdAt when the note has not been edited. */
   updatedAt: string;
   author: NoteAuthor | null;
-  /** active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn. */
+  /**
+   * Encounter this note documents, when the note was created inside an encounter envelope. Null for free-floating notes.
+   * @nullable
+   */
+  encounterId: string | null;
+  /** draft = provider-editable. approved = signed; body locked. exported = pushed to EHR. entered-in-error = soft-deleted. active is a legacy value kept in the enum so historical rows still validate. */
   status: NoteStatus;
+  /**
+   * Timestamp of provider approval (status → approved).
+   * @nullable
+   */
+  approvedAt: string | null;
+  /**
+   * User who approved the note.
+   * @nullable
+   */
+  approvedByUserId: string | null;
+  /**
+   * sha256 of the body at approval time. Drift between this and the current body indicates tampering or amendment; send-to-ehr refuses to push if they disagree.
+   * @nullable
+   */
+  signedNoteHash: string | null;
   /**
    * When set, this note supersedes the referenced one (FHIR DocumentReference relatesTo replaces).
    * @nullable

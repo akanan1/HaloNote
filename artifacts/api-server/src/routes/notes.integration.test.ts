@@ -236,10 +236,13 @@ describe("notes routes (integration)", () => {
     expect(amended.status).toBe(201);
     expect(amended.body.replacesNoteId).toBe(originalId);
 
-    // The original is preserved unchanged.
+    // The original is preserved unchanged. New notes default to
+    // status="draft" since Phase 1's approval state machine landed
+    // — the legacy "active" status only appears on historical rows
+    // and is no longer a default.
     const checkOriginal = await agent.get(`/api/notes/${originalId}`);
     expect(checkOriginal.body.body).toBe("first draft");
-    expect(checkOriginal.body.status).toBe("active");
+    expect(checkOriginal.body.status).toBe("draft");
   });
 
   it("rejects replacement of a different patient's note", async () => {
@@ -299,6 +302,15 @@ describe("notes routes (integration)", () => {
       .set("X-CSRF-Token", csrfToken)
       .send({ patientId: "pt_n1", body: "ship me" });
     const noteId = (created.body as { id: string }).id;
+
+    // Phase 1's approval state machine requires a note be approved
+    // before send-to-ehr will accept it (the route 409s on draft).
+    // Approve first, then push.
+    const approved = await agent
+      .post(`/api/notes/${noteId}/approve`)
+      .set("X-CSRF-Token", csrfToken)
+      .send({});
+    expect(approved.status).toBe(200);
 
     const push = await agent
       .post(`/api/notes/${noteId}/send-to-ehr`)

@@ -22,250 +22,46 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { customFetch } from "@workspace/api-client-react";
+import {
+  customFetch,
+  type ApprovedBillingCode,
+  type ApprovedOrder,
+  type ApprovedOrderStatus,
+  type BillingResponse,
+  type BillingSuggestion,
+  type BillingCodeSystem as CodeSystem,
+  type Encounter,
+  type EncounterStatus,
+  type Note,
+  type NoteStatus,
+  type OrderCommon,
+  type OrderPriority,
+  type OrderSafetyWarning as SafetyWarning,
+  type OrderSuggestResponse,
+  type OrderSuggestion,
+  type OrderType,
+  type OrdersResponse,
+  type Patient,
+  type SuggestionConfidence as Confidence,
+  type Task,
+  type TaskCategory,
+  type TaskGenerateResponse,
+  type TaskListResponse,
+  type VisitType,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 // ---------------------------------------------------------------------------
-// Wire types (hand-mirrored against the API serializers — replace with
-// codegen once OpenAPI catches up).
+// All wire types are imported from the generated client (above). Local-
+// only response shapes for endpoints the OpenAPI spec doesn't cover yet
+// stay below alongside the helpers that produce them.
 // ---------------------------------------------------------------------------
-
-type EncounterStatus =
-  | "scheduled"
-  | "in_progress"
-  | "completed"
-  | "cancelled";
-
-type VisitType =
-  | "new_patient"
-  | "established_patient"
-  | "follow_up"
-  | "annual_physical"
-  | "hospital_follow_up"
-  | "procedure"
-  | "telehealth"
-  | "nursing_facility"
-  | "custom";
-
-interface Encounter {
-  id: string;
-  patientId: string;
-  providerId: string | null;
-  visitType: VisitType;
-  customLabel: string | null;
-  status: EncounterStatus;
-  isTelehealth: boolean;
-  location: string | null;
-  scheduledAt: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-}
-
-interface Patient {
-  id: string;
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string;
-  mrn: string;
-}
-
-type NoteStatus =
-  | "draft"
-  | "approved"
-  | "exported"
-  | "entered-in-error"
-  | "active";
-
-interface Note {
-  id: string;
-  patientId: string;
-  encounterId: string | null;
-  body: string;
-  status: NoteStatus;
-  approvedAt: string | null;
-  approvedByUserId: string | null;
-  signedNoteHash: string | null;
-  ehrPushedAt: string | null;
-  ehrError: string | null;
-}
-
-type CodeSystem = "icd10" | "cpt" | "em" | "modifier";
-type Confidence = "low" | "medium" | "high";
-type SuggestionStatus =
-  | "ai_suggested"
-  | "needs_review"
-  | "provider_approved"
-  | "biller_approved"
-  | "rejected"
-  | "exported";
-
-interface DocumentationGap {
-  field: string;
-  message: string;
-  severity: "info" | "warn" | "block";
-}
-
-interface SupportingExcerpt {
-  text: string;
-  locationHint?: string;
-}
-
-interface BillingSuggestion {
-  id: string;
-  codeSystem: CodeSystem;
-  code: string;
-  description: string;
-  rationale: string;
-  supportingExcerpts: SupportingExcerpt[];
-  documentationGaps: DocumentationGap[];
-  confidence: Confidence;
-  status: SuggestionStatus;
-  createdByAi: boolean;
-}
-
-interface ApprovedBillingCode {
-  id: string;
-  codeSystem: CodeSystem;
-  code: string;
-  description: string;
-  sourceSuggestionId: string | null;
-  approvedAt: string | null;
-  billerApprovedAt: string | null;
-  exportedAt: string | null;
-  ehrDocumentRef: string | null;
-  ehrError: string | null;
-}
-
-interface BillingResponse {
-  suggestions: BillingSuggestion[];
-  approvedCodes: ApprovedBillingCode[];
-}
 
 interface NoteListResponse {
   data: Note[];
-}
-
-// ---- Orders ---------------------------------------------------------------
-
-type OrderType =
-  | "lab"
-  | "imaging"
-  | "referral"
-  | "medication"
-  | "procedure"
-  | "followup"
-  | "instruction"
-  | "dme"
-  | "therapy"
-  | "nursing";
-
-type OrderPriority = "routine" | "urgent" | "stat";
-type OrderSuggestionStatus =
-  | "ai_suggested"
-  | "needs_review"
-  | "approved"
-  | "rejected"
-  | "exported";
-type ApprovedOrderStatus =
-  | "approved"
-  | "export_ready"
-  | "exported"
-  | "cancelled";
-
-interface SafetyWarning {
-  kind: string;
-  message: string;
-  severity: "info" | "warn" | "block";
-}
-
-// Subset of the order columns surfaced in the panel — every field shared by
-// suggestions and approved rows lives here. Type-specific columns (med
-// dose etc.) follow on the concrete interfaces.
-interface OrderCommon {
-  id: string;
-  orderType: OrderType;
-  name: string;
-  indication: string | null;
-  indicationDiagnosisCode: string | null;
-  priority: OrderPriority;
-  instructions: string | null;
-  frequency: string | null;
-  duration: string | null;
-  medicationName: string | null;
-  medicationDose: string | null;
-  medicationRoute: string | null;
-  medicationFrequency: string | null;
-  medicationDuration: string | null;
-  medicationQuantity: number | null;
-  medicationRefills: number | null;
-  isComplete: boolean;
-  safetyWarnings: SafetyWarning[];
-}
-
-interface OrderSuggestion extends OrderCommon {
-  rationale: string;
-  status: OrderSuggestionStatus;
-  createdByAi: boolean;
-}
-
-interface ApprovedOrder extends OrderCommon {
-  sourceSuggestionId: string | null;
-  status: ApprovedOrderStatus;
-  approvedAt: string | null;
-  exportReadyAt: string | null;
-  exportedAt: string | null;
-}
-
-interface OrdersResponse {
-  suggestions: OrderSuggestion[];
-  approvedOrders: ApprovedOrder[];
-}
-
-interface OrderSuggestResponse {
-  data: OrderSuggestion[];
-  source: "ai" | "stub";
-}
-
-// ---- Tasks ----------------------------------------------------------------
-
-type TaskCategory =
-  | "call_patient"
-  | "schedule_followup"
-  | "send_referral"
-  | "prior_auth"
-  | "obtain_records"
-  | "repeat_labs"
-  | "nursing_instruction"
-  | "billing_followup"
-  | "patient_instruction"
-  | "other";
-type TaskStatus = "open" | "in_progress" | "completed" | "cancelled";
-type TaskPriority = "low" | "normal" | "high";
-
-interface Task {
-  id: string;
-  encounterId: string | null;
-  category: TaskCategory;
-  title: string;
-  description: string | null;
-  dueAt: string | null;
-  priority: TaskPriority;
-  status: TaskStatus;
-  isClosed: boolean;
-  source: "ai" | "manual";
-}
-
-interface TaskListResponse {
-  data: Task[];
-}
-
-interface TaskGenerateResponse {
-  data: Task[];
-  source: "ai" | "stub";
 }
 
 // ---------------------------------------------------------------------------
@@ -674,7 +470,7 @@ function requiresMedicationDetails(t: OrderType): boolean {
   return t === "medication";
 }
 
-function formatLocalDateTime(iso: string | null): string {
+function formatLocalDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

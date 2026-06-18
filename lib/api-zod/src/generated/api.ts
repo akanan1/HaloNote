@@ -885,10 +885,30 @@ export const ListNotesResponse = zod.object({
         }),
         zod.null(),
       ]),
-      status: zod
-        .enum(["active", "entered-in-error"])
+      encounterId: zod
+        .string()
+        .nullable()
         .describe(
-          "active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn.",
+          "Encounter this note documents, when the note was created inside an encounter envelope. Null for free-floating notes.",
+        ),
+      status: zod
+        .enum(["draft", "approved", "exported", "entered-in-error", "active"])
+        .describe(
+          "draft = provider-editable. approved = signed; body locked. exported = pushed to EHR. entered-in-error = soft-deleted. active is a legacy value kept in the enum so historical rows still validate.",
+        ),
+      approvedAt: zod.coerce
+        .date()
+        .nullable()
+        .describe("Timestamp of provider approval (status → approved)."),
+      approvedByUserId: zod
+        .string()
+        .nullable()
+        .describe("User who approved the note."),
+      signedNoteHash: zod
+        .string()
+        .nullable()
+        .describe(
+          "sha256 of the body at approval time. Drift between this and the current body indicates tampering or amendment; send-to-ehr refuses to push if they disagree.",
         ),
       replacesNoteId: zod
         .string()
@@ -975,10 +995,30 @@ export const GetNoteResponse = zod.object({
     }),
     zod.null(),
   ]),
-  status: zod
-    .enum(["active", "entered-in-error"])
+  encounterId: zod
+    .string()
+    .nullable()
     .describe(
-      "active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn.",
+      "Encounter this note documents, when the note was created inside an encounter envelope. Null for free-floating notes.",
+    ),
+  status: zod
+    .enum(["draft", "approved", "exported", "entered-in-error", "active"])
+    .describe(
+      "draft = provider-editable. approved = signed; body locked. exported = pushed to EHR. entered-in-error = soft-deleted. active is a legacy value kept in the enum so historical rows still validate.",
+    ),
+  approvedAt: zod.coerce
+    .date()
+    .nullable()
+    .describe("Timestamp of provider approval (status → approved)."),
+  approvedByUserId: zod
+    .string()
+    .nullable()
+    .describe("User who approved the note."),
+  signedNoteHash: zod
+    .string()
+    .nullable()
+    .describe(
+      "sha256 of the body at approval time. Drift between this and the current body indicates tampering or amendment; send-to-ehr refuses to push if they disagree.",
     ),
   replacesNoteId: zod
     .string()
@@ -1046,10 +1086,30 @@ export const UpdateNoteResponse = zod.object({
     }),
     zod.null(),
   ]),
-  status: zod
-    .enum(["active", "entered-in-error"])
+  encounterId: zod
+    .string()
+    .nullable()
     .describe(
-      "active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn.",
+      "Encounter this note documents, when the note was created inside an encounter envelope. Null for free-floating notes.",
+    ),
+  status: zod
+    .enum(["draft", "approved", "exported", "entered-in-error", "active"])
+    .describe(
+      "draft = provider-editable. approved = signed; body locked. exported = pushed to EHR. entered-in-error = soft-deleted. active is a legacy value kept in the enum so historical rows still validate.",
+    ),
+  approvedAt: zod.coerce
+    .date()
+    .nullable()
+    .describe("Timestamp of provider approval (status → approved)."),
+  approvedByUserId: zod
+    .string()
+    .nullable()
+    .describe("User who approved the note."),
+  signedNoteHash: zod
+    .string()
+    .nullable()
+    .describe(
+      "sha256 of the body at approval time. Drift between this and the current body indicates tampering or amendment; send-to-ehr refuses to push if they disagree.",
     ),
   replacesNoteId: zod
     .string()

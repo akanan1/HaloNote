@@ -7,11 +7,14 @@
  */
 
 /**
- * active = current. entered-in-error = soft-deleted; the row stays for audit traceability but the UI treats it as withdrawn.
+ * draft = provider-editable. approved = signed; body locked. exported = pushed to EHR. entered-in-error = soft-deleted. active is a legacy value kept in the enum so historical rows still validate.
  */
 export type NoteStatus = (typeof NoteStatus)[keyof typeof NoteStatus];
 
 export const NoteStatus = {
-  active: "active",
+  draft: "draft",
+  approved: "approved",
+  exported: "exported",
   "entered-in-error": "entered-in-error",
+  active: "active",
 } as const;

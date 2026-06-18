@@ -783,6 +783,56 @@ export const ListAuditLogResponse = zod.object({
 });
 
 /**
+ * Returns notes in the active organization that were materialized + auto-approved + auto-pushed by the recording pipeline because the author had `autoPushMode=after_transcription`. Newest first. Admin-only. Cursor-pagination via `cursor` (opaque base64 of `<createdAtIso>|<noteId>`) so pages remain stable across rows created in the same millisecond.
+ * @summary List notes that were auto-pushed to the EHR without provider review
+ */
+export const listAutoPushedNotesQueryLimitMax = 200;
+
+export const ListAutoPushedNotesQueryParams = zod.object({
+  userId: zod.coerce
+    .string()
+    .optional()
+    .describe("Filter to notes authored by this user."),
+  from: zod.date().optional().describe("Inclusive lower bound on `createdAt`."),
+  to: zod.date().optional().describe("Inclusive upper bound on `createdAt`."),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listAutoPushedNotesQueryLimitMax)
+    .optional(),
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque pagination cursor from the previous page's `nextCursor`.",
+    ),
+});
+
+export const ListAutoPushedNotesResponse = zod.object({
+  data: zod.array(
+    zod
+      .object({
+        noteId: zod.string(),
+        patientId: zod.string(),
+        authorId: zod.string().nullable(),
+        authorDisplayName: zod.string().nullable(),
+        createdAt: zod.coerce.date(),
+        ehrPushedAt: zod.coerce.date().nullable(),
+        ehrProvider: zod.string().nullable(),
+        ehrDocumentRef: zod.string().nullable(),
+        ehrError: zod
+          .string()
+          .nullable()
+          .describe("Last EHR push error message, if any."),
+      })
+      .describe(
+        "Metadata-only entry for a note that was auto-pushed to the EHR without provider review. The note body is intentionally omitted — the audit view exposes the existence of the auto-push event and the EHR receipt, not the PHI in the body. Fetch the body via `GET \/notes\/:id` under the same auth.",
+      ),
+  ),
+  nextCursor: zod.string().nullable(),
+});
+
+/**
  * Returns the patients accessible to the signed-in provider.
  * @summary List patients
  */

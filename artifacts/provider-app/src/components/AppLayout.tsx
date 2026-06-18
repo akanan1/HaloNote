@@ -9,6 +9,7 @@ import {
   Menu,
   ScrollText,
   Settings as SettingsIcon,
+  ShieldAlert,
   Users,
   X,
 } from "lucide-react";
@@ -46,6 +47,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isSettingsActive = location === "/settings";
   const isUsersActive = location === "/admin/users";
   const isAuditActive = location === "/audit-log";
+  const isAutoPushActive = location === "/admin/auto-pushed-notes";
   const isFounderActive = location === "/founder";
 
   return (
@@ -117,6 +119,12 @@ export function AppLayout({ children }: AppLayoutProps) {
                       active={isAuditActive}
                       icon={ScrollText}
                       label="Audit log"
+                    />
+                    <TopNavLink
+                      href="/admin/auto-pushed-notes"
+                      active={isAutoPushActive}
+                      icon={ShieldAlert}
+                      label="Auto-pushed"
                     />
                   </>
                 ) : null}
@@ -236,6 +244,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               displayName={user.displayName}
               isUsersActive={isUsersActive}
               isAuditActive={isAuditActive}
+              isAutoPushActive={isAutoPushActive}
               isFounderActive={isFounderActive}
               onSignOut={() => void handleSignOut()}
             />
@@ -308,6 +317,7 @@ interface MoreSheetProps {
   displayName: string;
   isUsersActive: boolean;
   isAuditActive: boolean;
+  isAutoPushActive: boolean;
   isFounderActive: boolean;
   onSignOut: () => void;
 }
@@ -319,6 +329,7 @@ function MoreSheet({
   displayName,
   isUsersActive,
   isAuditActive,
+  isAutoPushActive,
   isFounderActive,
   onSignOut,
 }: MoreSheetProps) {
@@ -372,6 +383,12 @@ function MoreSheet({
                 active={isAuditActive}
                 icon={ScrollText}
                 label="Audit log"
+              />
+              <MoreSheetLink
+                href="/admin/auto-pushed-notes"
+                active={isAutoPushActive}
+                icon={ShieldAlert}
+                label="Auto-pushed"
               />
             </>
           ) : null}

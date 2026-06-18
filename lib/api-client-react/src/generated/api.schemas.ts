@@ -393,6 +393,30 @@ export interface AuditLogEntry {
   at: string;
 }
 
+/**
+ * Metadata-only entry for a note that was auto-pushed to the EHR without provider review. The note body is intentionally omitted — the audit view exposes the existence of the auto-push event and the EHR receipt, not the PHI in the body. Fetch the body via `GET /notes/:id` under the same auth.
+ */
+export interface AutoPushedNoteEntry {
+  noteId: string;
+  patientId: string;
+  /** @nullable */
+  authorId: string | null;
+  /** @nullable */
+  authorDisplayName: string | null;
+  createdAt: string;
+  /** @nullable */
+  ehrPushedAt: string | null;
+  /** @nullable */
+  ehrProvider: string | null;
+  /** @nullable */
+  ehrDocumentRef: string | null;
+  /**
+   * Last EHR push error message, if any.
+   * @nullable
+   */
+  ehrError: string | null;
+}
+
 export interface EhrPushResult {
   /** EHR provider name, e.g. "athenahealth", "epic", or "mock". */
   provider: string;
@@ -1502,6 +1526,36 @@ export type ListAuditLogParams = {
 
 export type ListAuditLog200 = {
   data: AuditLogEntry[];
+  /** @nullable */
+  nextCursor: string | null;
+};
+
+export type ListAutoPushedNotesParams = {
+  /**
+   * Filter to notes authored by this user.
+   */
+  userId?: string;
+  /**
+   * Inclusive lower bound on `createdAt`.
+   */
+  from?: string;
+  /**
+   * Inclusive upper bound on `createdAt`.
+   */
+  to?: string;
+  /**
+   * @minimum 1
+   * @maximum 200
+   */
+  limit?: number;
+  /**
+   * Opaque pagination cursor from the previous page's `nextCursor`.
+   */
+  cursor?: string;
+};
+
+export type ListAutoPushedNotes200 = {
+  data: AutoPushedNoteEntry[];
   /** @nullable */
   nextCursor: string | null;
 };

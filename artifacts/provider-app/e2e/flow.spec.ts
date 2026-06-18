@@ -75,8 +75,10 @@ async function completeOnboarding(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: /accept and continue/i }).click();
 
   // "Skip for now" appears once we're past the agreements gate; it
-  // POSTs /onboarding/complete and navigates to /.
+  // POSTs /onboarding/complete and navigates to /. Wait for that nav
+  // to settle so the session cookie write isn't racing the next goto.
   await page.getByRole("button", { name: /skip for now/i }).click();
+  await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
 }
 
 test("provider can sign up, add a patient, write a note, and push it to the EHR mock", async ({
@@ -130,7 +132,10 @@ test("provider can sign up, add a patient, write a note, and push it to the EHR 
   ).toBeVisible();
 
   const noteBody = `E2E ${RUN_ID}: SOAP — Subjective: c/o headache. Objective: vitals stable. Assessment: tension. Plan: hydration, follow up in 2w.`;
-  await page.getByLabel("Note").fill(noteBody);
+  // The page has multiple accessible names containing "Note" (a
+  // "HaloNote home" header link, a "Note template" select). Use the
+  // textarea id directly to disambiguate.
+  await page.locator("#note-body").fill(noteBody);
 
   await page.getByRole("button", { name: /save & send to ehr/i }).click();
 
@@ -172,8 +177,10 @@ test("a non-admin user signing in cannot see the audit log nav link", async ({
   await page.getByLabel("Password").fill("hunter2");
   await page.getByRole("button", { name: /sign in/i }).click();
 
-  // Sign-in lands on Today; jump to the patient list so the assertion
-  // below also proves auth survived the redirect.
+  // Sign-in is async — the POST completes, then the SPA navigates to
+  // /. Wait for that landing so the session cookie write isn't racing
+  // the next goto, then jump to the patient list.
+  await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
   await page.goto("/patients");
   await expect(
     page.getByRole("heading", { name: /^patients$/i }),
@@ -202,8 +209,10 @@ test("alice (admin) sees the audit log nav and can open the page", async ({
   await totpInput.fill(currentTotp(ALICE_TOTP_SECRET));
   await page.getByRole("button", { name: /^sign in$/i }).click();
 
-  // Sign-in lands on Today; jump to the patient list so the assertion
-  // below also proves auth survived the redirect.
+  // Sign-in is async — the POST completes, then the SPA navigates to
+  // /. Wait for that landing so the session cookie write isn't racing
+  // the next goto, then jump to the patient list.
+  await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
   await page.goto("/patients");
   await expect(
     page.getByRole("heading", { name: /^patients$/i }),

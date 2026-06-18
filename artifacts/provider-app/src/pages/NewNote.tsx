@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  customFetch,
   getListNotesQueryKey,
   getListTemplatesQueryKey,
   getNote,
@@ -100,6 +101,14 @@ function formatDate(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+// /api/notes/{id}/approve isn't on the OpenAPI spec yet (the EHR push
+// flow on EncounterReview hits it the same way), so call it directly
+// through the shared customFetch. The backend gates send-to-ehr on a
+// non-draft status, so we have to clear approval before we can push.
+async function approveNote(noteId: string): Promise<Note> {
+  return customFetch<Note>(`/api/notes/${noteId}/approve`, { method: "POST" });
 }
 
 export function NewNotePage({ patientId }: NewNotePageProps) {
@@ -267,6 +276,12 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
         });
         return;
       }
+      // Save → approve → send. The send-to-ehr endpoint refuses
+      // drafts (notes.ts:941), so the click has to clear the
+      // approval gate the same way EncounterReview does.
+      // Idempotent server-side, so retrying after a transient
+      // send failure won't double-sign.
+      await approveNote(noteId);
       setSendState({ phase: "sending", noteId });
 
       const outcome = await sendNote.mutateAsync({ id: noteId });

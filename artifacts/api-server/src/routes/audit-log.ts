@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, lt, type SQL } from "drizzle-orm";
 import { auditLogTable, getDb, usersTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/require-admin";
+import { getActiveOrgId } from "../lib/active-org";
+import { clampLimit, parseIsoDate, readStringParam } from "../http";
 
 const router: IRouter = Router();
 
@@ -12,9 +14,6 @@ const router: IRouter = Router();
 // fires on every request that reaches this router and breaks unrelated
 // non-admin routes mounted after it.
 router.use(requireAdmin);
-
-const DEFAULT_PAGE_LIMIT = 50;
-const MAX_PAGE_LIMIT = 200;
 
 const auditSelect = {
   id: auditLogTable.id,
@@ -51,37 +50,22 @@ function serialize(row: AuditRow) {
   };
 }
 
-function parseIsoDate(value: unknown): Date | undefined {
-  if (typeof value !== "string" || value.length === 0) return undefined;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
-
-function clampLimit(value: unknown): number {
-  const raw =
-    typeof value === "string"
-      ? Number(value)
-      : typeof value === "number"
-        ? value
-        : NaN;
-  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_PAGE_LIMIT;
-  return Math.min(Math.floor(raw), MAX_PAGE_LIMIT);
-}
-
-function readStringParam(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : undefined;
-}
-
 router.get("/", async (req, res) => {
+  // Tenancy: admin is a per-user role, not a per-deployment one. An
+  // admin in Org A must not see audit rows from Org B. System-level
+  // audit rows (organizationId = NULL) are intentionally excluded —
+  // they belong to no tenant and surfacing them here would either
+  // leak cross-tenant context or require a separate superadmin view.
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
   const before = parseIsoDate(req.query["before"]);
   const limit = clampLimit(req.query["limit"]);
   const userIdFilter = readStringParam(req.query["userId"]);
   const resourceTypeFilter = readStringParam(req.query["resourceType"]);
   const actionFilter = readStringParam(req.query["action"]);
 
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [eq(auditLogTable.organizationId, orgId)];
   if (before) conditions.push(lt(auditLogTable.at, before));
   if (userIdFilter) conditions.push(eq(auditLogTable.userId, userIdFilter));
   if (resourceTypeFilter) {
@@ -89,26 +73,16 @@ router.get("/", async (req, res) => {
   }
   if (actionFilter) conditions.push(eq(auditLogTable.action, actionFilter));
 
-  const where =
-    conditions.length === 0
-      ? undefined
-      : conditions.length === 1
-        ? conditions[0]
-        : and(...conditions);
+  const where = conditions.length === 1 ? conditions[0]! : and(...conditions);
 
   const db = getDb();
-  const builder = db
+  const rows = await db
     .select(auditSelect)
     .from(auditLogTable)
-    .leftJoin(usersTable, eq(auditLogTable.userId, usersTable.id));
-
-  // Fetch limit+1 to know whether another page exists.
-  const rows = where
-    ? await builder
-        .where(where)
-        .orderBy(desc(auditLogTable.at))
-        .limit(limit + 1)
-    : await builder.orderBy(desc(auditLogTable.at)).limit(limit + 1);
+    .leftJoin(usersTable, eq(auditLogTable.userId, usersTable.id))
+    .where(where)
+    .orderBy(desc(auditLogTable.at))
+    .limit(limit + 1);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;

@@ -1,12 +1,71 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// vi.mock is hoisted above import statements at parse time, so the mock
+// fixture has to be hoisted too — otherwise `customFetchMock` is in the
+// TDZ when the factory runs.
+const { customFetchMock } = vi.hoisted(() => ({ customFetchMock: vi.fn() }));
+vi.mock("@workspace/api-client-react", () => ({
+  customFetch: customFetchMock,
+}));
+
 import {
-  _allClaimsForTests,
   claimAppointment,
   clearAppointmentClaim,
-  getAppointmentClaim,
+  clearLegacyLocalClaims,
+  listMyAppointmentClaims,
 } from "./appointment-note-links";
 
-describe("appointment-note-links", () => {
+describe("appointment-note-links — API wrappers", () => {
+  beforeEach(() => {
+    customFetchMock.mockReset();
+  });
+
+  it("listMyAppointmentClaims unwraps the { data } envelope", async () => {
+    customFetchMock.mockResolvedValueOnce({
+      data: [
+        {
+          appointmentId: "appt-1",
+          patientId: "pt_1",
+          claimedAt: "2026-06-18T10:00:00Z",
+          expiresAt: "2026-06-25T10:00:00Z",
+        },
+      ],
+    });
+    const out = await listMyAppointmentClaims();
+    expect(out).toHaveLength(1);
+    expect(out[0]!.appointmentId).toBe("appt-1");
+    expect(customFetchMock).toHaveBeenCalledWith("/api/appointment-claims/mine");
+  });
+
+  it("claimAppointment POSTs the JSON body", async () => {
+    customFetchMock.mockResolvedValueOnce({
+      appointmentId: "appt-2",
+      patientId: "pt_2",
+      claimedAt: "x",
+      expiresAt: "y",
+    });
+    await claimAppointment("appt-2", "pt_2");
+    const [url, init] = customFetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/appointment-claims");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      appointmentId: "appt-2",
+      patientId: "pt_2",
+    });
+  });
+
+  it("clearAppointmentClaim DELETEs and url-encodes the appointment id", async () => {
+    customFetchMock.mockResolvedValueOnce(undefined);
+    await clearAppointmentClaim("appt with/slash");
+    const [url, init] = customFetchMock.mock.calls[0]!;
+    expect(url).toBe(
+      "/api/appointment-claims/appt%20with%2Fslash",
+    );
+    expect(init.method).toBe("DELETE");
+  });
+});
+
+describe("clearLegacyLocalClaims", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -14,62 +73,25 @@ describe("appointment-note-links", () => {
     window.localStorage.clear();
   });
 
-  it("round-trips a claim through localStorage", () => {
-    const claim = claimAppointment("appt-1", "pt_001");
-    expect(claim.appointmentId).toBe("appt-1");
-    expect(claim.patientId).toBe("pt_001");
-    expect(typeof claim.claimedAt).toBe("string");
-
-    const fetched = getAppointmentClaim("appt-1");
-    expect(fetched).not.toBeNull();
-    expect(fetched!.patientId).toBe("pt_001");
-  });
-
-  it("returns null for an unknown appointment id", () => {
-    expect(getAppointmentClaim("nope")).toBeNull();
-  });
-
-  it("clearAppointmentClaim removes the row", () => {
-    claimAppointment("appt-2", "pt_002");
-    expect(getAppointmentClaim("appt-2")).not.toBeNull();
-    clearAppointmentClaim("appt-2");
-    expect(getAppointmentClaim("appt-2")).toBeNull();
-  });
-
-  it("ignores entries older than 7 days", () => {
-    // Manually seed a stale row — bypasses the helper's now() stamp.
-    const stale = {
-      appointmentId: "appt-stale",
-      patientId: "pt_x",
-      claimedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+  it("wipes all halo:appt-claim:* keys but leaves unrelated keys alone", () => {
     window.localStorage.setItem(
-      "halo:appt-claim:appt-stale",
-      JSON.stringify(stale),
+      "halo:appt-claim:appt-1",
+      JSON.stringify({ appointmentId: "appt-1", patientId: "pt_1" }),
     );
-    expect(getAppointmentClaim("appt-stale")).toBeNull();
-  });
-
-  it("ignores malformed JSON without throwing", () => {
-    window.localStorage.setItem("halo:appt-claim:bad", "{not-json");
-    expect(getAppointmentClaim("bad")).toBeNull();
-  });
-
-  it("ignores entries missing required fields", () => {
     window.localStorage.setItem(
-      "halo:appt-claim:partial",
-      JSON.stringify({ appointmentId: "partial" }),
+      "halo:appt-claim:appt-2",
+      JSON.stringify({ appointmentId: "appt-2", patientId: "pt_2" }),
     );
-    expect(getAppointmentClaim("partial")).toBeNull();
+    window.localStorage.setItem("unrelated", "keep-me");
+
+    clearLegacyLocalClaims();
+
+    expect(window.localStorage.getItem("halo:appt-claim:appt-1")).toBeNull();
+    expect(window.localStorage.getItem("halo:appt-claim:appt-2")).toBeNull();
+    expect(window.localStorage.getItem("unrelated")).toBe("keep-me");
   });
 
-  it("_allClaimsForTests enumerates only halo:appt-claim:* keys", () => {
-    claimAppointment("appt-3", "pt_003");
-    claimAppointment("appt-4", "pt_004");
-    // Unrelated key — must not appear in results.
-    window.localStorage.setItem("unrelated-key", "x");
-    const all = _allClaimsForTests();
-    const ids = all.map((c) => c.appointmentId).sort();
-    expect(ids).toEqual(["appt-3", "appt-4"]);
+  it("is safe to call when localStorage is empty", () => {
+    expect(() => clearLegacyLocalClaims()).not.toThrow();
   });
 });

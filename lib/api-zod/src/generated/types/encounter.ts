@@ -21,6 +21,8 @@ export interface Encounter {
   scheduledAt?: Date | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
+  /** FHIR-style upstream encounter reference ("Encounter/<id>") set when this local encounter mirrors an Athena (or other EHR) chart entry. Required for real-mode chart-API writeback; null means the encounter isn't linked to the EHR yet and pushes will fail with a clear "not linked" message. */
+  ehrEncounterRef?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

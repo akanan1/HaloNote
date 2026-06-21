@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
   CheckCircle2,
@@ -31,8 +31,14 @@ import { NeedsYourActionSection } from "@/components/NeedsYourActionSection";
 import { RecentEncountersSection } from "@/components/RecentEncountersSection";
 import {
   claimAppointment,
-  getAppointmentClaim,
+  listMyAppointmentClaims,
+  type AppointmentClaim,
 } from "@/lib/appointment-note-links";
+
+// Stable react-query key for the caller's active appointment claims.
+// Invalidated after every claim mutation in this file; consumed only
+// by the workflow useMemo below.
+const MY_CLAIMS_KEY = ["appointment-claims", "mine"] as const;
 import {
   deriveWorkflowStatus,
   STATUS_LABEL,
@@ -160,6 +166,24 @@ export function TodayPage() {
     },
   });
 
+  // Active appointment claims for this provider, server-backed (Wave 4
+  // closer migrated this off localStorage). Polled alongside the
+  // schedule so cross-device claims (e.g. provider started a note on
+  // their iPad) propagate to this tab quickly.
+  const claimsQuery = useQuery({
+    queryKey: MY_CLAIMS_KEY,
+    queryFn: listMyAppointmentClaims,
+    refetchInterval: isToday ? SCHEDULE_POLL_MS : false,
+    refetchOnWindowFocus: isToday,
+  });
+
+  // Map for O(1) per-appointment lookup inside the workflow useMemo.
+  const claimsByAppointment = useMemo(() => {
+    const m = new Map<string, AppointmentClaim>();
+    for (const c of claimsQuery.data ?? []) m.set(c.appointmentId, c);
+    return m;
+  }, [claimsQuery.data]);
+
   // Connection status drives the "demo data" banner when EHR is not
   // connected (or HaloNote is running with EHR_MODE unset on the server).
   const connStatus = useGetEhrConnectionStatus();
@@ -259,7 +283,7 @@ export function TodayPage() {
     >();
     const notes = notesQuery.data?.data ?? [];
     for (const appt of scheduleQuery.data?.data ?? []) {
-      const claim = getAppointmentClaim(appt.appointmentId);
+      const claim = claimsByAppointment.get(appt.appointmentId);
       const matched = claim
         ? pickMatchingNote(notes, claim.patientId, new Date(claim.claimedAt))
         : null;
@@ -270,7 +294,7 @@ export function TodayPage() {
       map.set(appt.appointmentId, { status, note: matched });
     }
     return map;
-  }, [scheduleQuery.data, notesQuery.data]);
+  }, [scheduleQuery.data, notesQuery.data, claimsByAppointment]);
 
   // Day-level progress summary used in the header — at-a-glance,
   // "X of Y visits done · Z left".
@@ -307,7 +331,10 @@ export function TodayPage() {
       const synced = await sync.mutateAsync({
         data: { externalId: appt.patient.ehrId },
       });
-      claimAppointment(appt.appointmentId, synced.id);
+      await claimAppointment(appt.appointmentId, synced.id);
+      // Refresh the claim list so a cross-device session (or this tab
+      // on the next render) sees the new claim without a poll wait.
+      void queryClient.invalidateQueries({ queryKey: MY_CLAIMS_KEY });
       // `?autostart=1` tells NewNote → RecordingPanel to fire
       // getUserMedia on mount. The click that ran startNote IS the
       // user gesture browsers want, and wouter's navigate is synchronous

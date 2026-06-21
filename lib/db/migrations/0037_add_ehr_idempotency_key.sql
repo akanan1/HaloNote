@@ -1,0 +1,1 @@
+ALTER TABLE "notes" ADD COLUMN "ehr_idempotency_key" text;

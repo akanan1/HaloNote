@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "@workspace/api-zod";
 import {
@@ -10,6 +11,8 @@ import {
   type VisitType,
 } from "@workspace/db";
 import { getActiveOrgId } from "../lib/active-org";
+import { recordCoderAuditEvent } from "../lib/audit-events";
+import { getEncounterAuditTimeline } from "../services/encounter-audit-timeline";
 
 const router: IRouter = Router();
 
@@ -54,6 +57,13 @@ const CreateEncounterBody = z.object({
   location: z.string().max(120).optional(),
   scheduledAt: z.iso.datetime().optional(),
   providerId: z.string().min(1).optional(),
+  // FHIR-style reference ("Encounter/12345") or bare upstream id.
+  // Set when the encounter mirrors an Athena (or other EHR) chart
+  // entry — the bulk-approve writeback uses this as the parent
+  // encounter for diagnoses/charges/services pushes. Normalized
+  // server-side to "Encounter/<id>" so downstream consumers always
+  // see the same shape.
+  ehrEncounterRef: z.string().min(1).max(120).optional(),
 });
 
 const UpdateEncounterBody = z.object({
@@ -64,7 +74,18 @@ const UpdateEncounterBody = z.object({
   status: z.enum(ENCOUNTER_STATUSES).optional(),
   scheduledAt: z.iso.datetime().nullable().optional(),
   providerId: z.string().min(1).nullable().optional(),
+  // Allow linking an existing local encounter to its Athena chart
+  // entry after the fact. Pass `null` to clear (rare — supports
+  // un-linking an encounter that was attached to the wrong Athena id).
+  ehrEncounterRef: z.string().min(1).max(120).nullable().optional(),
 });
+
+// Normalize "Encounter/123" and bare "123" to a consistent
+// "Encounter/123" shape so the chart-API adapter doesn't have to
+// guess. Idempotent.
+function normalizeEncounterRef(raw: string): string {
+  return raw.startsWith("Encounter/") ? raw : `Encounter/${raw}`;
+}
 
 function serialize(row: Encounter) {
   return {
@@ -80,6 +101,7 @@ function serialize(row: Encounter) {
     scheduledAt: row.scheduledAt?.toISOString() ?? null,
     startedAt: row.startedAt?.toISOString() ?? null,
     completedAt: row.completedAt?.toISOString() ?? null,
+    ehrEncounterRef: row.ehrEncounterRef,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -89,12 +111,7 @@ router.post("/encounters", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CreateEncounterBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
   // visit_type='custom' requires a customLabel; any other value forbids
   // it (avoids stale labels lingering on a re-categorized visit).
@@ -137,6 +154,9 @@ router.post("/encounters", async (req, res) => {
         location: parsed.data.location ?? null,
         scheduledAt: parsed.data.scheduledAt
           ? new Date(parsed.data.scheduledAt)
+          : null,
+        ehrEncounterRef: parsed.data.ehrEncounterRef
+          ? normalizeEncounterRef(parsed.data.ehrEncounterRef)
           : null,
       })
       .returning();
@@ -196,12 +216,7 @@ router.patch("/encounters/:id", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = UpdateEncounterBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
   const [existing] = await getDb()
     .select()
@@ -281,6 +296,11 @@ router.patch("/encounters/:id", async (req, res) => {
       : null;
   }
   if (parsed.data.providerId !== undefined) updates.providerId = parsed.data.providerId;
+  if (parsed.data.ehrEncounterRef !== undefined) {
+    updates.ehrEncounterRef = parsed.data.ehrEncounterRef
+      ? normalizeEncounterRef(parsed.data.ehrEncounterRef)
+      : null;
+  }
 
   try {
     const [updated] = await getDb()
@@ -297,11 +317,67 @@ router.patch("/encounters/:id", async (req, res) => {
       res.status(404).json({ error: "encounter_not_found" });
       return;
     }
+
+    // Audit the EHR link transition explicitly — it's a structurally
+    // important event (gates real-mode chart writes). Fires only when
+    // the link field actually changed value vs the prior state.
+    if (
+      parsed.data.ehrEncounterRef !== undefined &&
+      (updated.ehrEncounterRef ?? null) !== (existing.ehrEncounterRef ?? null)
+    ) {
+      const userId = req.user?.id ?? null;
+      recordCoderAuditEvent({
+        organizationId: orgId,
+        userId,
+        action: updated.ehrEncounterRef
+          ? "encounter.athena_link.set"
+          : "encounter.athena_link.cleared",
+        resourceType: "encounter",
+        resourceId: req.params.id,
+        metadata: {
+          ehrEncounterRef: updated.ehrEncounterRef,
+          priorEhrEncounterRef: existing.ehrEncounterRef,
+        },
+      });
+    }
+
     res.json(serialize(updated));
   } catch (err) {
     req.log.error({ err, id: req.params.id }, "Failed to update encounter");
     res.status(500).json({ error: "persistence_failed" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// GET /encounters/:id/audit-timeline
+// Encounter-scoped audit drilldown. Returns audit_log rows for every
+// resource tied to this encounter (notes, coding sessions, billing
+// suggestions, problem-list suggestions, approved billing codes,
+// encounter itself). Non-admin: providers + billers both need to see
+// who did what on the encounters they work on. Org-scoped on every
+// underlying query so cross-tenant rows stay invisible.
+// ---------------------------------------------------------------------------
+
+router.get("/encounters/:id/audit-timeline", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
+  const rawLimit = Number(req.query["limit"] ?? 200);
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit > 0 && rawLimit <= 500
+      ? Math.floor(rawLimit)
+      : 200;
+
+  const result = await getEncounterAuditTimeline({
+    encounterId: req.params.id,
+    orgId,
+    limit,
+  });
+  if (result.kind === "encounter_not_found") {
+    res.status(404).json({ error: "encounter_not_found" });
+    return;
+  }
+  res.json({ data: result.events });
 });
 
 export default router;

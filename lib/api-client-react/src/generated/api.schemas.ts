@@ -135,8 +135,30 @@ export interface Encounter {
   scheduledAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /** FHIR-style upstream encounter reference ("Encounter/<id>") set when this local encounter mirrors an Athena (or other EHR) chart entry. Required for real-mode chart-API writeback; null means the encounter isn't linked to the EHR yet and pushes will fail with a clear "not linked" message. */
+  ehrEncounterRef?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * @nullable
+ */
+export type EncounterAuditEventMetadata = { [key: string]: unknown } | null;
+
+export interface EncounterAuditEvent {
+  id: string;
+  at: string;
+  /** @nullable */
+  userId?: string | null;
+  /** @nullable */
+  userDisplayName?: string | null;
+  action: string;
+  resourceType: string;
+  /** @nullable */
+  resourceId?: string | null;
+  /** @nullable */
+  metadata?: EncounterAuditEventMetadata;
 }
 
 export interface ListEncounters200 {
@@ -158,6 +180,12 @@ export interface CreateEncounterRequest {
   scheduledAt?: string;
   /** @minLength 1 */
   providerId?: string;
+  /**
+   * Optional Athena (or other EHR) Encounter id at create time. Accepts "Encounter/<id>" or bare "<id>"; normalized server-side to "Encounter/<id>".
+   * @minLength 1
+   * @maxLength 120
+   */
+  ehrEncounterRef?: string;
 }
 
 /**
@@ -181,6 +209,12 @@ export interface UpdateEncounterRequest {
   scheduledAt?: string | null;
   /** @minLength 1 */
   providerId?: string | null;
+  /**
+   * Link or relink to an Athena (or other EHR) chart encounter. Pass null to clear (un-link). Accepts "Encounter/<id>" or bare "<id>".
+   * @minLength 1
+   * @maxLength 120
+   */
+  ehrEncounterRef?: string | null;
 }
 
 export interface CreatePatientRequest {
@@ -274,6 +308,29 @@ export interface AuthUser {
   autoPushOrders?: boolean;
   /** When true, /orders/:id/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab/imaging auto-push while still hand-confirming every prescription. */
   autoPushMedications?: boolean;
+  /** When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST /m/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag. */
+  autoApproveNonMedOrders?: boolean;
+  /** True once POST /m/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call. */
+  mobileOnboarded?: boolean;
+}
+
+export type MobileInitResponseAutoPushMode =
+  (typeof MobileInitResponseAutoPushMode)[keyof typeof MobileInitResponseAutoPushMode];
+
+export const MobileInitResponseAutoPushMode = {
+  off: "off",
+  after_approve: "after_approve",
+  after_transcription: "after_transcription",
+} as const;
+
+export interface MobileInitResponse {
+  /** True when this call performed the one-shot flag flips. False when the user was already onboarded (noop) — the other fields then reflect their current settings. */
+  initialized: boolean;
+  autoPushMode: MobileInitResponseAutoPushMode;
+  autoPushOrders: boolean;
+  autoPushMedications: boolean;
+  autoApproveNonMedOrders: boolean;
+  mobileOnboardedAt?: string | null;
 }
 
 export type UpdateMeRequestAutoPushMode =
@@ -804,6 +861,439 @@ export type BillingSuggestResponse = BillingResponse & {
 export interface RejectBillingSuggestionRequest {
   /** @maxLength 500 */
   reason?: string;
+}
+
+export type CodingNoteSource =
+  (typeof CodingNoteSource)[keyof typeof CodingNoteSource];
+
+export const CodingNoteSource = {
+  halonote_scribe: "halonote_scribe",
+  athena_existing: "athena_existing",
+} as const;
+
+export type CodingSessionStatus =
+  (typeof CodingSessionStatus)[keyof typeof CodingSessionStatus];
+
+export const CodingSessionStatus = {
+  queued: "queued",
+  extracting: "extracting",
+  ready: "ready",
+  approved: "approved",
+  writing: "writing",
+  complete: "complete",
+  failed: "failed",
+} as const;
+
+/**
+ * Which note section a suggestion was sourced from.
+ */
+export type CodingSectionKey =
+  (typeof CodingSectionKey)[keyof typeof CodingSectionKey];
+
+export const CodingSectionKey = {
+  assessment: "assessment",
+  plan: "plan",
+  hpi: "hpi",
+  ros: "ros",
+  physical_exam: "physical_exam",
+  procedures: "procedures",
+  orders: "orders",
+  mdm: "mdm",
+  time: "time",
+  other: "other",
+} as const;
+
+/**
+ * Sectionized form of the finalized note, persisted on the session so the Coder Review pane can highlight the section each suggestion cited without re-parsing client-side.
+ */
+export interface CodingParsedSections {
+  assessment?: string;
+  plan?: string;
+  hpi?: string;
+  ros?: string;
+  physicalExam?: string;
+  procedures?: string;
+  orders?: string;
+  mdm?: string;
+  time?: string;
+  other?: string;
+}
+
+export interface EncounterCodingSession {
+  id: string;
+  organizationId: string;
+  encounterId: string;
+  /** @nullable */
+  noteId?: string | null;
+  noteSource: CodingNoteSource;
+  /**
+   * SHA-256 of the note body at coding time; lets the UI flag stale sessions when the note has been amended since.
+   * @nullable
+   */
+  sourceNoteHash?: string | null;
+  status: CodingSessionStatus;
+  /** @nullable */
+  failureReason?: string | null;
+  parsedSections?: CodingParsedSections | null;
+  /** @nullable */
+  extractionStartedAt?: string | null;
+  /** @nullable */
+  extractionCompletedAt?: string | null;
+  /** @nullable */
+  approvedAt?: string | null;
+  /** @nullable */
+  approvedByUserId?: string | null;
+  /** @nullable */
+  writebackStartedAt?: string | null;
+  /** @nullable */
+  writebackCompletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CodingSuggestion {
+  id: string;
+  organizationId: string;
+  encounterId: string;
+  /** @nullable */
+  codingSessionId?: string | null;
+  codeSystem: BillingCodeSystem;
+  code: string;
+  description: string;
+  /**
+   * Provider override of code; original `code` preserved for audit.
+   * @nullable
+   */
+  editedCode?: string | null;
+  /** @nullable */
+  editedDescription?: string | null;
+  rationale: string;
+  supportingExcerpts: BillingSupportingExcerpt[];
+  documentationGaps: BillingDocumentationGap[];
+  confidence: SuggestionConfidence;
+  sourceSection?: CodingSectionKey | null;
+  /**
+   * Discrete EHR field the code will write to once approved (e.g. athena.encounter_diagnosis).
+   * @nullable
+   */
+  destinationField?: string | null;
+  /**
+   * HCC bucket label when the diagnosis maps to one; null otherwise.
+   * @nullable
+   */
+  hccCategory?: string | null;
+  /** True when the diagnosis is actively contributing to risk adjustment per this visit's documentation. */
+  rafRelevant: boolean;
+  status: BillingSuggestionStatus;
+  /** @nullable */
+  statusNote?: string | null;
+  createdByAi: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CodingSessionWithSuggestions {
+  session: EncounterCodingSession;
+  suggestions: CodingSuggestion[];
+}
+
+export interface GenerateCodingRequest {
+  /** Optional target note id; defaults to the encounter's latest note. */
+  noteId?: string;
+  noteSource?: CodingNoteSource;
+}
+
+export interface EditCodingSuggestionRequest {
+  /**
+   * @minLength 1
+   * @maxLength 20
+   */
+  editedCode: string;
+  /**
+   * @minLength 1
+   * @maxLength 300
+   */
+  editedDescription: string;
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export interface ApproveAllCodingRequest {
+  minConfidence?: SuggestionConfidence;
+}
+
+export interface ApproveAllCodingResponse {
+  session: EncounterCodingSession;
+  /** Number of suggestions promoted to approved_billing_codes. */
+  approvedCount: number;
+  /** Suggestions left for individual review (low confidence or block-severity gaps). */
+  skippedCount: number;
+  /** Billing codes successfully pushed to the EHR in this call (mock-mode counts as a push). */
+  pushedBillingCount: number;
+  /** Approved orders (complete + not-yet-exported) successfully pushed in this call. */
+  pushedOrderCount: number;
+  /** Combined billing+order pushes that failed; ehrError persisted per row for retry. */
+  pushFailedCount: number;
+}
+
+export type ProblemStatus = (typeof ProblemStatus)[keyof typeof ProblemStatus];
+
+export const ProblemStatus = {
+  active: "active",
+  stable: "stable",
+  worsening: "worsening",
+  improving: "improving",
+  resolved: "resolved",
+} as const;
+
+export type ProblemEhrSource =
+  (typeof ProblemEhrSource)[keyof typeof ProblemEhrSource];
+
+export const ProblemEhrSource = {
+  athena: "athena",
+  epic: "epic",
+  cerner: "cerner",
+  manual: "manual",
+} as const;
+
+export type ProblemSuggestionAction =
+  (typeof ProblemSuggestionAction)[keyof typeof ProblemSuggestionAction];
+
+export const ProblemSuggestionAction = {
+  add: "add",
+  update_status: "update_status",
+  resolve: "resolve",
+  merge_duplicate: "merge_duplicate",
+  flag_uncertain: "flag_uncertain",
+} as const;
+
+export type ProblemSuggestionStatus =
+  (typeof ProblemSuggestionStatus)[keyof typeof ProblemSuggestionStatus];
+
+export const ProblemSuggestionStatus = {
+  suggested: "suggested",
+  accepted: "accepted",
+  rejected: "rejected",
+  applied: "applied",
+} as const;
+
+export interface PatientProblem {
+  id: string;
+  organizationId: string;
+  patientId: string;
+  code: string;
+  description: string;
+  status: ProblemStatus;
+  /** @nullable */
+  onsetDate?: string | null;
+  ehrSource: ProblemEhrSource;
+  /** @nullable */
+  ehrResourceRef?: string | null;
+  /** @nullable */
+  syncedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProblemListSuggestion {
+  id: string;
+  organizationId: string;
+  /** @nullable */
+  codingSessionId?: string | null;
+  patientId: string;
+  encounterId: string;
+  action: ProblemSuggestionAction;
+  /** @nullable */
+  targetProblemId?: string | null;
+  /** @nullable */
+  mergeFromProblemId?: string | null;
+  /** @nullable */
+  proposedCode?: string | null;
+  /** @nullable */
+  proposedDescription?: string | null;
+  proposedStatus?: ProblemStatus | null;
+  rationale: string;
+  supportingExcerpts: BillingSupportingExcerpt[];
+  confidence: SuggestionConfidence;
+  status: ProblemSuggestionStatus;
+  /** @nullable */
+  statusNote?: string | null;
+  appliedLocally: boolean;
+  /** @nullable */
+  reviewedByUserId?: string | null;
+  /** @nullable */
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * supported = the note text justifies the refined code today (supportingExcerpts quotes the passage). documentation_gap = the refinement is clinically plausible but not currently documented (suggestedNoteLanguage carries a one-sentence finding the provider can paste to support the code).
+ */
+export type RefinementEvidenceMode =
+  (typeof RefinementEvidenceMode)[keyof typeof RefinementEvidenceMode];
+
+export const RefinementEvidenceMode = {
+  supported: "supported",
+  documentation_gap: "documentation_gap",
+} as const;
+
+export interface RefinementOption {
+  code: string;
+  description: string;
+  evidenceMode: RefinementEvidenceMode;
+  supportingExcerpts?: BillingSupportingExcerpt[];
+  /** Required when evidenceMode=documentation_gap. One short clinical sentence the provider can paste into the note to justify the refined code. */
+  suggestedNoteLanguage?: string;
+  rationale: string;
+  /** HCC bucket label when the refined code maps to one. */
+  hccCategory?: string;
+  /** True when the refined code captures an HCC bucket the original did not. Drives the "Unlocks HCC" badge. */
+  hccUnlocked: boolean;
+  confidence: SuggestionConfidence;
+}
+
+export type RefineSuggestionResponseSource =
+  (typeof RefineSuggestionResponseSource)[keyof typeof RefineSuggestionResponseSource];
+
+export const RefineSuggestionResponseSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export interface RefineSuggestionResponse {
+  options: RefinementOption[];
+  source: RefineSuggestionResponseSource;
+}
+
+export interface RefineAllItem {
+  suggestionId: string;
+  originalCode: string;
+  options: RefinementOption[];
+}
+
+export type RefineAllResponseSource =
+  (typeof RefineAllResponseSource)[keyof typeof RefineAllResponseSource];
+
+export const RefineAllResponseSource = {
+  ai: "ai",
+  stub: "stub",
+} as const;
+
+export interface RefineAllResponse {
+  items: RefineAllItem[];
+  /** Total HCC-unlocking options across all suggestions. */
+  hccUnlockCount: number;
+  source: RefineAllResponseSource;
+}
+
+export interface ApplyRefinementRequest {
+  /**
+   * @minLength 1
+   * @maxLength 20
+   */
+  chosenCode: string;
+  /**
+   * @minLength 1
+   * @maxLength 300
+   */
+  chosenDescription: string;
+  /** @maxLength 200 */
+  chosenHccCategory?: string | null;
+  hccUnlocked: boolean;
+}
+
+export interface AcceptProblemListSuggestionRequest {
+  /** @maxLength 500 */
+  reason?: string;
+}
+
+export interface RejectProblemListSuggestionRequest {
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  reason: string;
+}
+
+export interface AthenaNoteCandidate {
+  documentReferenceId: string;
+  /** @nullable */
+  date?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  encounterEhrRef?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+}
+
+export type AthenaEncounterCandidatePeriod = {
+  /** @nullable */
+  start: string | null;
+  /** @nullable */
+  end: string | null;
+};
+
+export interface AthenaEncounterCandidate {
+  encounterId: string;
+  period: AthenaEncounterCandidatePeriod;
+  /** @nullable */
+  status?: string | null;
+  /** @nullable */
+  classDisplay?: string | null;
+  /** @nullable */
+  typeDisplay?: string | null;
+}
+
+export interface IngestAthenaNoteRequest {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  athenaDocumentReferenceId: string;
+}
+
+export type IngestAthenaNoteResponseNoteSource =
+  (typeof IngestAthenaNoteResponseNoteSource)[keyof typeof IngestAthenaNoteResponseNoteSource];
+
+export const IngestAthenaNoteResponseNoteSource = {
+  athena: "athena",
+  mock: "mock",
+} as const;
+
+export interface IngestAthenaNoteResponse {
+  noteId: string;
+  noteSource: IngestAthenaNoteResponseNoteSource;
+  session: EncounterCodingSession;
+  suggestions: CodingSuggestion[];
+}
+
+export interface ReconcileResponse {
+  data: ProblemListSuggestion[];
+  problems: PatientProblem[];
+  /** True when Athena was queried (not mock / no ehrPatientId). */
+  ehrHit: boolean;
+}
+
+export interface BillerQueueRow {
+  sessionId: string;
+  encounterId: string;
+  patientId: string;
+  patientFirstName: string;
+  patientLastName: string;
+  /** @nullable */
+  patientMrn?: string | null;
+  /** @nullable */
+  encounterScheduledAt?: string | null;
+  encounterVisitType: string;
+  sessionStatus: CodingSessionStatus;
+  /** @nullable */
+  approvedAt?: string | null;
+  totalCodes: number;
+  billerApprovedCodes: number;
+  exportedCodes: number;
+  editedCodes: number;
 }
 
 export type OrderType = (typeof OrderType)[keyof typeof OrderType];
@@ -1571,6 +2061,38 @@ export type ListSmartPhrases200 = {
 
 export type ListVerbalCues200 = {
   data: VerbalCue[];
+};
+
+export type GetPatientProblems200 = {
+  data: PatientProblem[];
+};
+
+export type GetProblemSuggestionsForSession200 = {
+  data: ProblemListSuggestion[];
+};
+
+export type ListPatientAthenaEncounters200 = {
+  data: AthenaEncounterCandidate[];
+};
+
+export type ListPatientAthenaNotes200 = {
+  data: AthenaNoteCandidate[];
+};
+
+export type ListBillerCodingQueueParams = {
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+};
+
+export type ListBillerCodingQueue200 = {
+  data: BillerQueueRow[];
+};
+
+export type ListEncounterAuditTimeline200 = {
+  data: EncounterAuditEvent[];
 };
 
 export type ListTasksParams = {

@@ -8,7 +8,12 @@ import {
 } from "vitest";
 import request from "supertest";
 import { sql } from "drizzle-orm";
-import { auditLogTable, getDb, patientsTable } from "@workspace/db";
+import {
+  auditLogTable,
+  getDb,
+  organizationsTable,
+  patientsTable,
+} from "@workspace/db";
 import app from "../app";
 import {
   TEST_ADMIN_TOTP_SECRET,
@@ -172,6 +177,42 @@ describe("GET /audit-log (integration)", () => {
     expect(res.status).toBe(200);
     const row = res.body.data[0];
     expect(row.metadata).toMatchObject({ status: 200, method: "GET" });
+  });
+
+  it("does not leak audit rows from other organizations", async () => {
+    // C1 regression: admin is a per-user role, not per-deployment. An
+    // admin in org_default must not see audit rows from a different
+    // tenant — even with matching userId/resourceType/action filters.
+    await getDb()
+      .insert(organizationsTable)
+      .values({ id: "org_other", name: "Other Clinic", slug: "other" })
+      .onConflictDoNothing();
+
+    const { agent } = await loginAgent();
+
+    // Seed a row in another org with attributes our caller would otherwise
+    // be able to match on. We bypass the middleware on purpose — this is
+    // exactly the "another tenant's row landed in the table" scenario.
+    await getDb().insert(auditLogTable).values({
+      organizationId: "org_other",
+      userId: null,
+      action: "list_patients",
+      resourceType: "patient",
+    });
+
+    // And one in the caller's own org so we know the endpoint is working.
+    await agent.get("/api/patients");
+    await waitForPendingAudits();
+
+    const res = await agent.get("/api/audit-log?action=list_patients");
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    // Every returned row must be the caller's own org. Verified via the
+    // user join — rows seeded for org_other have null userId/userDisplayName.
+    // The signed-in admin produces rows with their displayName populated.
+    for (const row of res.body.data) {
+      expect(row.userDisplayName).toBe(DISPLAY);
+    }
   });
 
   it("logs the read of /audit-log itself (meta-audit)", async () => {

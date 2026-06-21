@@ -10,3 +10,10 @@ if (!testUrl) {
   );
 }
 process.env["DATABASE_URL"] = testUrl;
+
+// The test:integration script loads .env for TEST_DATABASE_URL convenience,
+// which also pulls in real-provider env vars. Force them off so tests run
+// against the in-memory/stub paths — otherwise password-reset tests try to
+// fish the reset link out of a log-only sink while emails are silently
+// going to Resend for fake @halonote.test addresses.
+process.env["EMAIL_PROVIDER"] = "log-only";

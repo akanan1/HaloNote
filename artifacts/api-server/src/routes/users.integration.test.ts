@@ -8,7 +8,12 @@ import {
 } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
-import { getDb, usersTable } from "@workspace/db";
+import {
+  getDb,
+  organizationMembersTable,
+  organizationsTable,
+  usersTable,
+} from "@workspace/db";
 import app from "../app";
 import {
   TEST_ADMIN_TOTP_SECRET,
@@ -227,6 +232,46 @@ describe("users routes (integration)", () => {
     // No session cookie set on a rejected admin login.
     const cookies = (res.headers["set-cookie"] as unknown as string[]) ?? [];
     expect(cookies.some((c) => c.startsWith("halonote_session="))).toBe(false);
+  });
+
+  it("GET /users does not leak users from other organizations", async () => {
+    // H1 regression: admin is a per-user role, not per-deployment. An
+    // admin in org_default must not see member emails from a different
+    // tenant. Seed a second org with its own member and assert that
+    // the caller's GET /users response only includes org_default rows.
+    await getDb()
+      .insert(organizationsTable)
+      .values({ id: "org_other_users", name: "Other Clinic", slug: "other-users" })
+      .onConflictDoNothing();
+    const FOREIGN_EMAIL = "foreigner@otherclinic.test";
+    const foreign = await createTestUser({
+      email: FOREIGN_EMAIL,
+      password: PASSWORD,
+      displayName: "Foreign User",
+      role: "member",
+      // Skip the default-org bootstrap so we can attach them to org_other_users.
+      skipOrgBootstrap: true,
+    });
+    await getDb()
+      .insert(organizationMembersTable)
+      .values({
+        organizationId: "org_other_users",
+        userId: foreign.id,
+        role: "provider",
+        isActive: true,
+        joinedAt: new Date(),
+      });
+
+    const { agent } = await login(ADMIN_EMAIL);
+    const res = await agent.get("/api/users");
+    expect(res.status).toBe(200);
+    const emails = (
+      res.body.data as Array<{ email: string }>
+    ).map((u) => u.email);
+    expect(emails).toContain(ADMIN_EMAIL);
+    expect(emails).toContain(MEMBER_EMAIL);
+    // The foreign user MUST NOT appear — they belong to a different org.
+    expect(emails).not.toContain(FOREIGN_EMAIL);
   });
 
   it("PATCH /users/:id rejects an invalid role value", async () => {

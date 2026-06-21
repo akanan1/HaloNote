@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Calendar,
+  ClipboardCheck,
   ContactRound,
   Crown,
   ListChecks,
@@ -43,6 +44,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   // belong to the Patients tab on mobile.
   const isPatientsActive = location.startsWith("/patients");
   const isTasksActive = location.startsWith("/tasks");
+  const isBillerActive = location.startsWith("/biller");
   const isSettingsActive = location === "/settings";
   const isUsersActive = location === "/admin/users";
   const isAuditActive = location === "/audit-log";
@@ -103,6 +105,12 @@ export function AppLayout({ children }: AppLayoutProps) {
                   active={isTasksActive}
                   icon={ListChecks}
                   label="Tasks"
+                />
+                <TopNavLink
+                  href="/biller"
+                  active={isBillerActive}
+                  icon={ClipboardCheck}
+                  label="Biller"
                 />
                 {isAdmin ? (
                   <>
@@ -237,6 +245,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               isUsersActive={isUsersActive}
               isAuditActive={isAuditActive}
               isFounderActive={isFounderActive}
+              isBillerActive={isBillerActive}
               onSignOut={() => void handleSignOut()}
             />
           ) : null}
@@ -309,6 +318,7 @@ interface MoreSheetProps {
   isUsersActive: boolean;
   isAuditActive: boolean;
   isFounderActive: boolean;
+  isBillerActive: boolean;
   onSignOut: () => void;
 }
 
@@ -320,6 +330,7 @@ function MoreSheet({
   isUsersActive,
   isAuditActive,
   isFounderActive,
+  isBillerActive,
   onSignOut,
 }: MoreSheetProps) {
   // Close on Escape — modal dialogs should always honor it.
@@ -359,6 +370,12 @@ function MoreSheet({
               <X className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
+          <MoreSheetLink
+            href="/biller"
+            active={isBillerActive}
+            icon={ClipboardCheck}
+            label="Biller queue"
+          />
           {isAdmin ? (
             <>
               <MoreSheetLink

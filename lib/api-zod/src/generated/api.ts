@@ -102,6 +102,18 @@ export const ConfirmPasswordResetResponse = zod.object({
     .describe(
       "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
     ),
+  autoApproveNonMedOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST \/m\/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag.",
+    ),
+  mobileOnboarded: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once POST \/m\/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call.",
+    ),
 });
 
 /**
@@ -163,6 +175,18 @@ export const LoginResponse = zod.object({
     .describe(
       "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
     ),
+  autoApproveNonMedOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST \/m\/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag.",
+    ),
+  mobileOnboarded: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once POST \/m\/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call.",
+    ),
 });
 
 /**
@@ -217,6 +241,18 @@ export const GetCurrentUserResponse = zod.object({
     .optional()
     .describe(
       "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
+  autoApproveNonMedOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST \/m\/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag.",
+    ),
+  mobileOnboarded: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once POST \/m\/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call.",
     ),
 });
 
@@ -292,6 +328,18 @@ export const UpdateMeResponse = zod.object({
     .optional()
     .describe(
       "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
+    ),
+  autoApproveNonMedOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST \/m\/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag.",
+    ),
+  mobileOnboarded: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once POST \/m\/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call.",
     ),
 });
 
@@ -692,6 +740,35 @@ export const CompleteOnboardingResponse = zod.object({
     .describe(
       "When true, \/orders\/:id\/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab\/imaging auto-push while still hand-confirming every prescription.",
     ),
+  autoApproveNonMedOrders: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST \/m\/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag.",
+    ),
+  mobileOnboarded: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True once POST \/m\/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call.",
+    ),
+});
+
+/**
+ * Idempotent. On first call: flips autoPushMode to `after_transcription`, autoPushOrders to true, autoPushMedications to false, autoApproveNonMedOrders to true, and sets mobileOnboardedAt. Subsequent calls return the current flag state without re-flipping (so user-edited preferences are respected). Mobile UI calls this on /m mount if `mobileOnboarded` on the AuthUser is false.
+ * @summary One-shot setup of auto-push flags for a provider's first /m visit
+ */
+export const InitializeMobileResponse = zod.object({
+  initialized: zod
+    .boolean()
+    .describe(
+      "True when this call performed the one-shot flag flips. False when the user was already onboarded (noop) — the other fields then reflect their current settings.",
+    ),
+  autoPushMode: zod.enum(["off", "after_approve", "after_transcription"]),
+  autoPushOrders: zod.boolean(),
+  autoPushMedications: zod.boolean(),
+  autoApproveNonMedOrders: zod.boolean(),
+  mobileOnboardedAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -1179,6 +1256,12 @@ export const ListEncountersResponse = zod.object({
       scheduledAt: zod.coerce.date().nullish(),
       startedAt: zod.coerce.date().nullish(),
       completedAt: zod.coerce.date().nullish(),
+      ehrEncounterRef: zod
+        .string()
+        .nullish()
+        .describe(
+          'FHIR-style upstream encounter reference (\"Encounter\/<id>\") set when this local encounter mirrors an Athena (or other EHR) chart entry. Required for real-mode chart-API writeback; null means the encounter isn\'t linked to the EHR yet and pushes will fail with a clear \"not linked\" message.',
+        ),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),
@@ -1196,6 +1279,8 @@ providerId to the current user when not supplied.
 export const createEncounterBodyCustomLabelMax = 120;
 
 export const createEncounterBodyLocationMax = 120;
+
+export const createEncounterBodyEhrEncounterRefMax = 120;
 
 export const CreateEncounterBody = zod.object({
   patientId: zod.string().min(1),
@@ -1219,6 +1304,14 @@ export const CreateEncounterBody = zod.object({
   location: zod.string().max(createEncounterBodyLocationMax).optional(),
   scheduledAt: zod.coerce.date().optional(),
   providerId: zod.string().min(1).optional(),
+  ehrEncounterRef: zod
+    .string()
+    .min(1)
+    .max(createEncounterBodyEhrEncounterRefMax)
+    .optional()
+    .describe(
+      'Optional Athena (or other EHR) Encounter id at create time. Accepts \"Encounter\/<id>\" or bare \"<id>\"; normalized server-side to \"Encounter\/<id>\".',
+    ),
 });
 
 /**
@@ -1251,6 +1344,12 @@ export const GetEncounterResponse = zod.object({
   scheduledAt: zod.coerce.date().nullish(),
   startedAt: zod.coerce.date().nullish(),
   completedAt: zod.coerce.date().nullish(),
+  ehrEncounterRef: zod
+    .string()
+    .nullish()
+    .describe(
+      'FHIR-style upstream encounter reference (\"Encounter\/<id>\") set when this local encounter mirrors an Athena (or other EHR) chart entry. Required for real-mode chart-API writeback; null means the encounter isn\'t linked to the EHR yet and pushes will fail with a clear \"not linked\" message.',
+    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -1271,6 +1370,8 @@ export const UpdateEncounterParams = zod.object({
 export const updateEncounterBodyCustomLabelMax = 120;
 
 export const updateEncounterBodyLocationMax = 120;
+
+export const updateEncounterBodyEhrEncounterRefMax = 120;
 
 export const UpdateEncounterBody = zod
   .object({
@@ -1299,6 +1400,14 @@ export const UpdateEncounterBody = zod
       .optional(),
     scheduledAt: zod.coerce.date().nullish(),
     providerId: zod.string().min(1).nullish(),
+    ehrEncounterRef: zod
+      .string()
+      .min(1)
+      .max(updateEncounterBodyEhrEncounterRefMax)
+      .nullish()
+      .describe(
+        'Link or relink to an Athena (or other EHR) chart encounter. Pass null to clear (un-link). Accepts \"Encounter\/<id>\" or bare \"<id>\".',
+      ),
   })
   .describe(
     "All fields optional. Set a field to null to clear it where the\ncolumn allows null (location, customLabel, scheduledAt,\nproviderId). visitType \/ status \/ isTelehealth are non-nullable\nso null isn't accepted there.\n",
@@ -1327,6 +1436,12 @@ export const UpdateEncounterResponse = zod.object({
   scheduledAt: zod.coerce.date().nullish(),
   startedAt: zod.coerce.date().nullish(),
   completedAt: zod.coerce.date().nullish(),
+  ehrEncounterRef: zod
+    .string()
+    .nullish()
+    .describe(
+      'FHIR-style upstream encounter reference (\"Encounter\/<id>\") set when this local encounter mirrors an Athena (or other EHR) chart entry. Required for real-mode chart-API writeback; null means the encounter isn\'t linked to the EHR yet and pushes will fail with a clear \"not linked\" message.',
+    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -2050,6 +2165,1125 @@ export const SendBillingCodeToEhrResponse = zod.object({
   mock: zod
     .boolean()
     .describe("True when the push was a no-op against the mock backend."),
+});
+
+/**
+ * Per-card recovery for codes left with ehr_error set and exported_at null by a failed bulk-approve push. Distinct from /send-to-ehr which gates on biller_approved_at and is the biller-driven export. Gates on the code being in a "stranded" state and on the encounter's most-recent note being finalized.
+ * @summary Retry a stranded billing code (bulk-approve push failure)
+ */
+export const RetryBillingCodePushParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RetryBillingCodePushResponse = zod.object({
+  provider: zod.enum(["athenahealth", "epic", "mock"]),
+  ehrDocumentRef: zod
+    .string()
+    .describe(
+      'FHIR-style \"ResourceType\/id\" reference returned by the upstream after a successful push (or a synthetic \"mock-<localId>\" identifier in mock mode).',
+    ),
+  pushedAt: zod.coerce.date(),
+  mock: zod
+    .boolean()
+    .describe("True when the push was a no-op against the mock backend."),
+});
+
+/**
+ * Creates a new EncounterCodingSession and a fresh batch of coding suggestions on the encounter's latest note (or the noteId passed in the body, when targeting a specific amendment). The /notes/{id}/approve route fires this in the background on every fresh draft→approved transition.
+ * @summary Run (or rerun) the Coder against the encounter's finalized note
+ */
+export const GenerateEncounterCodingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GenerateEncounterCodingBody = zod.object({
+  noteId: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional target note id; defaults to the encounter's latest note.",
+    ),
+  noteSource: zod.enum(["halonote_scribe", "athena_existing"]).optional(),
+});
+
+/**
+ * @summary Latest Coder session + suggestions for the encounter
+ */
+export const GetEncounterCodingSessionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEncounterCodingSessionResponse = zod.object({
+  session: zod.object({
+    id: zod.string(),
+    organizationId: zod.string(),
+    encounterId: zod.string(),
+    noteId: zod.string().nullish(),
+    noteSource: zod.enum(["halonote_scribe", "athena_existing"]),
+    sourceNoteHash: zod
+      .string()
+      .nullish()
+      .describe(
+        "SHA-256 of the note body at coding time; lets the UI flag stale sessions when the note has been amended since.",
+      ),
+    status: zod.enum([
+      "queued",
+      "extracting",
+      "ready",
+      "approved",
+      "writing",
+      "complete",
+      "failed",
+    ]),
+    failureReason: zod.string().nullish(),
+    parsedSections: zod
+      .union([
+        zod
+          .object({
+            assessment: zod.string().optional(),
+            plan: zod.string().optional(),
+            hpi: zod.string().optional(),
+            ros: zod.string().optional(),
+            physicalExam: zod.string().optional(),
+            procedures: zod.string().optional(),
+            orders: zod.string().optional(),
+            mdm: zod.string().optional(),
+            time: zod.string().optional(),
+            other: zod.string().optional(),
+          })
+          .describe(
+            "Sectionized form of the finalized note, persisted on the session so the Coder Review pane can highlight the section each suggestion cited without re-parsing client-side.",
+          ),
+        zod.null(),
+      ])
+      .optional(),
+    extractionStartedAt: zod.coerce.date().nullish(),
+    extractionCompletedAt: zod.coerce.date().nullish(),
+    approvedAt: zod.coerce.date().nullish(),
+    approvedByUserId: zod.string().nullish(),
+    writebackStartedAt: zod.coerce.date().nullish(),
+    writebackCompletedAt: zod.coerce.date().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  }),
+  suggestions: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      encounterId: zod.string(),
+      codingSessionId: zod.string().nullish(),
+      codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+      code: zod.string(),
+      description: zod.string(),
+      editedCode: zod
+        .string()
+        .nullish()
+        .describe(
+          "Provider override of code; original `code` preserved for audit.",
+        ),
+      editedDescription: zod.string().nullish(),
+      rationale: zod.string(),
+      supportingExcerpts: zod.array(
+        zod.object({
+          text: zod.string(),
+          locationHint: zod.string().optional(),
+        }),
+      ),
+      documentationGaps: zod.array(
+        zod.object({
+          field: zod.string(),
+          message: zod.string(),
+          severity: zod.enum(["info", "warn", "block"]),
+        }),
+      ),
+      confidence: zod.enum(["low", "medium", "high"]),
+      sourceSection: zod
+        .union([
+          zod
+            .enum([
+              "assessment",
+              "plan",
+              "hpi",
+              "ros",
+              "physical_exam",
+              "procedures",
+              "orders",
+              "mdm",
+              "time",
+              "other",
+            ])
+            .describe("Which note section a suggestion was sourced from."),
+          zod.null(),
+        ])
+        .optional(),
+      destinationField: zod
+        .string()
+        .nullish()
+        .describe(
+          "Discrete EHR field the code will write to once approved (e.g. athena.encounter_diagnosis).",
+        ),
+      hccCategory: zod
+        .string()
+        .nullish()
+        .describe(
+          "HCC bucket label when the diagnosis maps to one; null otherwise.",
+        ),
+      rafRelevant: zod
+        .boolean()
+        .describe(
+          "True when the diagnosis is actively contributing to risk adjustment per this visit's documentation.",
+        ),
+      status: zod.enum([
+        "ai_suggested",
+        "needs_review",
+        "provider_approved",
+        "biller_approved",
+        "rejected",
+        "exported",
+      ]),
+      statusNote: zod.string().nullish(),
+      createdByAi: zod.boolean(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Single Coder session by id (deep links from Coder Review)
+ */
+export const GetCodingSessionByIdParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetCodingSessionByIdResponse = zod.object({
+  session: zod.object({
+    id: zod.string(),
+    organizationId: zod.string(),
+    encounterId: zod.string(),
+    noteId: zod.string().nullish(),
+    noteSource: zod.enum(["halonote_scribe", "athena_existing"]),
+    sourceNoteHash: zod
+      .string()
+      .nullish()
+      .describe(
+        "SHA-256 of the note body at coding time; lets the UI flag stale sessions when the note has been amended since.",
+      ),
+    status: zod.enum([
+      "queued",
+      "extracting",
+      "ready",
+      "approved",
+      "writing",
+      "complete",
+      "failed",
+    ]),
+    failureReason: zod.string().nullish(),
+    parsedSections: zod
+      .union([
+        zod
+          .object({
+            assessment: zod.string().optional(),
+            plan: zod.string().optional(),
+            hpi: zod.string().optional(),
+            ros: zod.string().optional(),
+            physicalExam: zod.string().optional(),
+            procedures: zod.string().optional(),
+            orders: zod.string().optional(),
+            mdm: zod.string().optional(),
+            time: zod.string().optional(),
+            other: zod.string().optional(),
+          })
+          .describe(
+            "Sectionized form of the finalized note, persisted on the session so the Coder Review pane can highlight the section each suggestion cited without re-parsing client-side.",
+          ),
+        zod.null(),
+      ])
+      .optional(),
+    extractionStartedAt: zod.coerce.date().nullish(),
+    extractionCompletedAt: zod.coerce.date().nullish(),
+    approvedAt: zod.coerce.date().nullish(),
+    approvedByUserId: zod.string().nullish(),
+    writebackStartedAt: zod.coerce.date().nullish(),
+    writebackCompletedAt: zod.coerce.date().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  }),
+  suggestions: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      encounterId: zod.string(),
+      codingSessionId: zod.string().nullish(),
+      codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+      code: zod.string(),
+      description: zod.string(),
+      editedCode: zod
+        .string()
+        .nullish()
+        .describe(
+          "Provider override of code; original `code` preserved for audit.",
+        ),
+      editedDescription: zod.string().nullish(),
+      rationale: zod.string(),
+      supportingExcerpts: zod.array(
+        zod.object({
+          text: zod.string(),
+          locationHint: zod.string().optional(),
+        }),
+      ),
+      documentationGaps: zod.array(
+        zod.object({
+          field: zod.string(),
+          message: zod.string(),
+          severity: zod.enum(["info", "warn", "block"]),
+        }),
+      ),
+      confidence: zod.enum(["low", "medium", "high"]),
+      sourceSection: zod
+        .union([
+          zod
+            .enum([
+              "assessment",
+              "plan",
+              "hpi",
+              "ros",
+              "physical_exam",
+              "procedures",
+              "orders",
+              "mdm",
+              "time",
+              "other",
+            ])
+            .describe("Which note section a suggestion was sourced from."),
+          zod.null(),
+        ])
+        .optional(),
+      destinationField: zod
+        .string()
+        .nullish()
+        .describe(
+          "Discrete EHR field the code will write to once approved (e.g. athena.encounter_diagnosis).",
+        ),
+      hccCategory: zod
+        .string()
+        .nullish()
+        .describe(
+          "HCC bucket label when the diagnosis maps to one; null otherwise.",
+        ),
+      rafRelevant: zod
+        .boolean()
+        .describe(
+          "True when the diagnosis is actively contributing to risk adjustment per this visit's documentation.",
+        ),
+      status: zod.enum([
+        "ai_suggested",
+        "needs_review",
+        "provider_approved",
+        "biller_approved",
+        "rejected",
+        "exported",
+      ]),
+      statusNote: zod.string().nullish(),
+      createdByAi: zod.boolean(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * Provider overrides the AI's code or description. The original stays intact for audit; the edited values get carried into approved_billing_codes on approval. Only valid while the suggestion is ai_suggested or needs_review.
+ * @summary Edit a code / description before approving
+ */
+export const EditCodingSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const editCodingSuggestionBodyEditedCodeMax = 20;
+
+export const editCodingSuggestionBodyEditedDescriptionMax = 300;
+
+export const editCodingSuggestionBodyReasonMax = 500;
+
+export const EditCodingSuggestionBody = zod.object({
+  editedCode: zod.string().min(1).max(editCodingSuggestionBodyEditedCodeMax),
+  editedDescription: zod
+    .string()
+    .min(1)
+    .max(editCodingSuggestionBodyEditedDescriptionMax),
+  reason: zod.string().max(editCodingSuggestionBodyReasonMax).optional(),
+});
+
+export const EditCodingSuggestionResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  encounterId: zod.string(),
+  codingSessionId: zod.string().nullish(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  editedCode: zod
+    .string()
+    .nullish()
+    .describe(
+      "Provider override of code; original `code` preserved for audit.",
+    ),
+  editedDescription: zod.string().nullish(),
+  rationale: zod.string(),
+  supportingExcerpts: zod.array(
+    zod.object({
+      text: zod.string(),
+      locationHint: zod.string().optional(),
+    }),
+  ),
+  documentationGaps: zod.array(
+    zod.object({
+      field: zod.string(),
+      message: zod.string(),
+      severity: zod.enum(["info", "warn", "block"]),
+    }),
+  ),
+  confidence: zod.enum(["low", "medium", "high"]),
+  sourceSection: zod
+    .union([
+      zod
+        .enum([
+          "assessment",
+          "plan",
+          "hpi",
+          "ros",
+          "physical_exam",
+          "procedures",
+          "orders",
+          "mdm",
+          "time",
+          "other",
+        ])
+        .describe("Which note section a suggestion was sourced from."),
+      zod.null(),
+    ])
+    .optional(),
+  destinationField: zod
+    .string()
+    .nullish()
+    .describe(
+      "Discrete EHR field the code will write to once approved (e.g. athena.encounter_diagnosis).",
+    ),
+  hccCategory: zod
+    .string()
+    .nullish()
+    .describe(
+      "HCC bucket label when the diagnosis maps to one; null otherwise.",
+    ),
+  rafRelevant: zod
+    .boolean()
+    .describe(
+      "True when the diagnosis is actively contributing to risk adjustment per this visit's documentation.",
+    ),
+  status: zod.enum([
+    "ai_suggested",
+    "needs_review",
+    "provider_approved",
+    "biller_approved",
+    "rejected",
+    "exported",
+  ]),
+  statusNote: zod.string().nullish(),
+  createdByAi: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * Runs a second AI pass over a single ICD-10 or CPT suggestion + the encounter note. Returns up to 3 ranked options. Each option labels whether the note supports the refinement today (evidenceMode=supported, with verbatim excerpts) or whether it would require additional documentation (evidenceMode=documentation_gap, with suggestedNoteLanguage the provider can paste). Options that unlock an HCC bucket are flagged with hccUnlocked=true so the UI can prioritize them. Read-only — apply is a separate POST.
+ * @summary Get ranked refinement options (more-specific code alternatives) for a suggestion
+ */
+export const RefineCodingSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RefineCodingSuggestionResponse = zod.object({
+  options: zod.array(
+    zod.object({
+      code: zod.string(),
+      description: zod.string(),
+      evidenceMode: zod
+        .enum(["supported", "documentation_gap"])
+        .describe(
+          "supported = the note text justifies the refined code today (supportingExcerpts quotes the passage). documentation_gap = the refinement is clinically plausible but not currently documented (suggestedNoteLanguage carries a one-sentence finding the provider can paste to support the code).",
+        ),
+      supportingExcerpts: zod
+        .array(
+          zod.object({
+            text: zod.string(),
+            locationHint: zod.string().optional(),
+          }),
+        )
+        .optional(),
+      suggestedNoteLanguage: zod
+        .string()
+        .optional()
+        .describe(
+          "Required when evidenceMode=documentation_gap. One short clinical sentence the provider can paste into the note to justify the refined code.",
+        ),
+      rationale: zod.string(),
+      hccCategory: zod
+        .string()
+        .optional()
+        .describe("HCC bucket label when the refined code maps to one."),
+      hccUnlocked: zod
+        .boolean()
+        .describe(
+          'True when the refined code captures an HCC bucket the original did not. Drives the \"Unlocks HCC\" badge.',
+        ),
+      confidence: zod.enum(["low", "medium", "high"]),
+    }),
+  ),
+  source: zod.enum(["ai", "stub"]),
+});
+
+/**
+ * Runs the per-code refiner against every editable icd10/cpt suggestion in the session, concurrency-capped server-side. Read-only — apply is still per-row via apply-refinement. The response carries the aggregate plus a count of HCC-unlocking options across all suggestions so the UI can render a compact "X HCC unlocks available" overview.
+ * @summary Bulk-refine every editable ICD-10 / CPT suggestion in a session
+ */
+export const RefineAllCodingSuggestionsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RefineAllCodingSuggestionsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      suggestionId: zod.string(),
+      originalCode: zod.string(),
+      options: zod.array(
+        zod.object({
+          code: zod.string(),
+          description: zod.string(),
+          evidenceMode: zod
+            .enum(["supported", "documentation_gap"])
+            .describe(
+              "supported = the note text justifies the refined code today (supportingExcerpts quotes the passage). documentation_gap = the refinement is clinically plausible but not currently documented (suggestedNoteLanguage carries a one-sentence finding the provider can paste to support the code).",
+            ),
+          supportingExcerpts: zod
+            .array(
+              zod.object({
+                text: zod.string(),
+                locationHint: zod.string().optional(),
+              }),
+            )
+            .optional(),
+          suggestedNoteLanguage: zod
+            .string()
+            .optional()
+            .describe(
+              "Required when evidenceMode=documentation_gap. One short clinical sentence the provider can paste into the note to justify the refined code.",
+            ),
+          rationale: zod.string(),
+          hccCategory: zod
+            .string()
+            .optional()
+            .describe("HCC bucket label when the refined code maps to one."),
+          hccUnlocked: zod
+            .boolean()
+            .describe(
+              'True when the refined code captures an HCC bucket the original did not. Drives the \"Unlocks HCC\" badge.',
+            ),
+          confidence: zod.enum(["low", "medium", "high"]),
+        }),
+      ),
+    }),
+  ),
+  hccUnlockCount: zod
+    .number()
+    .describe("Total HCC-unlocking options across all suggestions."),
+  source: zod.enum(["ai", "stub"]),
+});
+
+/**
+ * Sets editedCode + editedDescription on the suggestion, and bumps hccCategory / rafRelevant when the refinement unlocks a new HCC bucket. Original code/description stay intact for audit. Only works while the suggestion is ai_suggested or needs_review.
+ * @summary Apply a chosen refinement option to a suggestion
+ */
+export const ApplyCodingRefinementParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const applyCodingRefinementBodyChosenCodeMax = 20;
+
+export const applyCodingRefinementBodyChosenDescriptionMax = 300;
+
+export const applyCodingRefinementBodyChosenHccCategoryMax = 200;
+
+export const ApplyCodingRefinementBody = zod.object({
+  chosenCode: zod.string().min(1).max(applyCodingRefinementBodyChosenCodeMax),
+  chosenDescription: zod
+    .string()
+    .min(1)
+    .max(applyCodingRefinementBodyChosenDescriptionMax),
+  chosenHccCategory: zod
+    .string()
+    .max(applyCodingRefinementBodyChosenHccCategoryMax)
+    .nullish(),
+  hccUnlocked: zod.boolean(),
+});
+
+export const ApplyCodingRefinementResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  encounterId: zod.string(),
+  codingSessionId: zod.string().nullish(),
+  codeSystem: zod.enum(["icd10", "cpt", "em", "modifier"]),
+  code: zod.string(),
+  description: zod.string(),
+  editedCode: zod
+    .string()
+    .nullish()
+    .describe(
+      "Provider override of code; original `code` preserved for audit.",
+    ),
+  editedDescription: zod.string().nullish(),
+  rationale: zod.string(),
+  supportingExcerpts: zod.array(
+    zod.object({
+      text: zod.string(),
+      locationHint: zod.string().optional(),
+    }),
+  ),
+  documentationGaps: zod.array(
+    zod.object({
+      field: zod.string(),
+      message: zod.string(),
+      severity: zod.enum(["info", "warn", "block"]),
+    }),
+  ),
+  confidence: zod.enum(["low", "medium", "high"]),
+  sourceSection: zod
+    .union([
+      zod
+        .enum([
+          "assessment",
+          "plan",
+          "hpi",
+          "ros",
+          "physical_exam",
+          "procedures",
+          "orders",
+          "mdm",
+          "time",
+          "other",
+        ])
+        .describe("Which note section a suggestion was sourced from."),
+      zod.null(),
+    ])
+    .optional(),
+  destinationField: zod
+    .string()
+    .nullish()
+    .describe(
+      "Discrete EHR field the code will write to once approved (e.g. athena.encounter_diagnosis).",
+    ),
+  hccCategory: zod
+    .string()
+    .nullish()
+    .describe(
+      "HCC bucket label when the diagnosis maps to one; null otherwise.",
+    ),
+  rafRelevant: zod
+    .boolean()
+    .describe(
+      "True when the diagnosis is actively contributing to risk adjustment per this visit's documentation.",
+    ),
+  status: zod.enum([
+    "ai_suggested",
+    "needs_review",
+    "provider_approved",
+    "biller_approved",
+    "rejected",
+    "exported",
+  ]),
+  statusNote: zod.string().nullish(),
+  createdByAi: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * The "Approve and Write to Encounter" action. Approves every suggestion whose confidence ≥ minConfidence (default high) AND has no block-severity documentation gap. Edited suggestions carry their edits into the approved row.
+ * @summary Bulk-approve high-confidence suggestions in a Coder session
+ */
+export const ApproveAllHighConfidenceCodingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ApproveAllHighConfidenceCodingBody = zod.object({
+  minConfidence: zod.enum(["low", "medium", "high"]).optional(),
+});
+
+export const ApproveAllHighConfidenceCodingResponse = zod.object({
+  session: zod.object({
+    id: zod.string(),
+    organizationId: zod.string(),
+    encounterId: zod.string(),
+    noteId: zod.string().nullish(),
+    noteSource: zod.enum(["halonote_scribe", "athena_existing"]),
+    sourceNoteHash: zod
+      .string()
+      .nullish()
+      .describe(
+        "SHA-256 of the note body at coding time; lets the UI flag stale sessions when the note has been amended since.",
+      ),
+    status: zod.enum([
+      "queued",
+      "extracting",
+      "ready",
+      "approved",
+      "writing",
+      "complete",
+      "failed",
+    ]),
+    failureReason: zod.string().nullish(),
+    parsedSections: zod
+      .union([
+        zod
+          .object({
+            assessment: zod.string().optional(),
+            plan: zod.string().optional(),
+            hpi: zod.string().optional(),
+            ros: zod.string().optional(),
+            physicalExam: zod.string().optional(),
+            procedures: zod.string().optional(),
+            orders: zod.string().optional(),
+            mdm: zod.string().optional(),
+            time: zod.string().optional(),
+            other: zod.string().optional(),
+          })
+          .describe(
+            "Sectionized form of the finalized note, persisted on the session so the Coder Review pane can highlight the section each suggestion cited without re-parsing client-side.",
+          ),
+        zod.null(),
+      ])
+      .optional(),
+    extractionStartedAt: zod.coerce.date().nullish(),
+    extractionCompletedAt: zod.coerce.date().nullish(),
+    approvedAt: zod.coerce.date().nullish(),
+    approvedByUserId: zod.string().nullish(),
+    writebackStartedAt: zod.coerce.date().nullish(),
+    writebackCompletedAt: zod.coerce.date().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  }),
+  approvedCount: zod
+    .number()
+    .describe("Number of suggestions promoted to approved_billing_codes."),
+  skippedCount: zod
+    .number()
+    .describe(
+      "Suggestions left for individual review (low confidence or block-severity gaps).",
+    ),
+  pushedBillingCount: zod
+    .number()
+    .describe(
+      "Billing codes successfully pushed to the EHR in this call (mock-mode counts as a push).",
+    ),
+  pushedOrderCount: zod
+    .number()
+    .describe(
+      "Approved orders (complete + not-yet-exported) successfully pushed in this call.",
+    ),
+  pushFailedCount: zod
+    .number()
+    .describe(
+      "Combined billing+order pushes that failed; ehrError persisted per row for retry.",
+    ),
+});
+
+/**
+ * @summary Local problem-list cache for a patient
+ */
+export const GetPatientProblemsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetPatientProblemsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      patientId: zod.string(),
+      code: zod.string(),
+      description: zod.string(),
+      status: zod.enum([
+        "active",
+        "stable",
+        "worsening",
+        "improving",
+        "resolved",
+      ]),
+      onsetDate: zod.string().nullish(),
+      ehrSource: zod.enum(["athena", "epic", "cerner", "manual"]),
+      ehrResourceRef: zod.string().nullish(),
+      syncedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Reconciler output for a Coder session
+ */
+export const GetProblemSuggestionsForSessionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetProblemSuggestionsForSessionResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      codingSessionId: zod.string().nullish(),
+      patientId: zod.string(),
+      encounterId: zod.string(),
+      action: zod.enum([
+        "add",
+        "update_status",
+        "resolve",
+        "merge_duplicate",
+        "flag_uncertain",
+      ]),
+      targetProblemId: zod.string().nullish(),
+      mergeFromProblemId: zod.string().nullish(),
+      proposedCode: zod.string().nullish(),
+      proposedDescription: zod.string().nullish(),
+      proposedStatus: zod
+        .union([
+          zod.enum(["active", "stable", "worsening", "improving", "resolved"]),
+          zod.null(),
+        ])
+        .optional(),
+      rationale: zod.string(),
+      supportingExcerpts: zod.array(
+        zod.object({
+          text: zod.string(),
+          locationHint: zod.string().optional(),
+        }),
+      ),
+      confidence: zod.enum(["low", "medium", "high"]),
+      status: zod.enum(["suggested", "accepted", "rejected", "applied"]),
+      statusNote: zod.string().nullish(),
+      appliedLocally: zod.boolean(),
+      reviewedByUserId: zod.string().nullish(),
+      reviewedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Re-run problem-list reconciliation against this session
+ */
+export const ReconcileProblemsForSessionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ReconcileProblemsForSessionResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      codingSessionId: zod.string().nullish(),
+      patientId: zod.string(),
+      encounterId: zod.string(),
+      action: zod.enum([
+        "add",
+        "update_status",
+        "resolve",
+        "merge_duplicate",
+        "flag_uncertain",
+      ]),
+      targetProblemId: zod.string().nullish(),
+      mergeFromProblemId: zod.string().nullish(),
+      proposedCode: zod.string().nullish(),
+      proposedDescription: zod.string().nullish(),
+      proposedStatus: zod
+        .union([
+          zod.enum(["active", "stable", "worsening", "improving", "resolved"]),
+          zod.null(),
+        ])
+        .optional(),
+      rationale: zod.string(),
+      supportingExcerpts: zod.array(
+        zod.object({
+          text: zod.string(),
+          locationHint: zod.string().optional(),
+        }),
+      ),
+      confidence: zod.enum(["low", "medium", "high"]),
+      status: zod.enum(["suggested", "accepted", "rejected", "applied"]),
+      statusNote: zod.string().nullish(),
+      appliedLocally: zod.boolean(),
+      reviewedByUserId: zod.string().nullish(),
+      reviewedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+  problems: zod.array(
+    zod.object({
+      id: zod.string(),
+      organizationId: zod.string(),
+      patientId: zod.string(),
+      code: zod.string(),
+      description: zod.string(),
+      status: zod.enum([
+        "active",
+        "stable",
+        "worsening",
+        "improving",
+        "resolved",
+      ]),
+      onsetDate: zod.string().nullish(),
+      ehrSource: zod.enum(["athena", "epic", "cerner", "manual"]),
+      ehrResourceRef: zod.string().nullish(),
+      syncedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+  ehrHit: zod
+    .boolean()
+    .describe("True when Athena was queried (not mock \/ no ehrPatientId)."),
+});
+
+/**
+ * @summary Accept a problem-list reconciliation action (applies the local mutation)
+ */
+export const AcceptProblemListSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const acceptProblemListSuggestionBodyReasonMax = 500;
+
+export const AcceptProblemListSuggestionBody = zod.object({
+  reason: zod.string().max(acceptProblemListSuggestionBodyReasonMax).optional(),
+});
+
+export const AcceptProblemListSuggestionResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  codingSessionId: zod.string().nullish(),
+  patientId: zod.string(),
+  encounterId: zod.string(),
+  action: zod.enum([
+    "add",
+    "update_status",
+    "resolve",
+    "merge_duplicate",
+    "flag_uncertain",
+  ]),
+  targetProblemId: zod.string().nullish(),
+  mergeFromProblemId: zod.string().nullish(),
+  proposedCode: zod.string().nullish(),
+  proposedDescription: zod.string().nullish(),
+  proposedStatus: zod
+    .union([
+      zod.enum(["active", "stable", "worsening", "improving", "resolved"]),
+      zod.null(),
+    ])
+    .optional(),
+  rationale: zod.string(),
+  supportingExcerpts: zod.array(
+    zod.object({
+      text: zod.string(),
+      locationHint: zod.string().optional(),
+    }),
+  ),
+  confidence: zod.enum(["low", "medium", "high"]),
+  status: zod.enum(["suggested", "accepted", "rejected", "applied"]),
+  statusNote: zod.string().nullish(),
+  appliedLocally: zod.boolean(),
+  reviewedByUserId: zod.string().nullish(),
+  reviewedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Reject a problem-list reconciliation action
+ */
+export const RejectProblemListSuggestionParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const rejectProblemListSuggestionBodyReasonMax = 500;
+
+export const RejectProblemListSuggestionBody = zod.object({
+  reason: zod.string().min(1).max(rejectProblemListSuggestionBodyReasonMax),
+});
+
+export const RejectProblemListSuggestionResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string(),
+  codingSessionId: zod.string().nullish(),
+  patientId: zod.string(),
+  encounterId: zod.string(),
+  action: zod.enum([
+    "add",
+    "update_status",
+    "resolve",
+    "merge_duplicate",
+    "flag_uncertain",
+  ]),
+  targetProblemId: zod.string().nullish(),
+  mergeFromProblemId: zod.string().nullish(),
+  proposedCode: zod.string().nullish(),
+  proposedDescription: zod.string().nullish(),
+  proposedStatus: zod
+    .union([
+      zod.enum(["active", "stable", "worsening", "improving", "resolved"]),
+      zod.null(),
+    ])
+    .optional(),
+  rationale: zod.string(),
+  supportingExcerpts: zod.array(
+    zod.object({
+      text: zod.string(),
+      locationHint: zod.string().optional(),
+    }),
+  ),
+  confidence: zod.enum(["low", "medium", "high"]),
+  status: zod.enum(["suggested", "accepted", "rejected", "applied"]),
+  statusNote: zod.string().nullish(),
+  appliedLocally: zod.boolean(),
+  reviewedByUserId: zod.string().nullish(),
+  reviewedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Recent Athena Encounter resources for linking a local row
+ */
+export const ListPatientAthenaEncountersParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListPatientAthenaEncountersResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      encounterId: zod.string(),
+      period: zod.object({
+        start: zod.coerce.date().nullable(),
+        end: zod.coerce.date().nullable(),
+      }),
+      status: zod.string().nullish(),
+      classDisplay: zod.string().nullish(),
+      typeDisplay: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Recent finalized DocumentReferences for an Athena-linked patient
+ */
+export const ListPatientAthenaNotesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListPatientAthenaNotesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      documentReferenceId: zod.string(),
+      date: zod.coerce.date().nullish(),
+      description: zod.string().nullish(),
+      encounterEhrRef: zod.string().nullish(),
+      contentType: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * Pulls the FHIR DocumentReference, materializes a local approved note row (mirroring the upstream chart entry), and fires the Coder with noteSource='athena_existing'.
+ * @summary Ingest a finalized Athena DocumentReference and run the Coder against it
+ */
+export const IngestAthenaNoteParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ingestAthenaNoteBodyAthenaDocumentReferenceIdMax = 120;
+
+export const IngestAthenaNoteBody = zod.object({
+  athenaDocumentReferenceId: zod
+    .string()
+    .min(1)
+    .max(ingestAthenaNoteBodyAthenaDocumentReferenceIdMax),
+});
+
+/**
+ * @summary List Coder-coded encounters awaiting (or past) biller review
+ */
+export const listBillerCodingQueueQueryLimitDefault = 100;
+export const listBillerCodingQueueQueryLimitMax = 500;
+
+export const ListBillerCodingQueueQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listBillerCodingQueueQueryLimitMax)
+    .default(listBillerCodingQueueQueryLimitDefault),
+});
+
+export const ListBillerCodingQueueResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      sessionId: zod.string(),
+      encounterId: zod.string(),
+      patientId: zod.string(),
+      patientFirstName: zod.string(),
+      patientLastName: zod.string(),
+      patientMrn: zod.string().nullish(),
+      encounterScheduledAt: zod.coerce.date().nullish(),
+      encounterVisitType: zod.string(),
+      sessionStatus: zod.enum([
+        "queued",
+        "extracting",
+        "ready",
+        "approved",
+        "writing",
+        "complete",
+        "failed",
+      ]),
+      approvedAt: zod.coerce.date().nullish(),
+      totalCodes: zod.number(),
+      billerApprovedCodes: zod.number(),
+      exportedCodes: zod.number(),
+      editedCodes: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * Returns audit_log rows for every resource attached to the encounter: the encounter itself, its note(s), coding sessions, billing suggestions, problem-list suggestions, and approved billing codes. Reverse-chronological, capped at the limit param. Non-admin — providers + billers see the same view (org-scoped).
+ * @summary Encounter-scoped audit drilldown — every audit_log event tied to this encounter
+ */
+export const ListEncounterAuditTimelineParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListEncounterAuditTimelineResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.string(),
+      at: zod.coerce.date(),
+      userId: zod.string().nullish(),
+      userDisplayName: zod.string().nullish(),
+      action: zod.string(),
+      resourceType: zod.string(),
+      resourceId: zod.string().nullish(),
+      metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+    }),
+  ),
 });
 
 /**

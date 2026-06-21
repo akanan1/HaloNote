@@ -1,9 +1,14 @@
-import { EhrPushError, type EhrPushOutcome } from "./ehr-push";
-import { logger } from "./logger";
+import { randomUUID } from "node:crypto";
+import { EhrPushError } from "./ehr-push";
+import {
+  resolveEhrOrderAdapter,
+  type EhrOrderPushContext,
+  type EhrOrderPushOutcome,
+} from "./ehr-order-adapter";
 import type { Patient } from "./patients";
 
 // Order shape the pusher needs. Kept narrow on purpose — the
-// approved_orders row carries ~25 columns, most of which aren't
+// approved_orders row carries ~30 columns, most of which aren't
 // needed to emit a FHIR resource. Caller maps DB row → this.
 export interface PushableOrder {
   id: string;
@@ -42,79 +47,76 @@ export interface PushOrderParams {
   /** When the author has a SMART connection, push via their per-user
    *  client so the resource carries their identity. */
   userId?: string;
+  /** When true, dispatch via the dry-run adapter — payload is built
+   *  but never sent upstream. Defaults to false. */
+  dryRun?: boolean;
+  /** Stable Idempotency-Key the caller persisted on the order row.
+   *  Reused across retries so the upstream can dedupe. If absent, a
+   *  fresh UUID is generated — but the caller should persist it on the
+   *  row before retrying, otherwise each retry looks like a new POST
+   *  to the EHR. */
+  idempotencyKey?: string;
 }
 
-function resolveProvider(): "athenahealth" | "epic" | "mock" {
-  const mode = process.env["EHR_MODE"]?.trim().toLowerCase();
-  if (mode === "athenahealth") return "athenahealth";
-  if (mode === "epic") return "epic";
-  return "mock";
+/** Generated server-side; persist on the order row before the first
+ *  push so retries reuse it. */
+export function generateOrderIdempotencyKey(): string {
+  return `ord-${randomUUID()}`;
 }
 
 /**
- * Push an approved order to the EHR. Two outcomes:
+ * Push an approved order to the EHR. Internally dispatches through an
+ * EhrOrderAdapter (see ehr-order-adapter.ts) so providers are swappable
+ * and dry-run is a first-class mode. External signature is unchanged from
+ * the pre-adapter version so existing callers (coding-approval bulk path)
+ * keep working without edits.
  *
- *   - mock (default in dev / when EHR_MODE is unset): the call is
- *     logged with structural facts (no medication name, no patient
- *     PHI — handled by logger redaction) and returns a synthetic
- *     ehrDocumentRef so the rest of the pipeline behaves as if a
- *     real push happened.
+ * Outcomes:
  *
- *   - real (athenahealth / epic): falls through to NOT YET
- *     IMPLEMENTED. The FHIR R4 resources are MedicationRequest /
- *     ServiceRequest depending on orderType — each vendor's REST
- *     contract for create varies meaningfully, and shipping the
- *     real wire path needs sandbox testing per provider. The mock
- *     mode is sufficient for the rest of the app to exercise the
- *     send-to-ehr / retry / status flows today; real push wiring
- *     is the next sub-phase per provider.
+ *   - mock (default in dev / when EHR_MODE is unset): synthetic refs,
+ *     no upstream call.
  *
- * Throws EhrPushError on a real-mode failure so the caller can
- * persist the error string + 502 the request.
+ *   - dry_run (params.dryRun=true): builds the FHIR-ish payload preview
+ *     but does NOT dispatch. Outcome carries dryRun=true so the caller
+ *     can avoid persisting status="exported".
+ *
+ *   - real (athenahealth / epic): NOT YET WIRED — throws 501 with a
+ *     pointer to what's needed. The mock and dry-run paths exercise the
+ *     full DB + audit + retry plumbing today; flipping real-mode on is
+ *     a per-vendor sandbox-verification job.
+ *
+ * Throws EhrPushError on failure so the caller can persist the error
+ * string + map to an HTTP status.
  */
 export async function pushOrderToEhr(
   params: PushOrderParams,
-): Promise<EhrPushOutcome> {
-  const provider = resolveProvider();
+): Promise<EhrOrderPushOutcome> {
+  const adapter = resolveEhrOrderAdapter({ dryRun: params.dryRun === true });
 
-  if (provider === "mock") {
-    const syntheticId = `mock-${params.order.id}`;
-    // Resource type for the synthetic id reflects what the FHIR push
-    // *would* produce so consumers downstream (e.g. retry UX, audit
-    // log labels) see the right shape.
-    const resourceType =
-      params.order.orderType === "medication"
-        ? "MedicationRequest"
-        : "ServiceRequest";
-    logger.info(
-      {
-        orderId: params.order.id,
-        orderType: params.order.orderType,
-        priority: params.order.priority,
-        patientRef: `Patient/${params.patient.id}`,
-        encounterRef: params.encounterEhrRef,
-        syntheticId,
-      },
-      "EHR order push (mock) — EHR_MODE not set to a real provider; not posting upstream",
+  // Real-mode pre-check: missing encounter link surfaces the same
+  // human-readable message the billing path uses. Mock + dry-run skip
+  // this gate since neither actually dispatches upstream. The
+  // force-fail test adapter also skips so failure-path tests can
+  // exercise the failure code path independently of the link gate.
+  if (
+    adapter.name !== "mock" &&
+    !adapter.name.endsWith("_dry_run") &&
+    adapter.name !== "force_fail" &&
+    !params.encounterEhrRef
+  ) {
+    throw new EhrPushError(
+      "Encounter is not linked to the EHR and cannot be pushed yet. Link the encounter to its chart entry, then retry.",
+      409,
     );
-    return {
-      provider: "mock",
-      ehrDocumentRef: `${resourceType}/${syntheticId}`,
-      pushedAt: new Date(),
-      mock: true,
-    };
   }
 
-  // Real-mode wiring goes here in a follow-up sub-phase: build the
-  // FHIR resource (MedicationRequest / ServiceRequest), POST via
-  // the per-user or org-level client, return the created ref. For
-  // now we 501 so a misconfigured prod can't silently no-op.
-  logger.warn(
-    { orderId: params.order.id, provider, userId: params.userId },
-    "EHR order push: real-mode wiring not yet implemented for this provider",
-  );
-  throw new EhrPushError(
-    `ehr_order_push_not_implemented_for_${provider}`,
-    501,
-  );
+  const idempotencyKey = params.idempotencyKey ?? generateOrderIdempotencyKey();
+  const ctx: EhrOrderPushContext = {
+    patient: params.patient,
+    encounterEhrRef: params.encounterEhrRef,
+    idempotencyKey,
+    ...(params.userId ? { userId: params.userId } : {}),
+  };
+
+  return await adapter.push(params.order, ctx);
 }

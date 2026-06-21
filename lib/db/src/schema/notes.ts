@@ -116,6 +116,14 @@ export const notesTable = pgTable("notes", {
   ehrDocumentRef: text("ehr_document_ref"),
   ehrPushedAt: timestamp("ehr_pushed_at", { mode: "date", withTimezone: true }),
   ehrError: text("ehr_error"),
+  // Idempotency key sent as `Idempotency-Key` on the FHIR DocumentReference
+  // POST. Generated and persisted BEFORE the network call so that any
+  // retry — automatic (transient 5xx/429) or manual (user clicks "send
+  // again" after a timeout) — reuses the same key. The EHR server is
+  // expected to dedupe duplicate POSTs that share a key within its
+  // retention window. Cleared only when the note transitions out of a
+  // pushable state via the FHIR replaces chain.
+  ehrIdempotencyKey: text("ehr_idempotency_key"),
 
   // Persisted vitals from the AI extractor (Phase 17). Written by
   // POST /notes/:id/extract-vitals when source='ai' AND status='draft'

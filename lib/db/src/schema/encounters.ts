@@ -96,6 +96,19 @@ export const encountersTable = pgTable("encounters", {
     withTimezone: true,
   }),
 
+  // EHR-side Encounter identifier — the upstream chart's encounter id
+  // that this local row mirrors. Stored as a FHIR-style reference
+  // ("Encounter/12345") to mirror notes.ehrDocumentRef and
+  // approved_orders.ehrDocumentRef shape, so downstream consumers
+  // (push adapters, audit log labels) see the same convention across
+  // resources. Nullable: encounters created locally (provider
+  // initiates a walk-in, no Athena round-trip) won't have one until a
+  // scheduler-sync or explicit link writes it. Athena-imported and
+  // dev-sandbox-pulled encounters set this at create time. The chart
+  // writeback (POST /v1/.../chart/encounter/{id}/{...}) reads this to
+  // route diagnoses + charges to the correct parent encounter.
+  ehrEncounterRef: text("ehr_encounter_ref"),
+
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),

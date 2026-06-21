@@ -22,4 +22,10 @@ export interface CreateEncounterRequest {
   scheduledAt?: Date;
   /** @minLength 1 */
   providerId?: string;
+  /**
+   * Optional Athena (or other EHR) Encounter id at create time. Accepts "Encounter/<id>" or bare "<id>"; normalized server-side to "Encounter/<id>".
+   * @minLength 1
+   * @maxLength 120
+   */
+  ehrEncounterRef?: string;
 }

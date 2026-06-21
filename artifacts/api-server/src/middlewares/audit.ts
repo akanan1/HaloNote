@@ -49,6 +49,28 @@ function notifyIfDone(): void {
   }
 }
 
+// Register an out-of-band audit write (e.g. recordCoderAuditEvent) with
+// the same pending-counter the middleware uses, so waitForPendingAudits()
+// drains it before TRUNCATE in the integration harness. In prod this is
+// a no-op cost: one counter inc/dec around the existing fire-and-forget.
+//
+// Defensive: we explicitly .catch() the promise so a rejection in the
+// caller's fire-and-forget work doesn't surface as an unhandled
+// rejection (which crashes vitest workers and the prod node process
+// under --unhandled-rejections=strict). Callers should still try/catch
+// themselves to log meaningfully — this is just the safety net.
+export function trackAuditWrite(promise: Promise<unknown>): void {
+  pending++;
+  void promise
+    .catch((err: unknown) => {
+      logger.warn({ err }, "trackAuditWrite: swallowed unhandled rejection");
+    })
+    .finally(() => {
+      pending--;
+      notifyIfDone();
+    });
+}
+
 export const auditLog: RequestHandler = (req, res, next) => {
   // Capture intent before the route handler mutates anything.
   const action = inferAction(req.method, req.path);
@@ -62,11 +84,23 @@ export const auditLog: RequestHandler = (req, res, next) => {
   // mutation already has a real org by the time we get here.
   const organizationId = req.activeOrganizationId ?? null;
 
+  // CRITICAL: increment pending NOW, synchronously, before the route
+  // handler runs. The INSERT itself is queued on res.on("close") which
+  // fires AFTER the response ships — and that's the window the test
+  // harness's waitForPendingAudits() needs to be blind-to-zero in.
+  // Inc-on-close meant: supertest call resolves → test moves on →
+  // resetTestDb sees pending=0 and TRUNCATEs → close fires → INSERT
+  // deadlocks against the running TRUNCATE (40P01).
+  pending++;
+
   res.on("close", () => {
     // Only log meaningful outcomes — skip aborted requests with no status.
-    if (!res.statusCode) return;
+    if (!res.statusCode) {
+      pending--;
+      notifyIfDone();
+      return;
+    }
 
-    pending++;
     getDb()
       .insert(auditLogTable)
       .values({

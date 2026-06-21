@@ -2,20 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "api-server",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "-C",
-        "Documents/HaloNoteApp",
-        "--filter",
-        "@workspace/api-server",
-        "run",
-        "dev"
-      ],
-      "port": 8080
-    },
-    {
-      "name": "provider-app",
+      "name": "demo-stack",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "-C",
@@ -25,10 +12,10 @@
         "run",
         "dev"
       ],
-      "port": 8081,
+      "port": 8091,
       "env": {
-        "PORT": "8081",
-        "API_PROXY_TARGET": "http://localhost:8080"
+        "PORT": "8091",
+        "API_PROXY_TARGET": "http://localhost:8090"
       }
     }
   ]

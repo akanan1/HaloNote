@@ -29,4 +29,10 @@ export interface UpdateEncounterRequest {
   scheduledAt?: Date | null;
   /** @minLength 1 */
   providerId?: string | null;
+  /**
+   * Link or relink to an Athena (or other EHR) chart encounter. Pass null to clear (un-link). Accepts "Encounter/<id>" or bare "<id>".
+   * @minLength 1
+   * @maxLength 120
+   */
+  ehrEncounterRef?: string | null;
 }

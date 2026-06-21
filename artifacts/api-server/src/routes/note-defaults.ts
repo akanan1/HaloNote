@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import { and, asc, eq, max, sql } from "drizzle-orm";
 import {
   CreateNoteDefaultBody,
@@ -81,12 +82,7 @@ router.post("/note-defaults", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CreateNoteDefaultBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const label = parsed.data.label.trim();
   const rule = parsed.data.rule.trim();
   if (!label || !rule) {
@@ -136,12 +132,7 @@ router.patch("/note-defaults/:id", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = UpdateNoteDefaultBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   if (!id) {
     res.status(400).json({ error: "invalid_request" });

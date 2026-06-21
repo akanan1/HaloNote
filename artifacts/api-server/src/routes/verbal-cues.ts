@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { CreateVerbalCueBody } from "@workspace/api-zod";
 import { getDb, providerVerbalCuesTable } from "@workspace/db";
 import { getActiveOrgId } from "../lib/active-org";
+import { isUniqueViolation, respondInvalidBody } from "../http";
 
 const router: IRouter = Router();
 
@@ -54,12 +55,7 @@ router.post("/verbal-cues", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CreateVerbalCueBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const phrase = parsed.data.phrase.trim();
   if (!phrase) {
     res.status(400).json({ error: "invalid_request" });
@@ -134,15 +130,5 @@ router.delete("/verbal-cues/:id", async (req, res) => {
   }
   res.status(204).end();
 });
-
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: unknown; cause?: { code?: unknown } };
-  if (e.code === "23505") return true;
-  if (e.cause && typeof e.cause === "object" && e.cause.code === "23505") {
-    return true;
-  }
-  return false;
-}
 
 export default router;

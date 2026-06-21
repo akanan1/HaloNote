@@ -19,7 +19,11 @@ import type {
 import type {
   AcceptLegalAgreements200,
   AcceptLegalAgreementsRequest,
+  AcceptProblemListSuggestionRequest,
   AdminUser,
+  ApplyRefinementRequest,
+  ApproveAllCodingRequest,
+  ApproveAllCodingResponse,
   ApprovedBillingCode,
   ApprovedOrder,
   AuthUser,
@@ -28,6 +32,8 @@ import type {
   BillingSuggestion,
   CancelOrderRequest,
   CancelTaskRequest,
+  CodingSessionWithSuggestions,
+  CodingSuggestion,
   CreateEncounterRequest,
   CreateNoteDefaultRequest,
   CreateNoteRequest,
@@ -39,24 +45,35 @@ import type {
   CreateTaskRequest,
   CreateTemplateRequest,
   CreateVerbalCueRequest,
+  EditCodingSuggestionRequest,
   EhrConnectionStatus,
   EhrPushOutcome,
   EhrPushResult,
   Encounter,
   FounderAnalytics,
   FounderUserDetail,
+  GenerateCodingRequest,
   GetLegalAgreements200,
+  GetPatientProblems200,
+  GetProblemSuggestionsForSession200,
   GetTodaySchedule200,
   GetTodayScheduleParams,
   HealthStatus,
+  IngestAthenaNoteRequest,
+  IngestAthenaNoteResponse,
   ListAuditLog200,
   ListAuditLogParams,
+  ListBillerCodingQueue200,
+  ListBillerCodingQueueParams,
+  ListEncounterAuditTimeline200,
   ListEncounters200,
   ListEncountersParams,
   ListNoteDefaultSuggestions200,
   ListNoteDefaults200,
   ListNotes200,
   ListNotesParams,
+  ListPatientAthenaEncounters200,
+  ListPatientAthenaNotes200,
   ListPatients200,
   ListPhraseMappings200,
   ListSmartPhrases200,
@@ -65,6 +82,7 @@ import type {
   ListUsers200,
   ListVerbalCues200,
   LoginRequest,
+  MobileInitResponse,
   Note,
   NoteDefault,
   NoteTemplate,
@@ -76,11 +94,16 @@ import type {
   Patient,
   PatientHistory,
   PhraseMapping,
+  ProblemListSuggestion,
+  ReconcileResponse,
   RecordingJob,
   RecordingJobDetail,
   RecordingSegment,
+  RefineAllResponse,
+  RefineSuggestionResponse,
   RejectBillingSuggestionRequest,
   RejectOrderSuggestionRequest,
+  RejectProblemListSuggestionRequest,
   ReorderTemplates200,
   ReorderTemplatesRequest,
   ResetTemplates200,
@@ -1359,6 +1382,88 @@ export const useCompleteOnboarding = <
   TContext
 > => {
   return useMutation(getCompleteOnboardingMutationOptions(options));
+};
+
+/**
+ * Idempotent. On first call: flips autoPushMode to `after_transcription`, autoPushOrders to true, autoPushMedications to false, autoApproveNonMedOrders to true, and sets mobileOnboardedAt. Subsequent calls return the current flag state without re-flipping (so user-edited preferences are respected). Mobile UI calls this on /m mount if `mobileOnboarded` on the AuthUser is false.
+ * @summary One-shot setup of auto-push flags for a provider's first /m visit
+ */
+export const getInitializeMobileUrl = () => {
+  return `/api/m/initialize`;
+};
+
+export const initializeMobile = async (
+  options?: RequestInit,
+): Promise<MobileInitResponse> => {
+  return customFetch<MobileInitResponse>(getInitializeMobileUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getInitializeMobileMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof initializeMobile>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof initializeMobile>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["initializeMobile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof initializeMobile>>,
+    void
+  > = () => {
+    return initializeMobile(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InitializeMobileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof initializeMobile>>
+>;
+
+export type InitializeMobileMutationError = ErrorType<void>;
+
+/**
+ * @summary One-shot setup of auto-push flags for a provider's first /m visit
+ */
+export const useInitializeMobile = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof initializeMobile>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof initializeMobile>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getInitializeMobileMutationOptions(options));
 };
 
 /**
@@ -4948,6 +5053,1724 @@ export const useSendBillingCodeToEhr = <
 > => {
   return useMutation(getSendBillingCodeToEhrMutationOptions(options));
 };
+
+/**
+ * Per-card recovery for codes left with ehr_error set and exported_at null by a failed bulk-approve push. Distinct from /send-to-ehr which gates on biller_approved_at and is the biller-driven export. Gates on the code being in a "stranded" state and on the encounter's most-recent note being finalized.
+ * @summary Retry a stranded billing code (bulk-approve push failure)
+ */
+export const getRetryBillingCodePushUrl = (id: string) => {
+  return `/api/billing/codes/${id}/retry-push`;
+};
+
+export const retryBillingCodePush = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EhrPushOutcome> => {
+  return customFetch<EhrPushOutcome>(getRetryBillingCodePushUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRetryBillingCodePushMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryBillingCodePush>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof retryBillingCodePush>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["retryBillingCodePush"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof retryBillingCodePush>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return retryBillingCodePush(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RetryBillingCodePushMutationResult = NonNullable<
+  Awaited<ReturnType<typeof retryBillingCodePush>>
+>;
+
+export type RetryBillingCodePushMutationError = ErrorType<void>;
+
+/**
+ * @summary Retry a stranded billing code (bulk-approve push failure)
+ */
+export const useRetryBillingCodePush = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryBillingCodePush>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof retryBillingCodePush>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRetryBillingCodePushMutationOptions(options));
+};
+
+/**
+ * Creates a new EncounterCodingSession and a fresh batch of coding suggestions on the encounter's latest note (or the noteId passed in the body, when targeting a specific amendment). The /notes/{id}/approve route fires this in the background on every fresh draft→approved transition.
+ * @summary Run (or rerun) the Coder against the encounter's finalized note
+ */
+export const getGenerateEncounterCodingUrl = (id: string) => {
+  return `/api/encounters/${id}/coding/generate`;
+};
+
+export const generateEncounterCoding = async (
+  id: string,
+  generateCodingRequest?: GenerateCodingRequest,
+  options?: RequestInit,
+): Promise<CodingSessionWithSuggestions> => {
+  return customFetch<CodingSessionWithSuggestions>(
+    getGenerateEncounterCodingUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(generateCodingRequest),
+    },
+  );
+};
+
+export const getGenerateEncounterCodingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateEncounterCoding>>,
+    TError,
+    { id: string; data: BodyType<GenerateCodingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateEncounterCoding>>,
+  TError,
+  { id: string; data: BodyType<GenerateCodingRequest> },
+  TContext
+> => {
+  const mutationKey = ["generateEncounterCoding"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateEncounterCoding>>,
+    { id: string; data: BodyType<GenerateCodingRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return generateEncounterCoding(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateEncounterCodingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateEncounterCoding>>
+>;
+export type GenerateEncounterCodingMutationBody =
+  BodyType<GenerateCodingRequest>;
+export type GenerateEncounterCodingMutationError = ErrorType<void>;
+
+/**
+ * @summary Run (or rerun) the Coder against the encounter's finalized note
+ */
+export const useGenerateEncounterCoding = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateEncounterCoding>>,
+    TError,
+    { id: string; data: BodyType<GenerateCodingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateEncounterCoding>>,
+  TError,
+  { id: string; data: BodyType<GenerateCodingRequest> },
+  TContext
+> => {
+  return useMutation(getGenerateEncounterCodingMutationOptions(options));
+};
+
+/**
+ * @summary Latest Coder session + suggestions for the encounter
+ */
+export const getGetEncounterCodingSessionUrl = (id: string) => {
+  return `/api/encounters/${id}/coding/session`;
+};
+
+export const getEncounterCodingSession = async (
+  id: string,
+  options?: RequestInit,
+): Promise<CodingSessionWithSuggestions> => {
+  return customFetch<CodingSessionWithSuggestions>(
+    getGetEncounterCodingSessionUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetEncounterCodingSessionQueryKey = (id: string) => {
+  return [`/api/encounters/${id}/coding/session`] as const;
+};
+
+export const getGetEncounterCodingSessionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEncounterCodingSession>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounterCodingSession>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetEncounterCodingSessionQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getEncounterCodingSession>>
+  > = ({ signal }) =>
+    getEncounterCodingSession(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEncounterCodingSession>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEncounterCodingSessionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEncounterCodingSession>>
+>;
+export type GetEncounterCodingSessionQueryError = ErrorType<void>;
+
+/**
+ * @summary Latest Coder session + suggestions for the encounter
+ */
+
+export function useGetEncounterCodingSession<
+  TData = Awaited<ReturnType<typeof getEncounterCodingSession>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEncounterCodingSession>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEncounterCodingSessionQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Single Coder session by id (deep links from Coder Review)
+ */
+export const getGetCodingSessionByIdUrl = (id: string) => {
+  return `/api/coding/sessions/${id}`;
+};
+
+export const getCodingSessionById = async (
+  id: string,
+  options?: RequestInit,
+): Promise<CodingSessionWithSuggestions> => {
+  return customFetch<CodingSessionWithSuggestions>(
+    getGetCodingSessionByIdUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCodingSessionByIdQueryKey = (id: string) => {
+  return [`/api/coding/sessions/${id}`] as const;
+};
+
+export const getGetCodingSessionByIdQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCodingSessionById>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCodingSessionById>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCodingSessionByIdQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCodingSessionById>>
+  > = ({ signal }) => getCodingSessionById(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCodingSessionById>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCodingSessionByIdQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCodingSessionById>>
+>;
+export type GetCodingSessionByIdQueryError = ErrorType<void>;
+
+/**
+ * @summary Single Coder session by id (deep links from Coder Review)
+ */
+
+export function useGetCodingSessionById<
+  TData = Awaited<ReturnType<typeof getCodingSessionById>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCodingSessionById>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCodingSessionByIdQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Provider overrides the AI's code or description. The original stays intact for audit; the edited values get carried into approved_billing_codes on approval. Only valid while the suggestion is ai_suggested or needs_review.
+ * @summary Edit a code / description before approving
+ */
+export const getEditCodingSuggestionUrl = (id: string) => {
+  return `/api/coding/suggestions/${id}/edit`;
+};
+
+export const editCodingSuggestion = async (
+  id: string,
+  editCodingSuggestionRequest: EditCodingSuggestionRequest,
+  options?: RequestInit,
+): Promise<CodingSuggestion> => {
+  return customFetch<CodingSuggestion>(getEditCodingSuggestionUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(editCodingSuggestionRequest),
+  });
+};
+
+export const getEditCodingSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof editCodingSuggestion>>,
+    TError,
+    { id: string; data: BodyType<EditCodingSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof editCodingSuggestion>>,
+  TError,
+  { id: string; data: BodyType<EditCodingSuggestionRequest> },
+  TContext
+> => {
+  const mutationKey = ["editCodingSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof editCodingSuggestion>>,
+    { id: string; data: BodyType<EditCodingSuggestionRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return editCodingSuggestion(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EditCodingSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof editCodingSuggestion>>
+>;
+export type EditCodingSuggestionMutationBody =
+  BodyType<EditCodingSuggestionRequest>;
+export type EditCodingSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a code / description before approving
+ */
+export const useEditCodingSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof editCodingSuggestion>>,
+    TError,
+    { id: string; data: BodyType<EditCodingSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof editCodingSuggestion>>,
+  TError,
+  { id: string; data: BodyType<EditCodingSuggestionRequest> },
+  TContext
+> => {
+  return useMutation(getEditCodingSuggestionMutationOptions(options));
+};
+
+/**
+ * Runs a second AI pass over a single ICD-10 or CPT suggestion + the encounter note. Returns up to 3 ranked options. Each option labels whether the note supports the refinement today (evidenceMode=supported, with verbatim excerpts) or whether it would require additional documentation (evidenceMode=documentation_gap, with suggestedNoteLanguage the provider can paste). Options that unlock an HCC bucket are flagged with hccUnlocked=true so the UI can prioritize them. Read-only — apply is a separate POST.
+ * @summary Get ranked refinement options (more-specific code alternatives) for a suggestion
+ */
+export const getRefineCodingSuggestionUrl = (id: string) => {
+  return `/api/coding/suggestions/${id}/refine`;
+};
+
+export const refineCodingSuggestion = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RefineSuggestionResponse> => {
+  return customFetch<RefineSuggestionResponse>(
+    getRefineCodingSuggestionUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRefineCodingSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refineCodingSuggestion>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refineCodingSuggestion>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["refineCodingSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refineCodingSuggestion>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return refineCodingSuggestion(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefineCodingSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refineCodingSuggestion>>
+>;
+
+export type RefineCodingSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Get ranked refinement options (more-specific code alternatives) for a suggestion
+ */
+export const useRefineCodingSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refineCodingSuggestion>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refineCodingSuggestion>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRefineCodingSuggestionMutationOptions(options));
+};
+
+/**
+ * Runs the per-code refiner against every editable icd10/cpt suggestion in the session, concurrency-capped server-side. Read-only — apply is still per-row via apply-refinement. The response carries the aggregate plus a count of HCC-unlocking options across all suggestions so the UI can render a compact "X HCC unlocks available" overview.
+ * @summary Bulk-refine every editable ICD-10 / CPT suggestion in a session
+ */
+export const getRefineAllCodingSuggestionsUrl = (id: string) => {
+  return `/api/coding/sessions/${id}/refine-all`;
+};
+
+export const refineAllCodingSuggestions = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RefineAllResponse> => {
+  return customFetch<RefineAllResponse>(getRefineAllCodingSuggestionsUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefineAllCodingSuggestionsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refineAllCodingSuggestions>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refineAllCodingSuggestions>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["refineAllCodingSuggestions"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refineAllCodingSuggestions>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return refineAllCodingSuggestions(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefineAllCodingSuggestionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refineAllCodingSuggestions>>
+>;
+
+export type RefineAllCodingSuggestionsMutationError = ErrorType<void>;
+
+/**
+ * @summary Bulk-refine every editable ICD-10 / CPT suggestion in a session
+ */
+export const useRefineAllCodingSuggestions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refineAllCodingSuggestions>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refineAllCodingSuggestions>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRefineAllCodingSuggestionsMutationOptions(options));
+};
+
+/**
+ * Sets editedCode + editedDescription on the suggestion, and bumps hccCategory / rafRelevant when the refinement unlocks a new HCC bucket. Original code/description stay intact for audit. Only works while the suggestion is ai_suggested or needs_review.
+ * @summary Apply a chosen refinement option to a suggestion
+ */
+export const getApplyCodingRefinementUrl = (id: string) => {
+  return `/api/coding/suggestions/${id}/apply-refinement`;
+};
+
+export const applyCodingRefinement = async (
+  id: string,
+  applyRefinementRequest: ApplyRefinementRequest,
+  options?: RequestInit,
+): Promise<CodingSuggestion> => {
+  return customFetch<CodingSuggestion>(getApplyCodingRefinementUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(applyRefinementRequest),
+  });
+};
+
+export const getApplyCodingRefinementMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyCodingRefinement>>,
+    TError,
+    { id: string; data: BodyType<ApplyRefinementRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof applyCodingRefinement>>,
+  TError,
+  { id: string; data: BodyType<ApplyRefinementRequest> },
+  TContext
+> => {
+  const mutationKey = ["applyCodingRefinement"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof applyCodingRefinement>>,
+    { id: string; data: BodyType<ApplyRefinementRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return applyCodingRefinement(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApplyCodingRefinementMutationResult = NonNullable<
+  Awaited<ReturnType<typeof applyCodingRefinement>>
+>;
+export type ApplyCodingRefinementMutationBody =
+  BodyType<ApplyRefinementRequest>;
+export type ApplyCodingRefinementMutationError = ErrorType<void>;
+
+/**
+ * @summary Apply a chosen refinement option to a suggestion
+ */
+export const useApplyCodingRefinement = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyCodingRefinement>>,
+    TError,
+    { id: string; data: BodyType<ApplyRefinementRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof applyCodingRefinement>>,
+  TError,
+  { id: string; data: BodyType<ApplyRefinementRequest> },
+  TContext
+> => {
+  return useMutation(getApplyCodingRefinementMutationOptions(options));
+};
+
+/**
+ * The "Approve and Write to Encounter" action. Approves every suggestion whose confidence ≥ minConfidence (default high) AND has no block-severity documentation gap. Edited suggestions carry their edits into the approved row.
+ * @summary Bulk-approve high-confidence suggestions in a Coder session
+ */
+export const getApproveAllHighConfidenceCodingUrl = (id: string) => {
+  return `/api/coding/sessions/${id}/approve-all-high-confidence`;
+};
+
+export const approveAllHighConfidenceCoding = async (
+  id: string,
+  approveAllCodingRequest?: ApproveAllCodingRequest,
+  options?: RequestInit,
+): Promise<ApproveAllCodingResponse> => {
+  return customFetch<ApproveAllCodingResponse>(
+    getApproveAllHighConfidenceCodingUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(approveAllCodingRequest),
+    },
+  );
+};
+
+export const getApproveAllHighConfidenceCodingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveAllHighConfidenceCoding>>,
+    TError,
+    { id: string; data: BodyType<ApproveAllCodingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveAllHighConfidenceCoding>>,
+  TError,
+  { id: string; data: BodyType<ApproveAllCodingRequest> },
+  TContext
+> => {
+  const mutationKey = ["approveAllHighConfidenceCoding"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveAllHighConfidenceCoding>>,
+    { id: string; data: BodyType<ApproveAllCodingRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return approveAllHighConfidenceCoding(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveAllHighConfidenceCodingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveAllHighConfidenceCoding>>
+>;
+export type ApproveAllHighConfidenceCodingMutationBody =
+  BodyType<ApproveAllCodingRequest>;
+export type ApproveAllHighConfidenceCodingMutationError = ErrorType<void>;
+
+/**
+ * @summary Bulk-approve high-confidence suggestions in a Coder session
+ */
+export const useApproveAllHighConfidenceCoding = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveAllHighConfidenceCoding>>,
+    TError,
+    { id: string; data: BodyType<ApproveAllCodingRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveAllHighConfidenceCoding>>,
+  TError,
+  { id: string; data: BodyType<ApproveAllCodingRequest> },
+  TContext
+> => {
+  return useMutation(getApproveAllHighConfidenceCodingMutationOptions(options));
+};
+
+/**
+ * @summary Local problem-list cache for a patient
+ */
+export const getGetPatientProblemsUrl = (id: string) => {
+  return `/api/patients/${id}/problems`;
+};
+
+export const getPatientProblems = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GetPatientProblems200> => {
+  return customFetch<GetPatientProblems200>(getGetPatientProblemsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPatientProblemsQueryKey = (id: string) => {
+  return [`/api/patients/${id}/problems`] as const;
+};
+
+export const getGetPatientProblemsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPatientProblems>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPatientProblems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPatientProblemsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPatientProblems>>
+  > = ({ signal }) => getPatientProblems(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPatientProblems>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPatientProblemsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPatientProblems>>
+>;
+export type GetPatientProblemsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Local problem-list cache for a patient
+ */
+
+export function useGetPatientProblems<
+  TData = Awaited<ReturnType<typeof getPatientProblems>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPatientProblems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPatientProblemsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Reconciler output for a Coder session
+ */
+export const getGetProblemSuggestionsForSessionUrl = (id: string) => {
+  return `/api/coding/sessions/${id}/problem-suggestions`;
+};
+
+export const getProblemSuggestionsForSession = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GetProblemSuggestionsForSession200> => {
+  return customFetch<GetProblemSuggestionsForSession200>(
+    getGetProblemSuggestionsForSessionUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetProblemSuggestionsForSessionQueryKey = (id: string) => {
+  return [`/api/coding/sessions/${id}/problem-suggestions`] as const;
+};
+
+export const getGetProblemSuggestionsForSessionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProblemSuggestionsForSession>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getProblemSuggestionsForSession>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetProblemSuggestionsForSessionQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getProblemSuggestionsForSession>>
+  > = ({ signal }) =>
+    getProblemSuggestionsForSession(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProblemSuggestionsForSession>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetProblemSuggestionsForSessionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProblemSuggestionsForSession>>
+>;
+export type GetProblemSuggestionsForSessionQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Reconciler output for a Coder session
+ */
+
+export function useGetProblemSuggestionsForSession<
+  TData = Awaited<ReturnType<typeof getProblemSuggestionsForSession>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getProblemSuggestionsForSession>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetProblemSuggestionsForSessionQueryOptions(
+    id,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Re-run problem-list reconciliation against this session
+ */
+export const getReconcileProblemsForSessionUrl = (id: string) => {
+  return `/api/coding/sessions/${id}/reconcile-problems`;
+};
+
+export const reconcileProblemsForSession = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ReconcileResponse> => {
+  return customFetch<ReconcileResponse>(getReconcileProblemsForSessionUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getReconcileProblemsForSessionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reconcileProblemsForSession>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reconcileProblemsForSession>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["reconcileProblemsForSession"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reconcileProblemsForSession>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return reconcileProblemsForSession(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReconcileProblemsForSessionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reconcileProblemsForSession>>
+>;
+
+export type ReconcileProblemsForSessionMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-run problem-list reconciliation against this session
+ */
+export const useReconcileProblemsForSession = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reconcileProblemsForSession>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reconcileProblemsForSession>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getReconcileProblemsForSessionMutationOptions(options));
+};
+
+/**
+ * @summary Accept a problem-list reconciliation action (applies the local mutation)
+ */
+export const getAcceptProblemListSuggestionUrl = (id: string) => {
+  return `/api/problem-list-suggestions/${id}/accept`;
+};
+
+export const acceptProblemListSuggestion = async (
+  id: string,
+  acceptProblemListSuggestionRequest?: AcceptProblemListSuggestionRequest,
+  options?: RequestInit,
+): Promise<ProblemListSuggestion> => {
+  return customFetch<ProblemListSuggestion>(
+    getAcceptProblemListSuggestionUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(acceptProblemListSuggestionRequest),
+    },
+  );
+};
+
+export const getAcceptProblemListSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptProblemListSuggestion>>,
+    TError,
+    { id: string; data: BodyType<AcceptProblemListSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof acceptProblemListSuggestion>>,
+  TError,
+  { id: string; data: BodyType<AcceptProblemListSuggestionRequest> },
+  TContext
+> => {
+  const mutationKey = ["acceptProblemListSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof acceptProblemListSuggestion>>,
+    { id: string; data: BodyType<AcceptProblemListSuggestionRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return acceptProblemListSuggestion(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AcceptProblemListSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof acceptProblemListSuggestion>>
+>;
+export type AcceptProblemListSuggestionMutationBody =
+  BodyType<AcceptProblemListSuggestionRequest>;
+export type AcceptProblemListSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Accept a problem-list reconciliation action (applies the local mutation)
+ */
+export const useAcceptProblemListSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptProblemListSuggestion>>,
+    TError,
+    { id: string; data: BodyType<AcceptProblemListSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof acceptProblemListSuggestion>>,
+  TError,
+  { id: string; data: BodyType<AcceptProblemListSuggestionRequest> },
+  TContext
+> => {
+  return useMutation(getAcceptProblemListSuggestionMutationOptions(options));
+};
+
+/**
+ * @summary Reject a problem-list reconciliation action
+ */
+export const getRejectProblemListSuggestionUrl = (id: string) => {
+  return `/api/problem-list-suggestions/${id}/reject`;
+};
+
+export const rejectProblemListSuggestion = async (
+  id: string,
+  rejectProblemListSuggestionRequest: RejectProblemListSuggestionRequest,
+  options?: RequestInit,
+): Promise<ProblemListSuggestion> => {
+  return customFetch<ProblemListSuggestion>(
+    getRejectProblemListSuggestionUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(rejectProblemListSuggestionRequest),
+    },
+  );
+};
+
+export const getRejectProblemListSuggestionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectProblemListSuggestion>>,
+    TError,
+    { id: string; data: BodyType<RejectProblemListSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rejectProblemListSuggestion>>,
+  TError,
+  { id: string; data: BodyType<RejectProblemListSuggestionRequest> },
+  TContext
+> => {
+  const mutationKey = ["rejectProblemListSuggestion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rejectProblemListSuggestion>>,
+    { id: string; data: BodyType<RejectProblemListSuggestionRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return rejectProblemListSuggestion(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RejectProblemListSuggestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rejectProblemListSuggestion>>
+>;
+export type RejectProblemListSuggestionMutationBody =
+  BodyType<RejectProblemListSuggestionRequest>;
+export type RejectProblemListSuggestionMutationError = ErrorType<void>;
+
+/**
+ * @summary Reject a problem-list reconciliation action
+ */
+export const useRejectProblemListSuggestion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectProblemListSuggestion>>,
+    TError,
+    { id: string; data: BodyType<RejectProblemListSuggestionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rejectProblemListSuggestion>>,
+  TError,
+  { id: string; data: BodyType<RejectProblemListSuggestionRequest> },
+  TContext
+> => {
+  return useMutation(getRejectProblemListSuggestionMutationOptions(options));
+};
+
+/**
+ * @summary Recent Athena Encounter resources for linking a local row
+ */
+export const getListPatientAthenaEncountersUrl = (id: string) => {
+  return `/api/patients/${id}/athena-encounters`;
+};
+
+export const listPatientAthenaEncounters = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ListPatientAthenaEncounters200> => {
+  return customFetch<ListPatientAthenaEncounters200>(
+    getListPatientAthenaEncountersUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListPatientAthenaEncountersQueryKey = (id: string) => {
+  return [`/api/patients/${id}/athena-encounters`] as const;
+};
+
+export const getListPatientAthenaEncountersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPatientAthenaEncounters>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPatientAthenaEncounters>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListPatientAthenaEncountersQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPatientAthenaEncounters>>
+  > = ({ signal }) =>
+    listPatientAthenaEncounters(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPatientAthenaEncounters>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPatientAthenaEncountersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPatientAthenaEncounters>>
+>;
+export type ListPatientAthenaEncountersQueryError = ErrorType<void>;
+
+/**
+ * @summary Recent Athena Encounter resources for linking a local row
+ */
+
+export function useListPatientAthenaEncounters<
+  TData = Awaited<ReturnType<typeof listPatientAthenaEncounters>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPatientAthenaEncounters>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPatientAthenaEncountersQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Recent finalized DocumentReferences for an Athena-linked patient
+ */
+export const getListPatientAthenaNotesUrl = (id: string) => {
+  return `/api/patients/${id}/athena-notes`;
+};
+
+export const listPatientAthenaNotes = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ListPatientAthenaNotes200> => {
+  return customFetch<ListPatientAthenaNotes200>(
+    getListPatientAthenaNotesUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListPatientAthenaNotesQueryKey = (id: string) => {
+  return [`/api/patients/${id}/athena-notes`] as const;
+};
+
+export const getListPatientAthenaNotesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPatientAthenaNotes>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPatientAthenaNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListPatientAthenaNotesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPatientAthenaNotes>>
+  > = ({ signal }) => listPatientAthenaNotes(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPatientAthenaNotes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPatientAthenaNotesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPatientAthenaNotes>>
+>;
+export type ListPatientAthenaNotesQueryError = ErrorType<void>;
+
+/**
+ * @summary Recent finalized DocumentReferences for an Athena-linked patient
+ */
+
+export function useListPatientAthenaNotes<
+  TData = Awaited<ReturnType<typeof listPatientAthenaNotes>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPatientAthenaNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPatientAthenaNotesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Pulls the FHIR DocumentReference, materializes a local approved note row (mirroring the upstream chart entry), and fires the Coder with noteSource='athena_existing'.
+ * @summary Ingest a finalized Athena DocumentReference and run the Coder against it
+ */
+export const getIngestAthenaNoteUrl = (id: string) => {
+  return `/api/encounters/${id}/coding/ingest-athena-note`;
+};
+
+export const ingestAthenaNote = async (
+  id: string,
+  ingestAthenaNoteRequest: IngestAthenaNoteRequest,
+  options?: RequestInit,
+): Promise<IngestAthenaNoteResponse> => {
+  return customFetch<IngestAthenaNoteResponse>(getIngestAthenaNoteUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(ingestAthenaNoteRequest),
+  });
+};
+
+export const getIngestAthenaNoteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ingestAthenaNote>>,
+    TError,
+    { id: string; data: BodyType<IngestAthenaNoteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof ingestAthenaNote>>,
+  TError,
+  { id: string; data: BodyType<IngestAthenaNoteRequest> },
+  TContext
+> => {
+  const mutationKey = ["ingestAthenaNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof ingestAthenaNote>>,
+    { id: string; data: BodyType<IngestAthenaNoteRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return ingestAthenaNote(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type IngestAthenaNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof ingestAthenaNote>>
+>;
+export type IngestAthenaNoteMutationBody = BodyType<IngestAthenaNoteRequest>;
+export type IngestAthenaNoteMutationError = ErrorType<void>;
+
+/**
+ * @summary Ingest a finalized Athena DocumentReference and run the Coder against it
+ */
+export const useIngestAthenaNote = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ingestAthenaNote>>,
+    TError,
+    { id: string; data: BodyType<IngestAthenaNoteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof ingestAthenaNote>>,
+  TError,
+  { id: string; data: BodyType<IngestAthenaNoteRequest> },
+  TContext
+> => {
+  return useMutation(getIngestAthenaNoteMutationOptions(options));
+};
+
+/**
+ * @summary List Coder-coded encounters awaiting (or past) biller review
+ */
+export const getListBillerCodingQueueUrl = (
+  params?: ListBillerCodingQueueParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/coding/biller-queue?${stringifiedParams}`
+    : `/api/coding/biller-queue`;
+};
+
+export const listBillerCodingQueue = async (
+  params?: ListBillerCodingQueueParams,
+  options?: RequestInit,
+): Promise<ListBillerCodingQueue200> => {
+  return customFetch<ListBillerCodingQueue200>(
+    getListBillerCodingQueueUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListBillerCodingQueueQueryKey = (
+  params?: ListBillerCodingQueueParams,
+) => {
+  return [`/api/coding/biller-queue`, ...(params ? [params] : [])] as const;
+};
+
+export const getListBillerCodingQueueQueryOptions = <
+  TData = Awaited<ReturnType<typeof listBillerCodingQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListBillerCodingQueueParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBillerCodingQueue>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListBillerCodingQueueQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listBillerCodingQueue>>
+  > = ({ signal }) =>
+    listBillerCodingQueue(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listBillerCodingQueue>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListBillerCodingQueueQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listBillerCodingQueue>>
+>;
+export type ListBillerCodingQueueQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List Coder-coded encounters awaiting (or past) biller review
+ */
+
+export function useListBillerCodingQueue<
+  TData = Awaited<ReturnType<typeof listBillerCodingQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListBillerCodingQueueParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBillerCodingQueue>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListBillerCodingQueueQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns audit_log rows for every resource attached to the encounter: the encounter itself, its note(s), coding sessions, billing suggestions, problem-list suggestions, and approved billing codes. Reverse-chronological, capped at the limit param. Non-admin — providers + billers see the same view (org-scoped).
+ * @summary Encounter-scoped audit drilldown — every audit_log event tied to this encounter
+ */
+export const getListEncounterAuditTimelineUrl = (id: string) => {
+  return `/api/encounters/${id}/audit-timeline`;
+};
+
+export const listEncounterAuditTimeline = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ListEncounterAuditTimeline200> => {
+  return customFetch<ListEncounterAuditTimeline200>(
+    getListEncounterAuditTimelineUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListEncounterAuditTimelineQueryKey = (id: string) => {
+  return [`/api/encounters/${id}/audit-timeline`] as const;
+};
+
+export const getListEncounterAuditTimelineQueryOptions = <
+  TData = Awaited<ReturnType<typeof listEncounterAuditTimeline>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listEncounterAuditTimeline>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListEncounterAuditTimelineQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listEncounterAuditTimeline>>
+  > = ({ signal }) =>
+    listEncounterAuditTimeline(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listEncounterAuditTimeline>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListEncounterAuditTimelineQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listEncounterAuditTimeline>>
+>;
+export type ListEncounterAuditTimelineQueryError = ErrorType<void>;
+
+/**
+ * @summary Encounter-scoped audit drilldown — every audit_log event tied to this encounter
+ */
+
+export function useListEncounterAuditTimeline<
+  TData = Awaited<ReturnType<typeof listEncounterAuditTimeline>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listEncounterAuditTimeline>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListEncounterAuditTimelineQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List order suggestions + approved orders for an encounter

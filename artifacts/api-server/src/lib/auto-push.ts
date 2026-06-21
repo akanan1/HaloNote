@@ -1,8 +1,36 @@
-import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { getDb, notesTable } from "@workspace/db";
+import { createHash, randomUUID } from "node:crypto";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, notesTable, usersTable } from "@workspace/db";
 import { EhrPushError, pushNoteToEhr } from "./ehr-push";
 import { findPatient } from "./patients";
+import { generateOrdersForEncounter } from "../services/order-generation";
+import { trackAuditWrite } from "../middlewares/audit";
+
+// Generate-or-reuse the per-note Idempotency-Key. The COALESCE makes
+// concurrent push attempts converge on whichever key landed first, so
+// a retry that races a still-in-flight first attempt produces the same
+// key on the wire. Returns the key that's now persisted on the row.
+async function ensureIdempotencyKey(
+  noteId: string,
+  orgId: string,
+  existing: string | null,
+): Promise<string> {
+  if (existing) return existing;
+  const fresh = `idem_${randomUUID()}`;
+  const [row] = await getDb()
+    .update(notesTable)
+    .set({
+      ehrIdempotencyKey: sql`COALESCE(${notesTable.ehrIdempotencyKey}, ${fresh})`,
+    })
+    .where(
+      and(eq(notesTable.id, noteId), eq(notesTable.organizationId, orgId)),
+    )
+    .returning({ key: notesTable.ehrIdempotencyKey });
+  if (!row?.key) {
+    throw new Error("failed to persist EHR idempotency key");
+  }
+  return row.key;
+}
 
 export interface NotePushResult {
   provider: string;
@@ -13,6 +41,8 @@ export interface NotePushResult {
 
 export interface AutoPushLogger {
   error: (obj: object, msg: string) => void;
+  warn: (obj: object, msg: string) => void;
+  info: (obj: object, msg: string) => void;
 }
 
 /**
@@ -57,12 +87,22 @@ export async function pushApprovedNote(
     }
   }
 
+  // Lock in the idempotency key BEFORE the network call so a process
+  // crash mid-call doesn't lose it. Both manual retries and the
+  // transport-level 429/503 retry inside FhirClient will reuse it.
+  const idempotencyKey = await ensureIdempotencyKey(
+    noteRow.id,
+    orgId,
+    noteRow.ehrIdempotencyKey,
+  );
+
   try {
     const outcome = await pushNoteToEhr({
       note: { id: noteRow.id, body: noteRow.body },
       patient,
       ...(predecessorEhrRef ? { replacesEhrRef: predecessorEhrRef } : {}),
       userId,
+      idempotencyKey,
     });
 
     await db
@@ -145,6 +185,8 @@ export async function finalizeAndPushTranscribedNote(params: {
     throw new Error("note insert returned no row");
   }
 
+  let pushed = false;
+  let pushError: string | null = null;
   try {
     await pushApprovedNote(
       inserted,
@@ -152,12 +194,99 @@ export async function finalizeAndPushTranscribedNote(params: {
       params.userId,
       params.log,
     );
-    return { noteId: inserted.id, pushed: true, ehrError: null };
+    pushed = true;
   } catch (err) {
     // The note row stays around as approved-but-not-exported. The
     // browser can navigate the provider to it and surface the
     // ehrError + a manual retry button.
-    const message = err instanceof Error ? err.message : String(err);
-    return { noteId: inserted.id, pushed: false, ehrError: message };
+    pushError = err instanceof Error ? err.message : String(err);
   }
+
+  // Mobile hands-off chain: once the note is locked in (whether or not
+  // the EHR push itself succeeded — the order pipeline is independent
+  // and may still want to run so the doctor sees the suggestions on
+  // their next desktop visit), kick off order generation in the
+  // background. Fire-and-forget so the recording-finalize response
+  // ships immediately; the chain is tracked via the audit-write
+  // counter so the integration harness drains it before TRUNCATE.
+  if (params.encounterId) {
+    triggerOrderGenerationInBackground({
+      encounterId: params.encounterId,
+      orgId: params.organizationId,
+      userId: params.userId,
+      log: params.log,
+    });
+  }
+
+  return {
+    noteId: inserted.id,
+    pushed,
+    ehrError: pushError,
+  };
+}
+
+// Fire-and-forget wrapper around generateOrdersForEncounter. We look
+// up the user's autoApproveNonMedOrders flag inside the background
+// promise so the foreground caller doesn't have to wait on a roundtrip
+// just to decide whether to enqueue work. The trackAuditWrite hook
+// keeps the integration-test TRUNCATE waiter aware of this in-flight
+// chain (same race-fix pattern as recordCoderAuditEvent).
+function triggerOrderGenerationInBackground(args: {
+  encounterId: string;
+  orgId: string;
+  userId: string;
+  log: AutoPushLogger;
+}): void {
+  // EVERYTHING goes inside one try/catch. The integration harness can
+  // TRUNCATE the users table mid-flight (between this fire-and-forget
+  // returning and the IIFE actually running), and a Drizzle error from
+  // the user lookup would otherwise propagate as an unhandled rejection
+  // and crash the test worker. trackAuditWrite's .finally() drains the
+  // pending counter regardless of outcome.
+  const promise = (async () => {
+    try {
+      const db = getDb();
+      const [user] = await db
+        .select({
+          autoApproveNonMedOrders: usersTable.autoApproveNonMedOrders,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, args.userId))
+        .limit(1);
+      if (!user?.autoApproveNonMedOrders) {
+        // Provider isn't in mobile hands-off mode. Order suggestions
+        // stay a manual step (they hit the desktop "Generate orders"
+        // button when they're back at the computer).
+        return;
+      }
+      const result = await generateOrdersForEncounter({
+        encounterId: args.encounterId,
+        orgId: args.orgId,
+        autoApproveNonMedFor: { userId: args.userId, enabled: true },
+      });
+      if (result.kind === "ok" && result.autoApproved) {
+        args.log.info(
+          {
+            encounterId: args.encounterId,
+            eligible: result.autoApproved.eligibleCount,
+            pushed: result.autoApproved.pushedCount,
+            failed: result.autoApproved.failedCount,
+            medsHeld: result.autoApproved.medicationsHeldCount,
+          },
+          "mobile auto-fire: orders generated + non-meds pushed",
+        );
+      } else if (result.kind !== "ok") {
+        args.log.warn(
+          { encounterId: args.encounterId, kind: result.kind },
+          "mobile auto-fire: order generation skipped",
+        );
+      }
+    } catch (err) {
+      args.log.error(
+        { err, encounterId: args.encounterId },
+        "mobile auto-fire: order generation threw",
+      );
+    }
+  })();
+  trackAuditWrite(promise);
 }

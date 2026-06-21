@@ -31,4 +31,8 @@ export interface AuthUser {
   autoPushOrders?: boolean;
   /** When true, /orders/:id/mark-export-ready also pushes orders with orderType=medication to the EHR inline. Independent from autoPushOrders so a provider can opt into lab/imaging auto-push while still hand-confirming every prescription. */
   autoPushMedications?: boolean;
+  /** When true, AI-suggested non-medication orders auto-approve and (in combination with autoPushOrders) auto-push to the EHR without provider review. Set by POST /m/initialize on first mobile visit; medications are always held back for desktop review regardless of this flag. */
+  autoApproveNonMedOrders?: boolean;
+  /** True once POST /m/initialize has run for this user. The mobile shell uses this to skip its first-visit setup call. */
+  mobileOnboarded?: boolean;
 }

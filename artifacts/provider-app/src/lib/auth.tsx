@@ -13,6 +13,7 @@ import {
   logout,
   type AuthUser,
 } from "@workspace/api-client-react";
+import { clearLegacyLocalClaims } from "./appointment-note-links";
 
 interface AuthState {
   user: AuthUser | null;
@@ -77,6 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // swallow — local state still gets cleared below
     }
+    // Scrub any stale localStorage entries from the pre-migration
+    // version of appointment claims. Active server-side claims persist
+    // (they expire on their own TTL) — different user signing in on
+    // the same device authenticates as themselves and only sees their
+    // own claims from /api/appointment-claims/mine.
+    clearLegacyLocalClaims();
     setUser(null);
   }, []);
 

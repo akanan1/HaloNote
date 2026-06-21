@@ -90,6 +90,23 @@ export const usersTable = pgTable("users", {
   autoPushMedications: boolean("auto_push_medications")
     .notNull()
     .default(false),
+  // Mobile PWA hands-off mode: when an AI order suggestion lands and
+  // this is true, non-medication suggestions auto-approve + auto-push
+  // without provider review. Medications never auto-approve regardless
+  // (patient-safety call — autoPushMedications is the orthogonal toggle
+  // that governs auto-PUSH of approved meds, not auto-APPROVE of AI
+  // suggestions). Off by default for desktop users; mobile init flips
+  // it on the first /m visit so the doctor can record and walk away.
+  autoApproveNonMedOrders: boolean("auto_approve_non_med_orders")
+    .notNull()
+    .default(false),
+  // Set on first POST /m/initialize. Used as the one-shot guard so we
+  // never re-flip the auto-push flags above on subsequent mobile
+  // visits — once initialized, user edits to the flags are respected.
+  mobileOnboardedAt: timestamp("mobile_onboarded_at", {
+    mode: "date",
+    withTimezone: true,
+  }),
   // Founder-tier access flag. A super-admin permission on top of the
   // existing admin/member role — gates the cross-tenant Founder
   // dashboard (analytics, per-user legal acceptance status, etc.).

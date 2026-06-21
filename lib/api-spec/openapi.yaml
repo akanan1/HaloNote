@@ -330,6 +330,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUser"
+  /m/initialize:
+    post:
+      operationId: initializeMobile
+      tags: [mobile]
+      summary: One-shot setup of auto-push flags for a provider's first /m visit
+      description: >-
+        Idempotent. On first call: flips autoPushMode to
+        `after_transcription`, autoPushOrders to true,
+        autoPushMedications to false, autoApproveNonMedOrders to true,
+        and sets mobileOnboardedAt. Subsequent calls return the current
+        flag state without re-flipping (so user-edited preferences are
+        respected). Mobile UI calls this on /m mount if
+        `mobileOnboarded` on the AuthUser is false.
+      responses:
+        "200":
+          description: Current mobile-mode settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileInitResponse"
+        "401":
+          description: Not signed in
   /users:
     get:
       operationId: listUsers
@@ -1333,6 +1355,461 @@ paths:
           description: Code not yet biller-approved
         "502":
           description: Upstream EHR push failed
+  /billing/codes/{id}/retry-push:
+    post:
+      operationId: retryBillingCodePush
+      tags: [billing]
+      summary: Retry a stranded billing code (bulk-approve push failure)
+      description: >-
+        Per-card recovery for codes left with ehr_error set and exported_at
+        null by a failed bulk-approve push. Distinct from /send-to-ehr
+        which gates on biller_approved_at and is the biller-driven
+        export. Gates on the code being in a "stranded" state and on the
+        encounter's most-recent note being finalized.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Retry succeeded; exportedAt + ehrDocumentRef now set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EhrPushOutcome"
+        "404":
+          description: Code or encounter not found
+        "409":
+          description: >-
+            Code not in stranded state (already exported, never tried),
+            or encounter's note is not finalized.
+        "502":
+          description: Upstream EHR push failed
+        "501":
+          description: Real-mode wiring not implemented for the configured provider
+  /encounters/{id}/coding/generate:
+    post:
+      operationId: generateEncounterCoding
+      tags: [coding]
+      summary: Run (or rerun) the Coder against the encounter's finalized note
+      description: >-
+        Creates a new EncounterCodingSession and a fresh batch of
+        coding suggestions on the encounter's latest note (or the
+        noteId passed in the body, when targeting a specific
+        amendment). The /notes/{id}/approve route fires this in
+        the background on every fresh draft→approved transition.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateCodingRequest"
+      responses:
+        "201":
+          description: Coder session created and suggestions persisted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodingSessionWithSuggestions"
+        "404":
+          description: Encounter or patient not found
+        "409":
+          description: Encounter has no associated note yet
+  /encounters/{id}/coding/session:
+    get:
+      operationId: getEncounterCodingSession
+      tags: [coding]
+      summary: Latest Coder session + suggestions for the encounter
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Latest session + suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodingSessionWithSuggestions"
+        "404":
+          description: Encounter has never been Coder-coded
+  /coding/sessions/{id}:
+    get:
+      operationId: getCodingSessionById
+      tags: [coding]
+      summary: Single Coder session by id (deep links from Coder Review)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Session + suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodingSessionWithSuggestions"
+        "404":
+          description: Session not found
+  /coding/suggestions/{id}/edit:
+    post:
+      operationId: editCodingSuggestion
+      tags: [coding]
+      summary: Edit a code / description before approving
+      description: >-
+        Provider overrides the AI's code or description. The original
+        stays intact for audit; the edited values get carried into
+        approved_billing_codes on approval. Only valid while the
+        suggestion is ai_suggested or needs_review.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditCodingSuggestionRequest"
+      responses:
+        "200":
+          description: Edited suggestion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodingSuggestion"
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion in a non-editable state
+  /coding/suggestions/{id}/refine:
+    post:
+      operationId: refineCodingSuggestion
+      tags: [coding]
+      summary: Get ranked refinement options (more-specific code alternatives) for a suggestion
+      description: >-
+        Runs a second AI pass over a single ICD-10 or CPT suggestion +
+        the encounter note. Returns up to 3 ranked options. Each option
+        labels whether the note supports the refinement today
+        (evidenceMode=supported, with verbatim excerpts) or whether it
+        would require additional documentation (evidenceMode=documentation_gap,
+        with suggestedNoteLanguage the provider can paste). Options that
+        unlock an HCC bucket are flagged with hccUnlocked=true so the UI
+        can prioritize them. Read-only — apply is a separate POST.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Refinement options (may be empty array if no plausible refinement)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefineSuggestionResponse" }
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion code system not refinable (E&M / modifier), or its coding session is unavailable
+  /coding/sessions/{id}/refine-all:
+    post:
+      operationId: refineAllCodingSuggestions
+      tags: [coding]
+      summary: Bulk-refine every editable ICD-10 / CPT suggestion in a session
+      description: >-
+        Runs the per-code refiner against every editable icd10/cpt
+        suggestion in the session, concurrency-capped server-side.
+        Read-only — apply is still per-row via apply-refinement. The
+        response carries the aggregate plus a count of HCC-unlocking
+        options across all suggestions so the UI can render a
+        compact "X HCC unlocks available" overview.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Refinement matrix
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefineAllResponse" }
+        "404":
+          description: Session not found
+        "429":
+          description: AI rate limit exceeded for this user
+  /coding/suggestions/{id}/apply-refinement:
+    post:
+      operationId: applyCodingRefinement
+      tags: [coding]
+      summary: Apply a chosen refinement option to a suggestion
+      description: >-
+        Sets editedCode + editedDescription on the suggestion, and bumps
+        hccCategory / rafRelevant when the refinement unlocks a new HCC
+        bucket. Original code/description stay intact for audit. Only
+        works while the suggestion is ai_suggested or needs_review.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApplyRefinementRequest" }
+      responses:
+        "200":
+          description: Refinement applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CodingSuggestion" }
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion no longer editable (already approved / rejected / exported)
+  /coding/sessions/{id}/approve-all-high-confidence:
+    post:
+      operationId: approveAllHighConfidenceCoding
+      tags: [coding]
+      summary: Bulk-approve high-confidence suggestions in a Coder session
+      description: >-
+        The "Approve and Write to Encounter" action. Approves every
+        suggestion whose confidence ≥ minConfidence (default high)
+        AND has no block-severity documentation gap. Edited
+        suggestions carry their edits into the approved row.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveAllCodingRequest"
+      responses:
+        "200":
+          description: Bulk approval result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApproveAllCodingResponse"
+        "404":
+          description: Session not found
+        "409":
+          description: Session not in a state that allows bulk approval
+  /patients/{id}/problems:
+    get:
+      operationId: getPatientProblems
+      tags: [coding]
+      summary: Local problem-list cache for a patient
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Problem list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/PatientProblem" }
+  /coding/sessions/{id}/problem-suggestions:
+    get:
+      operationId: getProblemSuggestionsForSession
+      tags: [coding]
+      summary: Reconciler output for a Coder session
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Problem-list suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProblemListSuggestion" }
+  /coding/sessions/{id}/reconcile-problems:
+    post:
+      operationId: reconcileProblemsForSession
+      tags: [coding]
+      summary: Re-run problem-list reconciliation against this session
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Reconciliation produced (or replaced) suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconcileResponse"
+        "404":
+          description: Session or patient not found
+        "409":
+          description: Note has no assessment section to reconcile against
+  /problem-list-suggestions/{id}/accept:
+    post:
+      operationId: acceptProblemListSuggestion
+      tags: [coding]
+      summary: Accept a problem-list reconciliation action (applies the local mutation)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AcceptProblemListSuggestionRequest" }
+      responses:
+        "200":
+          description: Accepted; local mutation applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemListSuggestion" }
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion not in an actionable state, or target row missing
+  /problem-list-suggestions/{id}/reject:
+    post:
+      operationId: rejectProblemListSuggestion
+      tags: [coding]
+      summary: Reject a problem-list reconciliation action
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RejectProblemListSuggestionRequest" }
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemListSuggestion" }
+        "404":
+          description: Suggestion not found
+        "409":
+          description: Suggestion not in an actionable state
+  /patients/{id}/athena-encounters:
+    get:
+      operationId: listPatientAthenaEncounters
+      tags: [coding]
+      summary: Recent Athena Encounter resources for linking a local row
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Candidate encounters (empty array when patient has no ehrPatientId)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AthenaEncounterCandidate" }
+        "404":
+          description: Patient not found
+        "502":
+          description: Athena unavailable
+  /patients/{id}/athena-notes:
+    get:
+      operationId: listPatientAthenaNotes
+      tags: [coding]
+      summary: Recent finalized DocumentReferences for an Athena-linked patient
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Candidate notes (empty array when patient has no ehrPatientId)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AthenaNoteCandidate" }
+        "404":
+          description: Patient not found
+        "502":
+          description: Athena unavailable
+  /encounters/{id}/coding/ingest-athena-note:
+    post:
+      operationId: ingestAthenaNote
+      tags: [coding]
+      summary: Ingest a finalized Athena DocumentReference and run the Coder against it
+      description: >-
+        Pulls the FHIR DocumentReference, materializes a local approved
+        note row (mirroring the upstream chart entry), and fires the
+        Coder with noteSource='athena_existing'.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IngestAthenaNoteRequest" }
+      responses:
+        "201":
+          description: Ingested + coded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestAthenaNoteResponse" }
+        "404":
+          description: Encounter / patient / Athena doc not found
+        "422":
+          description: Athena doc has no extractable text content
+  /coding/biller-queue:
+    get:
+      operationId: listBillerCodingQueue
+      tags: [coding]
+      summary: List Coder-coded encounters awaiting (or past) biller review
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Biller queue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/BillerQueueRow" }
+  /encounters/{id}/audit-timeline:
+    get:
+      operationId: listEncounterAuditTimeline
+      tags: [encounters]
+      summary: Encounter-scoped audit drilldown — every audit_log event tied to this encounter
+      description: >-
+        Returns audit_log rows for every resource attached to the
+        encounter: the encounter itself, its note(s), coding sessions,
+        billing suggestions, problem-list suggestions, and approved
+        billing codes. Reverse-chronological, capped at the limit param.
+        Non-admin — providers + billers see the same view (org-scoped).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      # `?limit=` is supported by the handler (default 200, capped at 500)
+      # but kept out of the spec to dodge an Orval codegen name-clash on
+      # mixed path + query params. Spec it formally when the codegen
+      # config is loosened.
+      responses:
+        "200":
+          description: Audit timeline
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/EncounterAuditEvent" }
+        "404":
+          description: Encounter not found in the active organization
   /encounters/{id}/orders:
     get:
       operationId: getEncounterOrders
@@ -2109,8 +2586,36 @@ components:
         scheduledAt: { type: string, format: date-time, nullable: true }
         startedAt: { type: string, format: date-time, nullable: true }
         completedAt: { type: string, format: date-time, nullable: true }
+        ehrEncounterRef:
+          type: string
+          nullable: true
+          description: >-
+            FHIR-style upstream encounter reference ("Encounter/<id>") set when
+            this local encounter mirrors an Athena (or other EHR) chart entry.
+            Required for real-mode chart-API writeback; null means the encounter
+            isn't linked to the EHR yet and pushes will fail with a clear
+            "not linked" message.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    EncounterAuditEvent:
+      type: object
+      required: [id, at, action, resourceType]
+      properties:
+        id: { type: string }
+        at:
+          type: string
+          format: date-time
+        userId:
+          type: ["string", "null"]
+        userDisplayName:
+          type: ["string", "null"]
+        action: { type: string }
+        resourceType: { type: string }
+        resourceId:
+          type: ["string", "null"]
+        metadata:
+          type: ["object", "null"]
+          additionalProperties: true
     ListEncounters200:
       type: object
       required: [data]
@@ -2129,6 +2634,14 @@ components:
         location: { type: string, maxLength: 120 }
         scheduledAt: { type: string, format: date-time }
         providerId: { type: string, minLength: 1 }
+        ehrEncounterRef:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: >-
+            Optional Athena (or other EHR) Encounter id at create time. Accepts
+            "Encounter/<id>" or bare "<id>"; normalized server-side to
+            "Encounter/<id>".
     UpdateEncounterRequest:
       type: object
       description: |
@@ -2144,6 +2657,14 @@ components:
         status: { $ref: "#/components/schemas/EncounterStatus" }
         scheduledAt: { type: string, format: date-time, nullable: true }
         providerId: { type: string, minLength: 1, nullable: true }
+        ehrEncounterRef:
+          type: string
+          minLength: 1
+          maxLength: 120
+          nullable: true
+          description: >-
+            Link or relink to an Athena (or other EHR) chart encounter. Pass
+            null to clear (un-link). Accepts "Encounter/<id>" or bare "<id>".
     CreatePatientRequest:
       type: object
       required: [firstName, lastName, dateOfBirth, mrn]
@@ -2255,6 +2776,42 @@ components:
             Independent from autoPushOrders so a provider can
             opt into lab/imaging auto-push while still
             hand-confirming every prescription.
+        autoApproveNonMedOrders:
+          type: boolean
+          description: >-
+            When true, AI-suggested non-medication orders auto-approve
+            and (in combination with autoPushOrders) auto-push to the
+            EHR without provider review. Set by POST /m/initialize on
+            first mobile visit; medications are always held back for
+            desktop review regardless of this flag.
+        mobileOnboarded:
+          type: boolean
+          description: >-
+            True once POST /m/initialize has run for this user. The
+            mobile shell uses this to skip its first-visit setup call.
+    MobileInitResponse:
+      type: object
+      required: [initialized, autoPushMode, autoPushOrders, autoPushMedications, autoApproveNonMedOrders]
+      properties:
+        initialized:
+          type: boolean
+          description: >-
+            True when this call performed the one-shot flag flips.
+            False when the user was already onboarded (noop) — the
+            other fields then reflect their current settings.
+        autoPushMode:
+          type: string
+          enum: [off, after_approve, after_transcription]
+        autoPushOrders:
+          type: boolean
+        autoPushMedications:
+          type: boolean
+        autoApproveNonMedOrders:
+          type: boolean
+        mobileOnboardedAt:
+          type: string
+          format: date-time
+          nullable: true
     UpdateMeRequest:
       type: object
       description: >-
@@ -2893,6 +3450,527 @@ components:
         reason:
           type: string
           maxLength: 500
+
+    CodingNoteSource:
+      type: string
+      enum: [halonote_scribe, athena_existing]
+    CodingSessionStatus:
+      type: string
+      enum:
+        - queued
+        - extracting
+        - ready
+        - approved
+        - writing
+        - complete
+        - failed
+    CodingSectionKey:
+      type: string
+      description: Which note section a suggestion was sourced from.
+      enum:
+        - assessment
+        - plan
+        - hpi
+        - ros
+        - physical_exam
+        - procedures
+        - orders
+        - mdm
+        - time
+        - other
+    CodingParsedSections:
+      type: object
+      description: >-
+        Sectionized form of the finalized note, persisted on the
+        session so the Coder Review pane can highlight the section
+        each suggestion cited without re-parsing client-side.
+      properties:
+        assessment: { type: string }
+        plan: { type: string }
+        hpi: { type: string }
+        ros: { type: string }
+        physicalExam: { type: string }
+        procedures: { type: string }
+        orders: { type: string }
+        mdm: { type: string }
+        time: { type: string }
+        other: { type: string }
+    EncounterCodingSession:
+      type: object
+      required:
+        - id
+        - organizationId
+        - encounterId
+        - noteSource
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string }
+        organizationId: { type: string }
+        encounterId: { type: string }
+        noteId:
+          type: ["string", "null"]
+        noteSource: { $ref: "#/components/schemas/CodingNoteSource" }
+        sourceNoteHash:
+          type: ["string", "null"]
+          description: SHA-256 of the note body at coding time; lets the UI flag stale sessions when the note has been amended since.
+        status: { $ref: "#/components/schemas/CodingSessionStatus" }
+        failureReason:
+          type: ["string", "null"]
+        parsedSections:
+          oneOf:
+            - $ref: "#/components/schemas/CodingParsedSections"
+            - type: "null"
+        extractionStartedAt:
+          type: ["string", "null"]
+          format: date-time
+        extractionCompletedAt:
+          type: ["string", "null"]
+          format: date-time
+        approvedAt:
+          type: ["string", "null"]
+          format: date-time
+        approvedByUserId:
+          type: ["string", "null"]
+        writebackStartedAt:
+          type: ["string", "null"]
+          format: date-time
+        writebackCompletedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CodingSuggestion:
+      type: object
+      required:
+        - id
+        - organizationId
+        - encounterId
+        - codeSystem
+        - code
+        - description
+        - rationale
+        - supportingExcerpts
+        - documentationGaps
+        - confidence
+        - status
+        - createdByAi
+        - rafRelevant
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string }
+        organizationId: { type: string }
+        encounterId: { type: string }
+        codingSessionId:
+          type: ["string", "null"]
+        codeSystem: { $ref: "#/components/schemas/BillingCodeSystem" }
+        code: { type: string }
+        description: { type: string }
+        editedCode:
+          type: ["string", "null"]
+          description: Provider override of code; original `code` preserved for audit.
+        editedDescription:
+          type: ["string", "null"]
+        rationale: { type: string }
+        supportingExcerpts:
+          type: array
+          items: { $ref: "#/components/schemas/BillingSupportingExcerpt" }
+        documentationGaps:
+          type: array
+          items: { $ref: "#/components/schemas/BillingDocumentationGap" }
+        confidence: { $ref: "#/components/schemas/SuggestionConfidence" }
+        sourceSection:
+          oneOf:
+            - $ref: "#/components/schemas/CodingSectionKey"
+            - type: "null"
+        destinationField:
+          type: ["string", "null"]
+          description: Discrete EHR field the code will write to once approved (e.g. athena.encounter_diagnosis).
+        hccCategory:
+          type: ["string", "null"]
+          description: HCC bucket label when the diagnosis maps to one; null otherwise.
+        rafRelevant:
+          type: boolean
+          description: True when the diagnosis is actively contributing to risk adjustment per this visit's documentation.
+        status: { $ref: "#/components/schemas/BillingSuggestionStatus" }
+        statusNote:
+          type: ["string", "null"]
+        createdByAi: { type: boolean }
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CodingSessionWithSuggestions:
+      type: object
+      required: [session, suggestions]
+      properties:
+        session: { $ref: "#/components/schemas/EncounterCodingSession" }
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/CodingSuggestion" }
+    GenerateCodingRequest:
+      type: object
+      properties:
+        noteId:
+          type: string
+          description: Optional target note id; defaults to the encounter's latest note.
+        noteSource:
+          $ref: "#/components/schemas/CodingNoteSource"
+    EditCodingSuggestionRequest:
+      type: object
+      required: [editedCode, editedDescription]
+      properties:
+        editedCode:
+          type: string
+          minLength: 1
+          maxLength: 20
+        editedDescription:
+          type: string
+          minLength: 1
+          maxLength: 300
+        reason:
+          type: string
+          maxLength: 500
+    ApproveAllCodingRequest:
+      type: object
+      properties:
+        minConfidence:
+          $ref: "#/components/schemas/SuggestionConfidence"
+    ApproveAllCodingResponse:
+      type: object
+      required:
+        - session
+        - approvedCount
+        - skippedCount
+        - pushedBillingCount
+        - pushedOrderCount
+        - pushFailedCount
+      properties:
+        session: { $ref: "#/components/schemas/EncounterCodingSession" }
+        approvedCount:
+          type: integer
+          description: Number of suggestions promoted to approved_billing_codes.
+        skippedCount:
+          type: integer
+          description: Suggestions left for individual review (low confidence or block-severity gaps).
+        pushedBillingCount:
+          type: integer
+          description: Billing codes successfully pushed to the EHR in this call (mock-mode counts as a push).
+        pushedOrderCount:
+          type: integer
+          description: Approved orders (complete + not-yet-exported) successfully pushed in this call.
+        pushFailedCount:
+          type: integer
+          description: Combined billing+order pushes that failed; ehrError persisted per row for retry.
+    ProblemStatus:
+      type: string
+      enum: [active, stable, worsening, improving, resolved]
+    ProblemEhrSource:
+      type: string
+      enum: [athena, epic, cerner, manual]
+    ProblemSuggestionAction:
+      type: string
+      enum: [add, update_status, resolve, merge_duplicate, flag_uncertain]
+    ProblemSuggestionStatus:
+      type: string
+      enum: [suggested, accepted, rejected, applied]
+    PatientProblem:
+      type: object
+      required:
+        - id
+        - organizationId
+        - patientId
+        - code
+        - description
+        - status
+        - ehrSource
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string }
+        organizationId: { type: string }
+        patientId: { type: string }
+        code: { type: string }
+        description: { type: string }
+        status: { $ref: "#/components/schemas/ProblemStatus" }
+        onsetDate:
+          type: ["string", "null"]
+        ehrSource: { $ref: "#/components/schemas/ProblemEhrSource" }
+        ehrResourceRef:
+          type: ["string", "null"]
+        syncedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ProblemListSuggestion:
+      type: object
+      required:
+        - id
+        - organizationId
+        - patientId
+        - encounterId
+        - action
+        - rationale
+        - supportingExcerpts
+        - confidence
+        - status
+        - appliedLocally
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string }
+        organizationId: { type: string }
+        codingSessionId:
+          type: ["string", "null"]
+        patientId: { type: string }
+        encounterId: { type: string }
+        action: { $ref: "#/components/schemas/ProblemSuggestionAction" }
+        targetProblemId:
+          type: ["string", "null"]
+        mergeFromProblemId:
+          type: ["string", "null"]
+        proposedCode:
+          type: ["string", "null"]
+        proposedDescription:
+          type: ["string", "null"]
+        proposedStatus:
+          oneOf:
+            - $ref: "#/components/schemas/ProblemStatus"
+            - type: "null"
+        rationale: { type: string }
+        supportingExcerpts:
+          type: array
+          items: { $ref: "#/components/schemas/BillingSupportingExcerpt" }
+        confidence: { $ref: "#/components/schemas/SuggestionConfidence" }
+        status: { $ref: "#/components/schemas/ProblemSuggestionStatus" }
+        statusNote:
+          type: ["string", "null"]
+        appliedLocally: { type: boolean }
+        reviewedByUserId:
+          type: ["string", "null"]
+        reviewedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RefinementEvidenceMode:
+      type: string
+      enum: [supported, documentation_gap]
+      description: >-
+        supported = the note text justifies the refined code today
+        (supportingExcerpts quotes the passage). documentation_gap = the
+        refinement is clinically plausible but not currently documented
+        (suggestedNoteLanguage carries a one-sentence finding the provider
+        can paste to support the code).
+    RefinementOption:
+      type: object
+      required: [code, description, evidenceMode, rationale, hccUnlocked, confidence]
+      properties:
+        code: { type: string }
+        description: { type: string }
+        evidenceMode: { $ref: "#/components/schemas/RefinementEvidenceMode" }
+        supportingExcerpts:
+          type: array
+          items: { $ref: "#/components/schemas/BillingSupportingExcerpt" }
+        suggestedNoteLanguage:
+          type: string
+          description: >-
+            Required when evidenceMode=documentation_gap. One short clinical
+            sentence the provider can paste into the note to justify the
+            refined code.
+        rationale: { type: string }
+        hccCategory:
+          type: string
+          description: HCC bucket label when the refined code maps to one.
+        hccUnlocked:
+          type: boolean
+          description: >-
+            True when the refined code captures an HCC bucket the original
+            did not. Drives the "Unlocks HCC" badge.
+        confidence: { $ref: "#/components/schemas/SuggestionConfidence" }
+    RefineSuggestionResponse:
+      type: object
+      required: [options, source]
+      properties:
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/RefinementOption" }
+        source:
+          type: string
+          enum: [ai, stub]
+    RefineAllItem:
+      type: object
+      required: [suggestionId, originalCode, options]
+      properties:
+        suggestionId: { type: string }
+        originalCode: { type: string }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/RefinementOption" }
+    RefineAllResponse:
+      type: object
+      required: [items, hccUnlockCount, source]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RefineAllItem" }
+        hccUnlockCount:
+          type: integer
+          description: Total HCC-unlocking options across all suggestions.
+        source:
+          type: string
+          enum: [ai, stub]
+    ApplyRefinementRequest:
+      type: object
+      required: [chosenCode, chosenDescription, hccUnlocked]
+      properties:
+        chosenCode:
+          type: string
+          minLength: 1
+          maxLength: 20
+        chosenDescription:
+          type: string
+          minLength: 1
+          maxLength: 300
+        chosenHccCategory:
+          type: string
+          maxLength: 200
+          nullable: true
+        hccUnlocked:
+          type: boolean
+    AcceptProblemListSuggestionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+    RejectProblemListSuggestionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    AthenaNoteCandidate:
+      type: object
+      required: [documentReferenceId]
+      properties:
+        documentReferenceId: { type: string }
+        date:
+          type: ["string", "null"]
+          format: date-time
+        description:
+          type: ["string", "null"]
+        encounterEhrRef:
+          type: ["string", "null"]
+        contentType:
+          type: ["string", "null"]
+    AthenaEncounterCandidate:
+      type: object
+      required: [encounterId, period]
+      properties:
+        encounterId: { type: string }
+        period:
+          type: object
+          required: [start, end]
+          properties:
+            start:
+              type: ["string", "null"]
+              format: date-time
+            end:
+              type: ["string", "null"]
+              format: date-time
+        status:
+          type: ["string", "null"]
+        classDisplay:
+          type: ["string", "null"]
+        typeDisplay:
+          type: ["string", "null"]
+    IngestAthenaNoteRequest:
+      type: object
+      required: [athenaDocumentReferenceId]
+      properties:
+        athenaDocumentReferenceId:
+          type: string
+          minLength: 1
+          maxLength: 120
+    IngestAthenaNoteResponse:
+      type: object
+      required: [noteId, noteSource, session, suggestions]
+      properties:
+        noteId: { type: string }
+        noteSource:
+          type: string
+          enum: [athena, mock]
+        session: { $ref: "#/components/schemas/EncounterCodingSession" }
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/CodingSuggestion" }
+    ReconcileResponse:
+      type: object
+      required: [data, problems, ehrHit]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ProblemListSuggestion" }
+        problems:
+          type: array
+          items: { $ref: "#/components/schemas/PatientProblem" }
+        ehrHit:
+          type: boolean
+          description: True when Athena was queried (not mock / no ehrPatientId).
+    BillerQueueRow:
+      type: object
+      required:
+        - sessionId
+        - encounterId
+        - patientId
+        - patientFirstName
+        - patientLastName
+        - encounterVisitType
+        - sessionStatus
+        - totalCodes
+        - billerApprovedCodes
+        - exportedCodes
+        - editedCodes
+      properties:
+        sessionId: { type: string }
+        encounterId: { type: string }
+        patientId: { type: string }
+        patientFirstName: { type: string }
+        patientLastName: { type: string }
+        patientMrn:
+          type: ["string", "null"]
+        encounterScheduledAt:
+          type: ["string", "null"]
+          format: date-time
+        encounterVisitType: { type: string }
+        sessionStatus: { $ref: "#/components/schemas/CodingSessionStatus" }
+        approvedAt:
+          type: ["string", "null"]
+          format: date-time
+        totalCodes: { type: integer }
+        billerApprovedCodes: { type: integer }
+        exportedCodes: { type: integer }
+        editedCodes: { type: integer }
 
     OrderType:
       type: string

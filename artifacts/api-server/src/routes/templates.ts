@@ -8,6 +8,7 @@ import {
 import { getDb, noteTemplatesTable } from "@workspace/db";
 import { DEFAULT_TEMPLATES } from "../lib/default-templates";
 import { getActiveOrgId } from "../lib/active-org";
+import { isUniqueViolation, respondInvalidBody } from "../http";
 
 const router: IRouter = Router();
 
@@ -112,13 +113,7 @@ router.post("/templates", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CreateTemplateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({
-      error: "invalid_request",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
   const cue = normalizeCue(parsed.data.voiceCue);
   if (cue) {
@@ -188,13 +183,7 @@ router.patch("/templates/:id", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = UpdateTemplateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({
-      error: "invalid_request",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   const db = getDb();
   const [existing] = await db
@@ -304,13 +293,7 @@ router.put("/templates", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = ReorderTemplatesBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({
-      error: "invalid_request",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const db = getDb();
   const ownedRows = await db
     .select({ id: noteTemplatesTable.id })
@@ -393,15 +376,5 @@ router.post("/templates/reset", async (req, res) => {
   const fresh = await listForUser(user.id, orgId);
   res.json({ data: fresh });
 });
-
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: unknown; cause?: { code?: unknown } };
-  if (e.code === "23505") return true;
-  if (e.cause && typeof e.cause === "object" && e.cause.code === "23505") {
-    return true;
-  }
-  return false;
-}
 
 export default router;

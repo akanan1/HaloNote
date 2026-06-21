@@ -103,6 +103,51 @@ export const billingSuggestionsTable = pgTable(
 
     confidence: text("confidence").$type<SuggestionConfidence>().notNull(),
 
+    // Coder workflow fields (nullable for backward compatibility with
+    // pre-Coder rows). Populated when the suggestion is produced by the
+    // coding-orchestrator (which wraps this suggester with section
+    // awareness, HCC flagging, and per-encounter session tracking).
+    // Legacy suggestions from the standalone /billing/suggest route
+    // leave these null and behave exactly as before.
+    //
+    // codingSessionId — FK to encounter_coding_sessions. One session row
+    // per generation run; lets the UI show "the Coder's latest pass"
+    // as a coherent batch and gives the bulk-approve action something
+    // to scope on.
+    codingSessionId: text("coding_session_id"),
+    // sourceSection — which note section the AI cited for this code.
+    // One of: "assessment" | "plan" | "hpi" | "ros" | "physical_exam"
+    // | "procedures" | "orders" | "mdm" | "time" | "other". Free-form
+    // text (not an enum) so future section additions don't require a
+    // migration. The orchestrator's prompt biases ICDs to assessment
+    // and CPT/E&M to procedures+mdm+time but does not enforce.
+    sourceSection: text("source_section"),
+    // destinationField — which Athena (or other EHR) discrete field
+    // this code is destined for once approved. Examples:
+    //   "athena.encounter_diagnosis"
+    //   "athena.encounter_procedure"
+    //   "athena.problem_list"
+    //   "athena.em_level"
+    //   "athena.modifier"
+    // Surfaced in the Coder Review UI so the clinician sees exactly
+    // where the writeback will land. Stored as text (not enum) so the
+    // adapter layer can evolve targets without schema churn.
+    destinationField: text("destination_field"),
+    // Provider may edit a suggestion's code/description before approving
+    // (e.g. AI suggested E11.9 but provider knows it should be E11.65).
+    // The original code/description above stays intact for audit; these
+    // overrides are what gets written to approved_billing_codes. Both
+    // null = no edit, use code/description as-is.
+    editedCode: text("edited_code"),
+    editedDescription: text("edited_description"),
+    // HCC / RAF capture. hccCategory is the HCC mapping when the AI
+    // believes this ICD-10 maps to an HCC bucket (e.g. "HCC 18 — Diabetes
+    // with Chronic Complications"). rafRelevant is the simpler boolean
+    // surface used by the dashboard's "risk-adjustment opportunity" badge.
+    // Both null/false for non-diagnosis codes.
+    hccCategory: text("hcc_category"),
+    rafRelevant: boolean("raf_relevant").notNull().default(false),
+
     status: text("status")
       .$type<SuggestionStatus>()
       .notNull()
@@ -141,6 +186,12 @@ export const billingSuggestionsTable = pgTable(
       t.status,
       t.createdAt,
     ),
+    // Coder Review query: "the suggestions belonging to this session"
+    // ordered for the review pane.
+    index("billing_suggestions_session_idx").on(
+      t.codingSessionId,
+      t.codeSystem,
+    ),
   ],
 );
 
@@ -174,8 +225,19 @@ export const approvedBillingCodesTable = pgTable(
       .references(() => encountersTable.id, { onDelete: "cascade" }),
 
     codeSystem: text("code_system").$type<CodeSystem>().notNull(),
+    // The code/description that gets billed. When a provider edited a
+    // suggestion before approving, this is the EDITED value, not the
+    // AI's original — the suggestion row keeps the original for audit.
     code: text("code").notNull(),
     description: text("description").notNull(),
+
+    // True when the approved code differs from the AI's original
+    // suggestion (i.e. provider edited before approval). Drives the
+    // "edited from AI suggestion" badge in the biller view so the
+    // biller knows to scrutinize the override.
+    wasEditedBeforeApproval: boolean("was_edited_before_approval")
+      .notNull()
+      .default(false),
 
     // Nullable: a biller can add a code manually without a suggestion.
     // ON DELETE SET NULL because we want to preserve the approved code

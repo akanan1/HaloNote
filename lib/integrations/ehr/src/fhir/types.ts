@@ -193,6 +193,34 @@ export interface Appointment extends Resource {
   }>;
 }
 
+// FHIR R4 Encounter — minimal subset for the chart-link picker.
+// Lists recent finalized encounters so the provider can attach the
+// upstream Encounter id to a local row.
+export interface Encounter extends Resource {
+  resourceType: "Encounter";
+  status?:
+    | "planned"
+    | "arrived"
+    | "triaged"
+    | "in-progress"
+    | "onleave"
+    | "finished"
+    | "cancelled"
+    | "entered-in-error"
+    | "unknown"
+    | (string & {});
+  class?: Coding;
+  type?: CodeableConcept[];
+  subject?: Reference;
+  participant?: Array<{
+    type?: CodeableConcept[];
+    individual?: Reference;
+  }>;
+  period?: Period;
+  reasonCode?: CodeableConcept[];
+  serviceProvider?: Reference;
+}
+
 // FHIR R4 Condition — patient's diagnoses / problem list.
 export interface Condition extends Resource {
   resourceType: "Condition";

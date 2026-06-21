@@ -21,6 +21,14 @@ export interface EhrPushParams {
    * org-level client_credentials (EHR_MODE) when there's no connection.
    */
   userId?: string;
+  /**
+   * Stable Idempotency-Key for this note's push. The caller persists
+   * the key on the note row before the push so any retry — automatic
+   * (transport-level on 429/503) or manual (user clicks "send again"
+   * after a timeout) — reuses the same value. The EHR server is
+   * expected to dedupe duplicate POSTs sharing a key.
+   */
+  idempotencyKey: string;
 }
 
 export interface EhrPushOutcome {
@@ -46,11 +54,24 @@ export class EhrPushError extends Error {
 // Opt-in: only hit a real EHR when EHR_MODE is set to a provider name.
 // Otherwise mock — keeps dev safe from stale credentials + accidental
 // PHI leaks into vendor sandboxes.
-function resolveProvider(): "athenahealth" | "epic" | "mock" {
-  const mode = process.env["EHR_MODE"]?.trim().toLowerCase();
-  if (mode === "athenahealth") return "athenahealth";
-  if (mode === "epic") return "epic";
-  return "mock";
+//
+// Unknown non-empty values throw at boot rather than silently mocking,
+// so a typo like EHR_MODE=athena (missing "health") fails loudly in any
+// env instead of pretending to push notes upstream while really discarding
+// them. Empty/unset is treated as explicit opt-out.
+const VALID_EHR_MODES = ["athenahealth", "epic", "mock"] as const;
+type EhrProvider = (typeof VALID_EHR_MODES)[number];
+
+function resolveProvider(): EhrProvider {
+  const raw = process.env["EHR_MODE"]?.trim().toLowerCase();
+  if (!raw) return "mock";
+  if ((VALID_EHR_MODES as readonly string[]).includes(raw)) {
+    return raw as EhrProvider;
+  }
+  throw new Error(
+    `Invalid EHR_MODE=${JSON.stringify(process.env["EHR_MODE"])}. ` +
+      `Expected one of: ${VALID_EHR_MODES.join(", ")}, or unset for mock.`,
+  );
 }
 
 export async function pushNoteToEhr(
@@ -76,7 +97,9 @@ export async function pushNoteToEhr(
     const userClient = await getAthenahealthClientForUser(params.userId);
     if (userClient) {
       try {
-        const created = await userClient.documentReference.push(baseInput);
+        const created = await userClient.documentReference.push(baseInput, {
+          idempotencyKey: params.idempotencyKey,
+        });
         const id = created.id ?? "unknown";
         return {
           provider: "athenahealth",
@@ -123,7 +146,9 @@ export async function pushNoteToEhr(
       provider === "athenahealth"
         ? getAthenahealthClient()
         : getEpicClient();
-    const created = await client.documentReference.push(baseInput);
+    const created = await client.documentReference.push(baseInput, {
+      idempotencyKey: params.idempotencyKey,
+    });
     const id = created.id ?? "unknown";
     return {
       provider,

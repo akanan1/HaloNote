@@ -1,0 +1,20 @@
+{
+  "name": "HaloNote",
+  "short_name": "HaloNote",
+  "description": "Ambient AI scribe — record a visit, get a clinical note.",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "categories": ["medical", "productivity"],
+  "icons": [
+    {
+      "src": "/halonote-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

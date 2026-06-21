@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import { and, asc, desc, eq, isNull, lte } from "drizzle-orm";
 import { z } from "@workspace/api-zod";
 import {
@@ -252,10 +253,7 @@ router.post("/tasks", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CreateTaskBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const db = getDb();
 
   // Tenant-scope the patient. Encounter (if supplied) must belong to
@@ -337,10 +335,7 @@ router.patch("/tasks/:id", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = UpdateTaskBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   const db = getDb();
 
@@ -461,10 +456,7 @@ router.post("/tasks/:id/cancel", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CancelBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   const db = getDb();
 

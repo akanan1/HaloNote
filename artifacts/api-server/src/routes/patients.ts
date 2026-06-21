@@ -8,6 +8,7 @@ import { PatientSyncError, syncPatientFromEhr } from "../lib/patient-sync";
 import { getPatientHistory, HistoryError } from "../lib/ehr-history";
 import { PatientMappingError } from "@workspace/ehr";
 import { getActiveOrgId } from "../lib/active-org";
+import { isUniqueViolation, respondInvalidBody } from "../http";
 
 const router: IRouter = Router();
 
@@ -107,13 +108,7 @@ router.post("/patients", async (req, res) => {
   if (!orgId) return;
 
   const parsed = CreatePatientBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({
-      error: "invalid_request",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
   try {
     const inserted = await getDb()
@@ -283,15 +278,5 @@ router.get("/patients/:id/history", async (req, res) => {
     res.status(500).json({ error: "internal_server_error" });
   }
 });
-
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: unknown; cause?: { code?: unknown } };
-  if (e.code === "23505") return true;
-  if (e.cause && typeof e.cause === "object" && e.cause.code === "23505") {
-    return true;
-  }
-  return false;
-}
 
 export default router;

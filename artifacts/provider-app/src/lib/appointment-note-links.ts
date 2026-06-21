@@ -1,127 +1,88 @@
-// Per-device link between an Athena appointment id and the HaloNote
-// local patient id the clinician synced when they clicked "Start
-// note" on that appointment card. The schedule view uses this to
-// correlate the right note to the right schedule row after autosave
-// creates the note.
+// Server-backed appointment claim client. Replaces the Wave 1 interim
+// (localStorage) — see lib/db/src/schema/appointment-claims.ts and
+// artifacts/api-server/src/routes/appointment-claims.ts for the table
+// + endpoint definitions.
 //
-// Why localStorage and not a schema column on notes?
-//   - This MVP layer keeps the backend untouched. A future migration
-//     adding `notes.appointment_id` would replace this helper outright.
-//   - Per-device is acceptable because the schedule view re-derives
-//     status on every refresh by looking up notes the user authored
-//     after `claimedAt` for the claimed patient — even if the device
-//     loses the claim, a fresh note for the same patient will still
-//     pair to the appointment within the day.
+// Why we moved off localStorage:
+//   - Cross-device consistency: a provider who claims an appointment
+//     on their iPad now sees it as claimed on their desktop.
+//   - Server-enforced TTL: the prior 7-day client check could be
+//     bypassed by clock tampering; expires_at is now authoritative.
+//   - No PHI-adjacent data on shared clinic devices (the patient_id
+//     link is back behind auth).
 //
-// Known limitations (documented here, not silently accepted):
-//   - Two same-patient appointments on the same day will correlate to
-//     whichever note's `createdAt` is closer in time to each claim.
-//     The first-claimed appointment effectively "wins" the first note.
-//   - Clearing the browser storage drops the link; the next refresh
-//     falls back to "appointment has no note" (Pending).
-//   - If the same user makes the claim on device A and writes the note
-//     on device B, device A will not show the claim; device B will
-//     still correlate correctly because its claim was made there.
+// The Today view consumes these via react-query; see Today.tsx for the
+// query key + invalidation pattern.
 
-const KEY_PREFIX = "halo:appt-claim:";
-// 7 days — long enough to cover a week of clinic catch-up; short
-// enough that abandoned claims don't sit in storage forever.
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+import { customFetch } from "@workspace/api-client-react";
 
 export interface AppointmentClaim {
   appointmentId: string;
-  patientId: string; // internal HaloNote patient id
-  claimedAt: string; // ISO 8601
+  patientId: string;
+  // ISO 8601 timestamps as returned by the server.
+  claimedAt: string;
+  expiresAt: string;
 }
 
-// Wrap localStorage access so a Safari-private-mode SecurityError or a
-// jsdom test env without storage doesn't break the schedule view.
-function safeStorage(): Storage | null {
-  try {
-    if (typeof window === "undefined") return null;
-    return window.localStorage;
-  } catch {
-    return null;
-  }
+interface ListResponse {
+  data: AppointmentClaim[];
 }
 
-export function claimAppointment(
+// Fetch this user's currently-active (non-expired) claims. The server
+// filters `expires_at > NOW()`, so the list is always trustworthy
+// without client-side staleness checks.
+export async function listMyAppointmentClaims(): Promise<AppointmentClaim[]> {
+  const r = await customFetch<ListResponse>("/api/appointment-claims/mine");
+  return r.data;
+}
+
+// Upsert a claim. If a different provider had this appointment claimed,
+// the server replaces their row (last-writer-wins) — the design choice
+// is that whoever clicked "start note" last is the active claimant.
+export async function claimAppointment(
   appointmentId: string,
   patientId: string,
-): AppointmentClaim {
-  const claim: AppointmentClaim = {
-    appointmentId,
-    patientId,
-    claimedAt: new Date().toISOString(),
-  };
-  const store = safeStorage();
-  if (store) {
-    try {
-      store.setItem(KEY_PREFIX + appointmentId, JSON.stringify(claim));
-    } catch {
-      // QuotaExceeded / SecurityError — non-fatal. The workflow status
-      // for this appointment will fall back to "Pending" until a note
-      // is created (we still get Failed/Completed once the user opens
-      // the note page and pushes there).
-    }
-  }
-  return claim;
+): Promise<AppointmentClaim> {
+  return customFetch<AppointmentClaim>("/api/appointment-claims", {
+    method: "POST",
+    body: JSON.stringify({ appointmentId, patientId }),
+  });
 }
 
-export function getAppointmentClaim(
+// Release a claim. Idempotent on the server — replays return 204.
+export async function clearAppointmentClaim(
   appointmentId: string,
-): AppointmentClaim | null {
-  const store = safeStorage();
-  if (!store) return null;
-  let raw: string | null;
-  try {
-    raw = store.getItem(KEY_PREFIX + appointmentId);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    typeof (parsed as AppointmentClaim).appointmentId !== "string" ||
-    typeof (parsed as AppointmentClaim).patientId !== "string" ||
-    typeof (parsed as AppointmentClaim).claimedAt !== "string"
-  ) {
-    return null;
-  }
-  const claim = parsed as AppointmentClaim;
-  const age = Date.now() - new Date(claim.claimedAt).getTime();
-  if (!Number.isFinite(age) || age > MAX_AGE_MS) return null;
-  return claim;
+): Promise<void> {
+  await customFetch<void>(
+    `/api/appointment-claims/${encodeURIComponent(appointmentId)}`,
+    { method: "DELETE" },
+  );
 }
 
-export function clearAppointmentClaim(appointmentId: string): void {
-  const store = safeStorage();
-  if (!store) return;
+// Defensive scrub of any stale localStorage entries left over from the
+// Wave 1 interim version of this module. Called from signOut so a
+// shared device doesn't keep the previous version's cached
+// appointment→patient correlations around after the migration ships.
+// Server-side claims are NOT released here — they expire on their own
+// TTL or via explicit clearAppointmentClaim.
+export function clearLegacyLocalClaims(): void {
+  if (typeof window === "undefined") return;
+  let store: Storage | null;
   try {
-    store.removeItem(KEY_PREFIX + appointmentId);
+    store = window.localStorage;
+  } catch {
+    return;
+  }
+  if (!store) return;
+  const KEY_PREFIX = "halo:appt-claim:";
+  const toRemove: string[] = [];
+  try {
+    for (let i = 0; i < store.length; i++) {
+      const key = store.key(i);
+      if (key && key.startsWith(KEY_PREFIX)) toRemove.push(key);
+    }
+    for (const k of toRemove) store.removeItem(k);
   } catch {
     // ignore
   }
-}
-
-// Test seam — enumerates all current claims regardless of age.
-export function _allClaimsForTests(): AppointmentClaim[] {
-  const store = safeStorage();
-  if (!store) return [];
-  const out: AppointmentClaim[] = [];
-  for (let i = 0; i < store.length; i++) {
-    const key = store.key(i);
-    if (!key || !key.startsWith(KEY_PREFIX)) continue;
-    const id = key.slice(KEY_PREFIX.length);
-    const c = getAppointmentClaim(id);
-    if (c) out.push(c);
-  }
-  return out;
 }

@@ -1,8 +1,14 @@
 import { Router, type IRouter } from "express";
-import { asc, eq } from "drizzle-orm";
+import { respondInvalidBody } from "../http";
+import { and, asc, eq } from "drizzle-orm";
 import { UpdateUserBody } from "@workspace/api-zod";
-import { getDb, usersTable } from "@workspace/db";
+import {
+  getDb,
+  organizationMembersTable,
+  usersTable,
+} from "@workspace/db";
 import { requireAdmin } from "../middlewares/require-admin";
+import { getActiveOrgId } from "../lib/active-org";
 
 const router: IRouter = Router();
 
@@ -22,23 +28,33 @@ const userSelect = {
   createdAt: usersTable.createdAt,
 } as const;
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
+  // Tenancy: admin is a per-user role, not per-deployment. List only
+  // the members of the caller's active org, not every system user. An
+  // admin querying this endpoint expects to manage their own clinic;
+  // exposing other tenants' user lists would leak email addresses
+  // across orgs.
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+
   const rows = await getDb()
     .select(userSelect)
     .from(usersTable)
+    .innerJoin(
+      organizationMembersTable,
+      and(
+        eq(organizationMembersTable.userId, usersTable.id),
+        eq(organizationMembersTable.organizationId, orgId),
+        eq(organizationMembersTable.isActive, true),
+      ),
+    )
     .orderBy(asc(usersTable.email));
   res.json({ data: rows });
 });
 
 router.patch("/:id", async (req, res) => {
   const parsed = UpdateUserBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({
-      error: "invalid_request",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
   const targetId = req.params.id;
   const caller = req.user;

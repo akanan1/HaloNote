@@ -38,7 +38,7 @@ export function NewPatientPage() {
       void queryClient.invalidateQueries({
         queryKey: getListPatientsQueryKey(),
       });
-      toast.success(`${patient.lastName}, ${patient.firstName} added`);
+      toast.success("Patient added");
       navigate(`/patients/${patient.id}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

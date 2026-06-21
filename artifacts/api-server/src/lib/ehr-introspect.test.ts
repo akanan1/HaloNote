@@ -68,14 +68,15 @@ describe("introspectToken", () => {
         statusText: "Unauthorized",
       }),
     );
-    await expect(introspectToken(baseCfg, "tok")).rejects.toMatchObject({
-      name: "OauthExchangeError",
-      status: 401,
-    });
-    // Make sure the body wasn't pulled into the error message.
-    await expect(introspectToken(baseCfg, "tok")).rejects.not.toMatchObject({
-      message: expect.stringContaining("secret-leaking-payload"),
-    });
+    // Capture the rejection once and assert against it twice. The
+    // previous version invoked introspectToken twice but only mocked
+    // one response, so the second call fell through to the real network
+    // and timed out at 5s.
+    const err = (await introspectToken(baseCfg, "tok").catch(
+      (e: unknown) => e,
+    )) as { name?: string; status?: number; message?: string };
+    expect(err).toMatchObject({ name: "OauthExchangeError", status: 401 });
+    expect(err.message ?? "").not.toContain("secret-leaking-payload");
   });
 
   it("throws if introspectUrl is missing from cfg", async () => {

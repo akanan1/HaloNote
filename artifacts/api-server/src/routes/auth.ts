@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { respondInvalidBody } from "../http";
 import { Router, type CookieOptions, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import {
@@ -108,12 +109,7 @@ router.post(
   signupIpRateLimit,
   async (req, res) => {
     const parsed = SignupBody.safeParse(req.body);
-    if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "invalid_request", issues: parsed.error.issues });
-      return;
-    }
+    if (!parsed.success) return respondInvalidBody(res, parsed.error);
     const email = parsed.data.email.toLowerCase().trim();
     const displayName = parsed.data.displayName.trim();
 
@@ -244,12 +240,7 @@ router.post(
   passwordResetIpRateLimit,
   async (req, res) => {
     const parsed = ConfirmPasswordResetBody.safeParse(req.body);
-    if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "invalid_request", issues: parsed.error.issues });
-      return;
-    }
+    if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
     const token = await findValidResetToken(parsed.data.token);
     if (!token) {
@@ -295,12 +286,7 @@ router.post(
   loginEmailRateLimit,
   async (req, res) => {
     const parsed = LoginBody.safeParse(req.body);
-    if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "invalid_request", issues: parsed.error.issues });
-      return;
-    }
+    if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
     const user = await findUserByEmail(parsed.data.email);
     // Compute a hash either way so timing doesn't leak whether an account exists.
@@ -496,6 +482,8 @@ function serializeMe(user: typeof usersTable.$inferSelect) {
     silenceAutoStopSec: user.silenceAutoStopSec,
     autoPushOrders: Boolean(user.autoPushOrders),
     autoPushMedications: Boolean(user.autoPushMedications),
+    autoApproveNonMedOrders: Boolean(user.autoApproveNonMedOrders),
+    mobileOnboarded: Boolean(user.mobileOnboardedAt),
   };
 }
 
@@ -523,12 +511,7 @@ router.patch("/auth/me", requireAuth, async (req, res) => {
     return;
   }
   const parsed = UpdateMeBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const updates: Partial<typeof usersTable.$inferInsert> = {};
   if (parsed.data.autoPushMode !== undefined) {
     updates.autoPushMode = parsed.data.autoPushMode;

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "@workspace/api-zod";
 import {
@@ -15,6 +16,7 @@ import { suggestBillingCodes } from "../lib/billing-suggester";
 import { getActiveOrgId } from "../lib/active-org";
 import { pushBillingCodeToEhr } from "../lib/ehr-push-billing";
 import { EhrPushError } from "../lib/ehr-push";
+import { retryBillingCodePush } from "../services/billing-code-retry";
 
 const router: IRouter = Router();
 
@@ -355,12 +357,7 @@ router.post("/billing/suggestions/:id/reject", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = RejectBody.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const suggestionId = req.params.id;
   const db = getDb();
 
@@ -521,6 +518,20 @@ router.post("/billing/codes/:id/send-to-ehr", async (req, res) => {
   // returns a stable synthetic id; real-mode upstreams should treat
   // create-with-existing-identifier as upsert.
 
+  // Pull the parent encounter's stored Athena ref. Mock mode ignores it;
+  // real Athena mode needs it to route the charge to the correct chart
+  // encounter, and the push surfaces a clear error when it's missing.
+  const [parentEnc] = await db
+    .select({ ehrEncounterRef: encountersTable.ehrEncounterRef })
+    .from(encountersTable)
+    .where(
+      and(
+        eq(encountersTable.id, code.encounterId),
+        eq(encountersTable.organizationId, orgId),
+      ),
+    )
+    .limit(1);
+
   try {
     const outcome = await pushBillingCodeToEhr({
       billingCode: {
@@ -529,7 +540,7 @@ router.post("/billing/codes/:id/send-to-ehr", async (req, res) => {
         code: code.code,
         description: code.description,
       },
-      encounterEhrRef: null,
+      encounterEhrRef: parentEnc?.ehrEncounterRef ?? null,
       ...(req.user?.id ? { userId: req.user.id } : {}),
     });
 
@@ -585,6 +596,74 @@ router.post("/billing/codes/:id/send-to-ehr", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "ehr_push_failed", message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /billing/codes/:id/retry-push — per-card retry for stranded
+// codes (ehrError set, exportedAt null). Distinct from /send-to-ehr
+// (which is the biller-driven manual export and gates on
+// billerApprovedAt). The bulk-approve push path doesn't set
+// billerApprovedAt, so codes left stranded by a failed bulk-approve
+// can't recover through the biller route — this is the recovery hatch.
+// ---------------------------------------------------------------------------
+router.post("/billing/codes/:id/retry-push", async (req, res) => {
+  const orgId = getActiveOrgId(req, res);
+  if (!orgId) return;
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+
+  const result = await retryBillingCodePush({
+    codeId: req.params.id,
+    orgId,
+    initiatingUserId: userId,
+  });
+
+  switch (result.kind) {
+    case "ok":
+      res.json({
+        provider: result.provider,
+        ehrDocumentRef: result.ehrDocumentRef,
+        pushedAt: result.pushedAt,
+        mock: result.mock,
+      });
+      return;
+    case "code_not_found":
+      res.status(404).json({ error: "code_not_found" });
+      return;
+    case "code_not_stranded":
+      // 409 — wrong state. The UI should fall back to the regular
+      // send-to-ehr flow if billerApprovedAt is set, or just show
+      // "already exported" if exportedAt is.
+      res.status(409).json({
+        error: "code_not_stranded",
+        exportedAt: result.exportedAt,
+        ehrError: result.ehrError,
+      });
+      return;
+    case "note_not_finalized":
+      res.status(409).json({
+        error: "note_not_finalized",
+        noteStatus: result.noteStatus,
+      });
+      return;
+    case "encounter_not_found":
+      res.status(404).json({ error: "encounter_not_found" });
+      return;
+    case "failed":
+      req.log.error(
+        { codeId: req.params.id, status: result.status },
+        "EHR billing-code retry push failed",
+      );
+      res.status(result.status === 500 ? 500 : result.status).json({
+        error: "ehr_push_failed",
+        message: result.error,
+        retryable: result.retryable,
+      });
+      return;
   }
 });
 

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import { rateLimit } from "express-rate-limit";
 import { z } from "@workspace/api-zod";
 import { PostgresRateLimitStore } from "../lib/postgres-rate-limit-store";
@@ -40,12 +41,7 @@ router.post(
   accessRequestIpRateLimit,
   async (req, res) => {
     const parsed = AccessRequestBody.safeParse(req.body);
-    if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "invalid_request", issues: parsed.error.issues });
-      return;
-    }
+    if (!parsed.success) return respondInvalidBody(res, parsed.error);
     const data = parsed.data;
     const requesterEmail = data.email.toLowerCase();
 

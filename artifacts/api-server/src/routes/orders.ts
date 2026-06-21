@@ -1,23 +1,22 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "@workspace/api-zod";
 import {
-  approvedBillingCodesTable,
   approvedOrdersTable,
   encountersTable,
   getDb,
-  notesTable,
   orderSuggestionsTable,
-  patientsTable,
   type ApprovedOrder,
   type OrderSuggestion,
   type OrderType,
 } from "@workspace/db";
-import { normalizeOrder, suggestOrders } from "../lib/order-suggester";
+import { normalizeOrder } from "../lib/order-suggester";
 import { getActiveOrgId } from "../lib/active-org";
 import { findPatient } from "../lib/patients";
 import { pushOrderToEhr } from "../lib/ehr-push-order";
-import { EhrPushError } from "../lib/ehr-push";
+import { pushApprovedOrder } from "../services/ehr-order-push";
+import { generateOrdersForEncounter } from "../services/order-generation";
 
 const router: IRouter = Router();
 
@@ -180,119 +179,53 @@ router.post("/encounters/:id/orders/suggest", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const encounterId = req.params.id;
-  const db = getDb();
-
-  const [encounter] = await db
-    .select()
-    .from(encountersTable)
-    .where(
-      and(
-        eq(encountersTable.id, encounterId),
-        eq(encountersTable.organizationId, orgId),
-      ),
-    )
-    .limit(1);
-  if (!encounter) {
-    res.status(404).json({ error: "encounter_not_found" });
-    return;
-  }
-
-  const [patient] = await db
-    .select({ id: patientsTable.id, dateOfBirth: patientsTable.dateOfBirth })
-    .from(patientsTable)
-    .where(
-      and(
-        eq(patientsTable.id, encounter.patientId),
-        eq(patientsTable.organizationId, orgId),
-      ),
-    )
-    .limit(1);
-  if (!patient) {
-    res.status(404).json({ error: "patient_not_found" });
-    return;
-  }
-
-  const [note] = await db
-    .select({ body: notesTable.body })
-    .from(notesTable)
-    .where(
-      and(
-        eq(notesTable.encounterId, encounterId),
-        eq(notesTable.organizationId, orgId),
-      ),
-    )
-    .orderBy(desc(notesTable.updatedAt))
-    .limit(1);
-  if (!note) {
-    res.status(409).json({ error: "no_note_to_order_from" });
-    return;
-  }
-
-  // Approved diagnoses on the encounter — passed to the suggester so it
-  // can link orders to ICD-10s without making the provider re-type.
-  const approvedDx = await db
-    .select({
-      code: approvedBillingCodesTable.code,
-      description: approvedBillingCodesTable.description,
-    })
-    .from(approvedBillingCodesTable)
-    .where(
-      and(
-        eq(approvedBillingCodesTable.encounterId, encounterId),
-        eq(approvedBillingCodesTable.organizationId, orgId),
-        eq(approvedBillingCodesTable.codeSystem, "icd10"),
-      ),
-    );
-
-  const { result, source } = await suggestOrders({
-    encounter: {
-      id: encounter.id,
-      visitType: encounter.visitType,
-      customLabel: encounter.customLabel,
-      isTelehealth: encounter.isTelehealth,
-      scheduledAt: encounter.scheduledAt,
-    },
-    patient,
-    noteBody: note.body,
-    approvedDiagnoses: approvedDx,
-  });
-
-  if (result.orders.length === 0) {
-    res.json({ data: [], source });
-    return;
-  }
 
   try {
-    const inserted = await db
-      .insert(orderSuggestionsTable)
-      .values(
-        result.orders.map((n) => ({
-          organizationId: orgId,
-          encounterId,
-          orderType: n.raw.orderType,
-          name: n.raw.name,
-          indication: n.raw.indication,
-          indicationDiagnosisCode: n.raw.indicationDiagnosisCode ?? null,
-          priority: n.raw.priority,
-          instructions: n.raw.instructions ?? null,
-          frequency: n.raw.frequency ?? null,
-          duration: n.raw.duration ?? null,
-          medicationName: n.raw.medication?.name ?? null,
-          medicationDose: n.raw.medication?.dose ?? null,
-          medicationRoute: n.raw.medication?.route ?? null,
-          medicationFrequency: n.raw.medication?.frequency ?? null,
-          medicationDuration: n.raw.medication?.duration ?? null,
-          medicationQuantity: n.raw.medication?.quantity ?? null,
-          medicationRefills: n.raw.medication?.refills ?? null,
-          isComplete: n.isComplete,
-          safetyWarnings: n.safetyWarnings,
-          rationale: n.raw.rationale,
-          supportingExcerpts: n.raw.supportingExcerpts,
-          createdByAi: true,
-        })),
-      )
-      .returning();
-    res.status(201).json({ data: inserted.map(serializeSuggestion), source });
+    const result = await generateOrdersForEncounter({
+      encounterId,
+      orgId,
+      ...(req.user
+        ? {
+            autoApproveNonMedFor: {
+              userId: req.user.id,
+              enabled: Boolean(req.user.autoApproveNonMedOrders),
+            },
+          }
+        : {}),
+    });
+
+    if (result.kind === "encounter_not_found") {
+      res.status(404).json({ error: "encounter_not_found" });
+      return;
+    }
+    if (result.kind === "patient_not_found") {
+      res.status(404).json({ error: "patient_not_found" });
+      return;
+    }
+    if (result.kind === "no_note_to_order_from") {
+      res.status(409).json({ error: "no_note_to_order_from" });
+      return;
+    }
+
+    if (result.inserted.length === 0) {
+      res.json({ data: [], source: result.source });
+      return;
+    }
+
+    res.status(201).json({
+      data: result.inserted.map(serializeSuggestion),
+      source: result.source,
+      ...(result.autoApproved
+        ? {
+            autoApproved: {
+              eligibleCount: result.autoApproved.eligibleCount,
+              pushedCount: result.autoApproved.pushedCount,
+              failedCount: result.autoApproved.failedCount,
+              medicationsHeldCount: result.autoApproved.medicationsHeldCount,
+            },
+          }
+        : {}),
+    });
   } catch (err) {
     req.log.error({ err, encounterId }, "Failed to persist order suggestions");
     res.status(500).json({ error: "persistence_failed" });
@@ -450,10 +383,7 @@ router.post("/orders/suggestions/:id/reject", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = RejectBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   const db = getDb();
 
@@ -529,10 +459,7 @@ router.post("/orders", async (req, res) => {
     return;
   }
   const parsed = CreateOrderBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const db = getDb();
 
   const [encounter] = await db
@@ -622,10 +549,7 @@ router.patch("/orders/:id", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = UpdateOrderBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   const db = getDb();
 
@@ -804,7 +728,10 @@ router.post("/orders/:id/mark-export-ready", async (req, res) => {
       : Boolean(req.user?.autoPushOrders);
   if (shouldAutoPush && req.user) {
     const [enc] = await db
-      .select({ patientId: encountersTable.patientId })
+      .select({
+        patientId: encountersTable.patientId,
+        ehrEncounterRef: encountersTable.ehrEncounterRef,
+      })
       .from(encountersTable)
       .where(
         and(
@@ -836,7 +763,7 @@ router.post("/orders/:id/mark-export-ready", async (req, res) => {
             medicationRefills: updated.medicationRefills,
           },
           patient,
-          encounterEhrRef: null,
+          encounterEhrRef: enc?.ehrEncounterRef ?? null,
           userId: req.user.id,
         });
         const [exported] = await db
@@ -899,128 +826,91 @@ router.post("/orders/:id/mark-export-ready", async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /orders/:id/send-to-ehr — push the export_ready order to the EHR.
-// Gates on status === "export_ready"; on success flips to "exported" and
-// stamps exported_at + ehrDocumentRef. Push failures persist ehrError so
-// the UI can surface the message + offer retry.
+//
+// Delegates to the pushApprovedOrder service which owns all gates
+// (approval, note-finalized, idempotency, audit). Query param ?dryRun=1
+// routes through the dry-run adapter so a clinician can inspect the
+// payload that *would* have been dispatched without anything leaving
+// the building.
 // ---------------------------------------------------------------------------
 router.post("/orders/:id/send-to-ehr", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
-  const id = req.params.id;
-  const db = getDb();
-
-  const [order] = await db
-    .select()
-    .from(approvedOrdersTable)
-    .where(
-      and(
-        eq(approvedOrdersTable.id, id),
-        eq(approvedOrdersTable.organizationId, orgId),
-      ),
-    )
-    .limit(1);
-  if (!order) {
-    res.status(404).json({ error: "order_not_found" });
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  if (order.status !== "export_ready" && order.status !== "exported") {
-    // exported is allowed for idempotent retry (re-push after a
-    // partial network failure is safe — the mock layer returns the
-    // same synthetic id and real-mode upstreams treat the create as
-    // an update on matching identifier).
-    res
-      .status(409)
-      .json({ error: "order_not_export_ready", status: order.status });
-    return;
-  }
+  const dryRun =
+    req.query["dryRun"] === "1" || req.query["dryRun"] === "true";
 
-  // Look up patient via the encounter, since approved_orders doesn't
-  // carry patientId directly. Same lookup pattern as notes/send-to-ehr.
-  const [enc] = await db
-    .select({ patientId: encountersTable.patientId })
-    .from(encountersTable)
-    .where(
-      and(
-        eq(encountersTable.id, order.encounterId),
-        eq(encountersTable.organizationId, orgId),
-      ),
-    )
-    .limit(1);
-  if (!enc) {
-    res.status(404).json({ error: "encounter_not_found" });
-    return;
-  }
-  const patient = await findPatient(enc.patientId, orgId);
-  if (!patient) {
-    res.status(404).json({ error: "patient_not_found" });
-    return;
-  }
+  const result = await pushApprovedOrder({
+    orderId: req.params.id,
+    orgId,
+    initiatingUserId: userId,
+    dryRun,
+  });
 
-  try {
-    const outcome = await pushOrderToEhr({
-      order: {
-        id: order.id,
-        orderType: order.orderType,
-        name: order.name,
-        indication: order.indication,
-        indicationDiagnosisCode: order.indicationDiagnosisCode,
-        priority: order.priority,
-        instructions: order.instructions,
-        frequency: order.frequency,
-        duration: order.duration,
-        medicationName: order.medicationName,
-        medicationDose: order.medicationDose,
-        medicationRoute: order.medicationRoute,
-        medicationFrequency: order.medicationFrequency,
-        medicationDuration: order.medicationDuration,
-        medicationQuantity: order.medicationQuantity,
-        medicationRefills: order.medicationRefills,
-      },
-      patient,
-      encounterEhrRef: null,
-      ...(req.user?.id ? { userId: req.user.id } : {}),
-    });
-
-    await db
-      .update(approvedOrdersTable)
-      .set({
-        status: "exported",
-        exportedAt: outcome.pushedAt,
-        ehrDocumentRef: outcome.ehrDocumentRef,
-        ehrError: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(approvedOrdersTable.id, id),
-          eq(approvedOrdersTable.organizationId, orgId),
-        ),
-      );
-
-    res.json({
-      provider: outcome.provider,
-      ehrDocumentRef: outcome.ehrDocumentRef,
-      pushedAt: outcome.pushedAt,
-      mock: outcome.mock,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    req.log.error({ err, orderId: id }, "EHR order push failed");
-    await db
-      .update(approvedOrdersTable)
-      .set({ ehrError: message, updatedAt: new Date() })
-      .where(
-        and(
-          eq(approvedOrdersTable.id, id),
-          eq(approvedOrdersTable.organizationId, orgId),
-        ),
-      )
-      .catch(() => {});
-    if (err instanceof EhrPushError) {
-      res.status(err.status).json({ error: "ehr_push_failed", message });
+  switch (result.kind) {
+    case "ok":
+      res.json({
+        provider: result.outcome.provider,
+        ehrDocumentRef: result.outcome.ehrDocumentRef,
+        pushedAt: result.outcome.pushedAt,
+        mock: result.outcome.mock,
+      });
       return;
-    }
-    res.status(500).json({ error: "ehr_push_failed", message });
+    case "dry_run":
+      res.json({
+        dryRun: true,
+        provider: result.outcome.provider,
+        payloadPreview: result.outcome.payloadPreview,
+      });
+      return;
+    case "already_pushed":
+      // 200 — idempotent. UI treats this as success since the order is
+      // already at the EHR. `mock` is inferred from the existing ref so
+      // the response shape matches a fresh successful push.
+      res.json({
+        provider: "previous",
+        ehrDocumentRef: result.previousRef,
+        pushedAt: result.order.exportedAt,
+        mock: result.previousRef.includes("/mock-"),
+        idempotent: true,
+      });
+      return;
+    case "order_not_found":
+      res.status(404).json({ error: "order_not_found" });
+      return;
+    case "order_not_approved":
+      res.status(409).json({
+        error: "order_not_export_ready",
+        status: result.status,
+      });
+      return;
+    case "note_not_finalized":
+      res.status(409).json({
+        error: "note_not_finalized",
+        noteStatus: result.noteStatus,
+      });
+      return;
+    case "encounter_not_linked":
+      res.status(404).json({ error: "encounter_not_found" });
+      return;
+    case "patient_not_found":
+      res.status(404).json({ error: "patient_not_found" });
+      return;
+    case "failed":
+      req.log.error(
+        { orderId: req.params.id, status: result.status },
+        "EHR order push failed",
+      );
+      res.status(result.status === 500 ? 500 : result.status).json({
+        error: "ehr_push_failed",
+        message: result.error,
+        retryable: result.retryable,
+      });
+      return;
   }
 });
 
@@ -1034,10 +924,7 @@ router.post("/orders/:id/cancel", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CancelBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "invalid_request", issues: parsed.error.issues });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
   const id = req.params.id;
   const db = getDb();
 

@@ -1,0 +1,1 @@
+ALTER TABLE "approved_orders" ADD COLUMN "ehr_idempotency_key" text;

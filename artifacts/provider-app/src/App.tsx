@@ -53,6 +53,9 @@ const TodayPage = lazy(() =>
 const TasksPage = lazy(() =>
   import("@/pages/Tasks").then((m) => ({ default: m.TasksPage })),
 );
+const BillerQueuePage = lazy(() =>
+  import("@/pages/BillerQueue").then((m) => ({ default: m.BillerQueuePage })),
+);
 const EncounterReviewPage = lazy(() =>
   import("@/pages/EncounterReview").then((m) => ({
     default: m.EncounterReviewPage,
@@ -71,6 +74,16 @@ const FounderUserDetailPage = lazy(() =>
 );
 const DevSandboxPage = lazy(() =>
   import("@/pages/DevSandbox").then((m) => ({ default: m.DevSandboxPage })),
+);
+const MobileSchedulePage = lazy(() =>
+  import("@/pages/mobile/MobileSchedule").then((m) => ({
+    default: m.MobileSchedulePage,
+  })),
+);
+const MobileRecordPage = lazy(() =>
+  import("@/pages/mobile/MobileRecord").then((m) => ({
+    default: m.MobileRecordPage,
+  })),
 );
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -96,9 +109,18 @@ function SplashLoader() {
   );
 }
 
+function ChromeShell({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+  // Mobile PWA routes skip the desktop top nav — they're designed
+  // edge-to-edge with their own mobile chrome (safe-area top bar,
+  // sticky bottom hint). Any /m/* path bypasses AppLayout.
+  if (location.startsWith("/m")) return <>{children}</>;
+  return <AppLayout>{children}</AppLayout>;
+}
+
 export default function App() {
   return (
-    <AppLayout>
+    <ChromeShell>
       <Suspense fallback={<SplashLoader />}>
         <Switch>
           <Route path="/login" component={LoginPage} />
@@ -109,6 +131,18 @@ export default function App() {
             <RequireAuth>
               <OnboardingPage />
             </RequireAuth>
+          </Route>
+          <Route path="/m">
+            <RequireAuth>
+              <MobileSchedulePage />
+            </RequireAuth>
+          </Route>
+          <Route path="/m/record/:id">
+            {(params) => (
+              <RequireAuth>
+                <MobileRecordPage patientId={params.id} />
+              </RequireAuth>
+            )}
           </Route>
           <Route path="/">
             <RequireAuth>
@@ -123,6 +157,11 @@ export default function App() {
           <Route path="/tasks">
             <RequireAuth>
               <TasksPage />
+            </RequireAuth>
+          </Route>
+          <Route path="/biller">
+            <RequireAuth>
+              <BillerQueuePage />
             </RequireAuth>
           </Route>
           <Route path="/patients/new">
@@ -198,6 +237,6 @@ export default function App() {
           </Route>
         </Switch>
       </Suspense>
-    </AppLayout>
+    </ChromeShell>
   );
 }

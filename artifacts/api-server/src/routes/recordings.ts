@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { respondInvalidBody } from "../http";
 import express from "express";
 import { and, asc, count, eq } from "drizzle-orm";
 import { CreateRecordingBody } from "@workspace/api-zod";
@@ -83,13 +84,7 @@ router.post("/recordings", async (req, res) => {
   const orgId = getActiveOrgId(req, res);
   if (!orgId) return;
   const parsed = CreateRecordingBody.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    res.status(400).json({
-      error: "invalid_request",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
+  if (!parsed.success) return respondInvalidBody(res, parsed.error);
 
   const patientId = parsed.data.patientId ?? null;
   if (patientId) {

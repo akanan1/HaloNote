@@ -245,6 +245,13 @@ export const approvedOrdersTable = pgTable(
     // Most recent push error. Surfaced verbatim in the orders UI so
     // the provider knows what to fix on retry. Cleared on success.
     ehrError: text("ehr_error"),
+    // Stable Idempotency-Key persisted on first push attempt so any
+    // retry (transport-level on 429/503 OR manual "send again" after a
+    // failure) reuses the same value. The EHR is expected to dedupe
+    // duplicate POSTs sharing a key — Athena's chart-API explicitly
+    // honors Idempotency-Key. Generated server-side on first push so
+    // the wire format is opaque to the client.
+    ehrIdempotencyKey: text("ehr_idempotency_key"),
 
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()

@@ -1,5 +1,6 @@
 import { EhrPushError, type EhrPushOutcome } from "./ehr-push";
 import { logger } from "./logger";
+import { getAthenaChartClient } from "./athena-chart-api";
 
 // Billing code shape the pusher needs. Caller maps DB row → this.
 export interface PushableBillingCode {
@@ -59,6 +60,73 @@ export async function pushBillingCodeToEhr(
     };
   }
 
+  // Real-mode Athena push via the chart REST API. SANDBOX-VERIFY the
+  // request param names before flipping EHR_MODE — see the header of
+  // lib/athena-chart-api.ts for the verification checklist.
+  if (provider === "athenahealth") {
+    const client = getAthenaChartClient();
+    // Idempotency key keyed on (billing code id) — same row pushed
+    // twice (auto-retry or user-pressed) reuses the same key, so
+    // Athena dedupes within its retention window.
+    const idempotencyKey = `bc_${params.billingCode.id}`;
+    try {
+      if (
+        params.billingCode.codeSystem === "icd10"
+      ) {
+        if (!params.encounterEhrRef) {
+          throw new EhrPushError(
+            "Encounter is not linked to Athena and cannot be pushed yet. Link the encounter to its Athena chart entry, then retry.",
+            409,
+          );
+        }
+        const out = await client.pushDiagnosis({
+          encounterId: stripFhirPrefix(params.encounterEhrRef),
+          icd10: params.billingCode.code,
+          description: params.billingCode.description,
+          idempotencyKey,
+        });
+        return {
+          provider: "athenahealth",
+          ehrDocumentRef: out.resourceRef,
+          pushedAt: new Date(),
+          mock: false,
+        };
+      }
+      // CPT, E&M, and modifiers all flow as procedure / service lines.
+      // Modifiers strictly attach to a parent CPT line; pushing a
+      // modifier in isolation is a no-op upstream — accept it locally
+      // (the row is approved, after all) but emit a warning.
+      if (params.billingCode.codeSystem === "modifier") {
+        logger.warn(
+          { code: params.billingCode.code },
+          "athena chart push: modifier pushed in isolation — Athena ignores it; modifier must attach to a parent service line",
+        );
+      }
+      if (!params.encounterEhrRef) {
+        throw new EhrPushError(
+          "Encounter is not linked to Athena and cannot be pushed yet. Link the encounter to its Athena chart entry, then retry.",
+          409,
+        );
+      }
+      const out = await client.pushProcedure({
+        encounterId: stripFhirPrefix(params.encounterEhrRef),
+        cpt: params.billingCode.code,
+        description: params.billingCode.description,
+        idempotencyKey,
+      });
+      return {
+        provider: "athenahealth",
+        ehrDocumentRef: out.resourceRef,
+        pushedAt: new Date(),
+        mock: false,
+      };
+    } catch (err) {
+      if (err instanceof EhrPushError) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new EhrPushError(`athena_billing_push_failed: ${message}`, 502);
+    }
+  }
+
   logger.warn(
     {
       billingCodeId: params.billingCode.id,
@@ -71,4 +139,11 @@ export async function pushBillingCodeToEhr(
     `ehr_billing_push_not_implemented_for_${provider}`,
     501,
   );
+}
+
+// "Encounter/12345" → "12345". Athena's REST endpoints take raw ids,
+// not FHIR-style "ResourceType/id" references.
+function stripFhirPrefix(ref: string): string {
+  const slash = ref.indexOf("/");
+  return slash >= 0 ? ref.slice(slash + 1) : ref;
 }

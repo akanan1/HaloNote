@@ -260,6 +260,55 @@
       "when": 1781715077139,
       "tag": "0036_add_ehr_patient_id",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1781801456249,
+      "tag": "0037_add_ehr_idempotency_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1781808466976,
+      "tag": "0038_add_appointment_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1781815385752,
+      "tag": "0039_add_coder_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781822035285,
+      "tag": "0040_add_problem_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781836520103,
+      "tag": "0041_add_ehr_encounter_ref",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1781861483194,
+      "tag": "0042_add_ehr_idempotency_key_to_approved_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1781992378224,
+      "tag": "0043_add_mobile_onboarding_to_users",
+      "breakpoints": true
     }
   ]
 }

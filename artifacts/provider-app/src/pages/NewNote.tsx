@@ -92,6 +92,13 @@ function getAutoStartQueryParam(): boolean {
   return v === "1" || v === "true";
 }
 
+// Stable callback identity for RecordingPanel's onSegmentsUploaded
+// signal. The component clears its IndexedDB buffer when the callback
+// REFERENCE changes — passing the same constant when uploaded and
+// `undefined` otherwise gives a single "0 → ref" transition the effect
+// can observe, without re-firing on every render.
+const NOOP_UPLOAD_SIGNAL = () => {};
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -405,6 +412,16 @@ export function NewNotePage({ patientId }: NewNotePageProps) {
         onStreamChange={setActiveStream}
         externalStopSignal={externalStopSignal}
         onSegmentsChange={setAudioSegments}
+        {...(user?.id ? { userId: user.id } : {})}
+        {...(encounterId ? { encounterId } : {})}
+        // When the pipeline reports the recording landed on the server
+        // (state === "done" or beyond), clear the IndexedDB buffer for
+        // this encounter — the audio is no longer the only copy.
+        // Identity of the callback drives RecordingPanel's effect, so
+        // we use a stable identity tied to the recording outcome.
+        {...(recording.state.phase === "done"
+          ? { onSegmentsUploaded: NOOP_UPLOAD_SIGNAL }
+          : {})}
       />
 
       {silenceStopped && user?.silenceAutoStopSec ? (

@@ -14,6 +14,7 @@ import {
   type AuthUser,
 } from "@workspace/api-client-react";
 import { clearLegacyLocalClaims } from "./appointment-note-links";
+import { clearAllForUser as clearAllRecordingsForUser } from "./recording-buffer";
 
 interface AuthState {
   user: AuthUser | null;
@@ -84,8 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the same device authenticates as themselves and only sees their
     // own claims from /api/appointment-claims/mine.
     clearLegacyLocalClaims();
+    // Wipe any IndexedDB-buffered recording segments for this user.
+    // PHI cleanup on intent-to-leave — a shared device (clinic kiosk,
+    // shared laptop) must not surface the prior user's audio to whoever
+    // logs in next via the recovery banner.
+    const departingUserId = user?.id;
+    if (departingUserId) {
+      void clearAllRecordingsForUser(departingUserId).catch(() => {});
+    }
     setUser(null);
-  }, []);
+  }, [user?.id]);
 
   const refresh = useCallback(async () => {
     try {

@@ -39,6 +39,7 @@
 // all mirror the patterns used elsewhere in the codebase. The wire
 // parameters need your eyes.
 
+import { getAthenahealthAccessToken } from "./athena";
 import { scrubEhrErrorMessage } from "./audit-events";
 import { EhrPushError } from "./ehr-push";
 import { fetchWithRetry } from "./http-retry";
@@ -323,59 +324,23 @@ function extractFirstId(
 }
 
 // ---------------------------------------------------------------------------
-// Lazy singleton — mirrors lib/athena.ts. Reads ATHENA_CHART_BASE_URL
-// + ATHENA_PRACTICE_ID; falls back to ATHENA_TOKEN_URL etc. for the
-// token endpoint via the same client_credentials flow the FHIR client
-// already uses. Provider must set these explicitly in real mode; the
-// adapter throws on first call when they're missing.
+// Lazy singleton. Reads ATHENA_CHART_BASE_URL + ATHENA_PRACTICE_ID; the
+// token endpoint, client id/secret, and scope are owned by
+// lib/athena.ts — the chart client now defers to the shared OAuth
+// provider there so we have one Athena token cache + one RFC-6749-
+// compliant Basic-auth encoding across the api-server. Provider must
+// set the chart-specific env vars in real mode; the adapter throws on
+// first call when they're missing.
+//
+// History: this file used to keep its own cachedToken + its own
+// fetchClientCredentialsToken that joined `${clientId}:${clientSecret}`
+// without percent-encoding the halves first — a +, /, =, or space in
+// the secret produced a malformed header and a silent 401 from
+// Athena's IdP. The fix lives in @workspace/ehr's OAuth2TokenProvider
+// via buildBasicAuthCredential.
 // ---------------------------------------------------------------------------
 
 let cachedClient: AthenaChartClient | null = null;
-let cachedToken: { value: string; expiresAt: number } | null = null;
-
-async function fetchClientCredentialsToken(): Promise<string> {
-  const tokenUrl = requireEnv("ATHENA_TOKEN_URL");
-  const clientId = requireEnv("ATHENA_CLIENT_ID");
-  const clientSecret = requireEnv("ATHENA_CLIENT_SECRET");
-  // 90s skew so refreshes start before the bearer actually expires.
-  if (cachedToken && cachedToken.expiresAt - 90_000 > Date.now()) {
-    return cachedToken.value;
-  }
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      authorization:
-        "Basic " +
-        Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
-    },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      ...(process.env["ATHENA_SCOPE"]
-        ? { scope: process.env["ATHENA_SCOPE"] }
-        : {}),
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `athena chart token: ${res.status} ${text.slice(0, 200)}`,
-    );
-  }
-  const json = (await res.json()) as {
-    access_token?: string;
-    expires_in?: number;
-  };
-  if (!json.access_token) {
-    throw new Error("athena chart token: response missing access_token");
-  }
-  const expiresIn = json.expires_in ?? 3600;
-  cachedToken = {
-    value: json.access_token,
-    expiresAt: Date.now() + expiresIn * 1000,
-  };
-  return json.access_token;
-}
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -403,8 +368,13 @@ export function getAthenaChartClient(): AthenaChartClient {
     cachedClient = new AthenaChartClient({
       baseUrl,
       practiceId,
-      getToken: fetchClientCredentialsToken,
+      getToken: getAthenahealthAccessToken,
     });
   }
   return cachedClient;
+}
+
+/** Test seam: drop the chart client cache so a re-import picks up new env. */
+export function _resetAthenaChartClientForTests(): void {
+  cachedClient = null;
 }

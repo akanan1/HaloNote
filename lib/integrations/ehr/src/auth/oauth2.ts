@@ -11,10 +11,30 @@ import type { AccessToken, OAuth2Config } from "./types";
 // with `:` and base64'd. `encodeURIComponent` is *not* the same encoding —
 // it leaves `!*'()` unencoded and emits `%20` for spaces instead of `+`.
 // URLSearchParams uses the correct encoding.
-function formEncode(value: string): string {
+//
+// Exported so other OAuth-aware modules (e.g. the api-server SMART OAuth
+// helper) share one implementation rather than maintaining lookalike
+// copies that can drift out of spec compliance.
+export function formEncodeOAuth(value: string): string {
   const params = new URLSearchParams();
   params.set("v", value);
   return params.toString().slice(2);
+}
+
+/**
+ * Build the base64-encoded `username:password` payload that follows the
+ * `Basic ` scheme in an HTTP `Authorization` header. Both halves are
+ * RFC-6749 form-urlencoded first (see {@link formEncodeOAuth}). The
+ * returned string is the credential portion only — the caller is
+ * responsible for prefixing `Basic `.
+ */
+export function buildBasicAuthCredential(
+  clientId: string,
+  clientSecret: string,
+): string {
+  return Buffer.from(
+    `${formEncodeOAuth(clientId)}:${formEncodeOAuth(clientSecret)}`,
+  ).toString("base64");
 }
 
 export class OAuth2TokenProvider extends CachedTokenProvider {
@@ -32,9 +52,10 @@ export class OAuth2TokenProvider extends CachedTokenProvider {
     body.set("grant_type", "client_credentials");
     if (this.config.scope) body.set("scope", this.config.scope);
 
-    const basic = Buffer.from(
-      `${formEncode(this.config.clientId)}:${formEncode(this.config.clientSecret)}`,
-    ).toString("base64");
+    const basic = buildBasicAuthCredential(
+      this.config.clientId,
+      this.config.clientSecret,
+    );
 
     const res = await this.fetchImpl(this.config.tokenUrl, {
       method: "POST",

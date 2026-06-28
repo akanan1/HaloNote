@@ -41,6 +41,7 @@
 
 import { scrubEhrErrorMessage } from "./audit-events";
 import { EhrPushError } from "./ehr-push";
+import { fetchWithRetry } from "./http-retry";
 import { logger } from "./logger";
 
 // Token endpoint contract is the same as the FHIR client — Athena's
@@ -99,9 +100,12 @@ export class AthenaChartClient {
     return `${base}/v1/${this.cfg.practiceId}${path.startsWith("/") ? path : `/${path}`}`;
   }
 
-  // Internal POST. Retries once on 502/503/504/429 with a 1s backoff
-  // — same posture as the FhirClient. Anything else → throw an
-  // EhrPushError so the calling adapter can persist the message.
+  // Internal POST. Retries 429/502/503/504 + network errors via the
+  // shared fetchWithRetry (exponential backoff + jitter, Retry-After
+  // aware, max 3 attempts). Anything else → throw an EhrPushError so
+  // the calling adapter can persist the message. Idempotency-key on
+  // every attempt means a server-side dedupe is safe even if our retry
+  // hits a write that the previous attempt actually committed.
   private async post(
     path: string,
     body: Record<string, unknown>,
@@ -109,8 +113,8 @@ export class AthenaChartClient {
   ): Promise<unknown> {
     const url = this.url(path);
     const token = await this.cfg.getToken();
-    const exec = async () => {
-      const res = await fetch(url, {
+    const exec = async (): Promise<Response> => {
+      return fetch(url, {
         method: "POST",
         headers: {
           authorization: `Bearer ${token}`,
@@ -132,14 +136,16 @@ export class AthenaChartClient {
           ),
         ),
       });
-      return res;
     };
 
-    let res = await exec();
-    if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
-      await new Promise((r) => setTimeout(r, 1000));
-      res = await exec();
-    }
+    const res = await fetchWithRetry(exec, {
+      onRetry: ({ attempt, delayMs, status }) => {
+        logger.warn(
+          { url, attempt, delayMs, status },
+          "athena chart api: retrying transient failure",
+        );
+      },
+    });
 
     const text = await res.text();
     let parsed: unknown = text;

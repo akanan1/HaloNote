@@ -32,10 +32,31 @@ const REDACT_PATHS: ReadonlyArray<string> = [
   "*.tokenHash",
   "token",
   "tokenHash",
+  // TOTP codes are short-lived (30s) but still credentials in flight —
+  // and the disable / reset flows accept them in the request body, so
+  // any debug log that includes the parsed body would otherwise leak.
+  "*.totpCode",
+  "totpCode",
+  "*.totpSecret",
+  "totpSecret",
   "*.client_secret",
   "*.client_assertion",
   "*.access_token",
   "*.refresh_token",
+  // CamelCase variants of the same fields. The snake_case shapes come
+  // from raw OAuth wire payloads; the camelCase shapes come from our
+  // internal AccessToken / connection-row objects (e.g. ehr_connections
+  // mapped through Drizzle, OauthExchangeError debug payloads, and
+  // anything that builds a credentials object before serializing). A
+  // regression that logs `{ conn }` or `{ providerConfig }` without
+  // these rules would leak token material into operator-tier logs.
+  "*.accessToken",
+  "accessToken",
+  "*.refreshToken",
+  "refreshToken",
+  "*.clientSecret",
+  "clientSecret",
+  "client_secret",
   // Token-at-rest crypto material (defense in depth — current code paths
   // don't log these, but a future regression that dumps an encryption
   // context object would be caught by the redactor).

@@ -26,6 +26,14 @@ import { logger } from "./logger";
 import { trackAuditWrite } from "../middlewares/audit";
 
 export type CoderAuditAction =
+  // Authentication-side sensitive events. These don't go through the
+  // generic audit middleware because /auth/* routes mount BEFORE
+  // requireAuth + the audit middleware (so anonymous/public paths can
+  // hit them). Caller is recordAuthAuditEvent — kept in this module
+  // so there's a single audit-write code path with the shared
+  // trackAuditWrite + pino redaction guarantees.
+  | "auth.2fa_disabled"
+  | "auth.password_reset_completed"
   // Generation lifecycle.
   | "coder.generate.started"
   | "coder.generate.completed"
@@ -69,7 +77,10 @@ export type CoderAuditAction =
   | "encounter.athena_link.cleared";
 
 export interface CoderAuditArgs {
-  organizationId: string;
+  // Allow null for auth-side events fired before an org context
+  // exists (e.g. password reset for a brand-new user, or a non-admin
+  // disabling 2FA where the session may not have selected an org).
+  organizationId: string | null;
   userId: string | null;
   action: CoderAuditAction;
   // Primary resource the event is about (session id for session-level,
@@ -81,7 +92,8 @@ export interface CoderAuditArgs {
     | "problem_list_suggestion"
     | "approved_order"
     | "encounter"
-    | "note";
+    | "note"
+    | "user";
   resourceId: string;
   // Free-shape metadata. Caller is responsible for keeping PHI out.
   // Recommended fields per action:
@@ -122,6 +134,41 @@ export function recordCoderAuditEvent(args: CoderAuditArgs): void {
       );
     });
   trackAuditWrite(promise);
+}
+
+// Thin wrapper around recordCoderAuditEvent specifically for the
+// auth-side sensitive events (2FA disable, password reset complete).
+//
+// DESIGN NOTE: we chose to reuse this module rather than create a
+// separate `lib/audit-auth-events.ts` because:
+//   1. Both call sites already deal with the same audit_log table.
+//   2. They benefit from the shared trackAuditWrite + pino redaction
+//      contract; duplicating that machinery is a hazard.
+//   3. Keeping audit writes funneled through one helper makes it
+//      easier to wire centralized monitoring (e.g. count of audit
+//      drops) later.
+//
+// PHI/secret safety: caller MUST NOT include the user's password,
+// the TOTP code, or the reset token in metadata. Logger redaction
+// would catch most of those (REDACT_PATHS in lib/logger.ts) but
+// audit_log is a persisted store — never feed it untrusted secrets.
+export interface AuthAuditArgs {
+  userId: string;
+  action: "auth.2fa_disabled" | "auth.password_reset_completed";
+  // Free-form, PHI-free metadata. Recommended: { source: "settings" }
+  // or { source: "reset_link" } — what triggered the transition.
+  metadata?: Record<string, unknown>;
+}
+
+export function recordAuthAuditEvent(args: AuthAuditArgs): void {
+  recordCoderAuditEvent({
+    organizationId: null,
+    userId: args.userId,
+    action: args.action,
+    resourceType: "user",
+    resourceId: args.userId,
+    metadata: args.metadata ?? {},
+  });
 }
 
 // ---------------------------------------------------------------------------

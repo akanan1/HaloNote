@@ -1,13 +1,17 @@
 import { Router, type IRouter } from "express";
+import { auditLogTable, getDb } from "@workspace/db";
 import {
   completeOauthFlow,
   deleteConnection,
+  EpicNotConfiguredError,
   getConnection,
   OauthExchangeError,
   OauthStateError,
+  revokeAccessToken,
   startOauthFlow,
   type EhrProvider,
 } from "../lib/ehr-oauth";
+import { decryptToken } from "../lib/token-crypto";
 import {
   buildLaunchReturnPath,
   isAllowedIssuer,
@@ -68,6 +72,19 @@ router.post("/auth/ehr/:provider/start", async (req, res) => {
     });
     res.json({ authorizeUrl });
   } catch (err) {
+    if (err instanceof EpicNotConfiguredError) {
+      // Epic SMART OAuth has not been wired at this deployment. Surface
+      // a structured 501 so the frontend can render a precise message
+      // instead of a generic "server error". 501 (Not Implemented) is
+      // the closest HTTP code for "the provider is recognized but the
+      // operator has not enabled it".
+      req.log.warn(
+        { provider, code: err.code },
+        "ehr oauth start refused: epic not configured",
+      );
+      res.status(501).json({ code: err.code, reason: err.reason });
+      return;
+    }
     req.log.error({ err, provider }, "ehr oauth start failed");
     const message = err instanceof Error ? err.message : "start_failed";
     res.status(500).json({ error: "oauth_start_failed", message });
@@ -315,6 +332,87 @@ router.delete("/auth/ehr/:provider", async (req, res) => {
     res.status(400).json({ error: "unknown_provider" });
     return;
   }
+
+  // Best-effort RFC 7009 token revocation BEFORE we delete the row.
+  // If the provider exposes a revocation_endpoint (per SMART discovery)
+  // we hit it with the currently-stored access + refresh tokens so the
+  // server-side grant is torn down too. Failure is tolerated — the
+  // local deletion still happens — but we emit a structured audit row
+  // so HIPAA review can spot operators where revocation is silently
+  // broken (e.g. clock skew, dead token endpoint).
+  const conn = await getConnection(user.id, provider);
+  if (conn) {
+    try {
+      let plaintextAccess: string | null = null;
+      let plaintextRefresh: string | null = null;
+      try {
+        plaintextAccess = decryptToken(conn.accessToken);
+        if (conn.refreshToken) {
+          plaintextRefresh = decryptToken(conn.refreshToken);
+        }
+      } catch (err) {
+        // Ciphertext unreadable (key rotation gone wrong, etc.). Skip
+        // revocation — we can't talk about a token we can't decrypt —
+        // but proceed with local deletion so the user can reconnect.
+        req.log.warn(
+          { err, provider, userId: user.id },
+          "ehr disconnect: token decrypt failed; skipping revocation",
+        );
+      }
+      if (plaintextAccess) {
+        const result = await revokeAccessToken({
+          provider,
+          accessToken: plaintextAccess,
+          refreshToken: plaintextRefresh,
+        });
+        if (result.attempted && !result.ok) {
+          req.log.warn(
+            {
+              provider,
+              userId: user.id,
+              status: result.status,
+              reason: result.reason,
+            },
+            "ehr.revocation_failed",
+          );
+          // Direct insert (not via recordCoderAuditEvent — this is an
+          // ehr.* event, not coder.*). Fire-and-forget; the row's
+          // existence is the signal for ops, not a write-time invariant.
+          void getDb()
+            .insert(auditLogTable)
+            .values({
+              organizationId: conn.organizationId,
+              userId: user.id,
+              action: "ehr.revocation_failed",
+              resourceType: "ehr_connection",
+              resourceId: conn.id,
+              metadata: {
+                provider,
+                ...(result.status !== undefined
+                  ? { status: result.status }
+                  : {}),
+                ...(result.reason ? { reason: result.reason } : {}),
+              },
+            })
+            .catch((err: unknown) => {
+              req.log.warn(
+                { err, action: "ehr.revocation_failed" },
+                "audit insert failed",
+              );
+            });
+        }
+      }
+    } catch (err) {
+      // Catch-all so a revocation bug can NEVER prevent the user from
+      // disconnecting locally. Their tokens stop being honored when we
+      // delete the row regardless.
+      req.log.warn(
+        { err, provider, userId: user.id },
+        "ehr disconnect: revocation step threw; proceeding with local delete",
+      );
+    }
+  }
+
   const ok = await deleteConnection(user.id, provider);
   if (!ok) {
     res.status(404).json({ error: "not_connected" });

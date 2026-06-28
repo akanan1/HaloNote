@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { OAuth2TokenProvider } from "./oauth2";
+import {
+  buildBasicAuthCredential,
+  formEncodeOAuth,
+  OAuth2TokenProvider,
+} from "./oauth2";
 
 interface FakeCallContext {
   url: string;
@@ -156,6 +160,35 @@ describe("OAuth2TokenProvider", () => {
       /invalid_client: client secret is wrong/,
     );
     await expect(provider.getToken()).rejects.not.toThrow(/secret-jwt-do-not-log/);
+  });
+
+  it("RFC 6749 §2.3.1: secrets with + / = and space encode correctly through Basic auth", async () => {
+    // This fixture pins the per-character behavior we rely on:
+    //   space → "+"     (URLSearchParams), NOT "%20" (encodeURIComponent)
+    //   "+"   → "%2B"   (would otherwise round-trip as a space on decode)
+    //   "/"   → "%2F"   (form-data context — different from URL-path)
+    //   "="   → "%3D"   (delimiter in the percent-decoded form payload)
+    // A regression here is silent: most IdPs return 401 with no body
+    // hint, so we lock the encoding behavior in a unit test.
+    const clientId = "id with space+plus/slash=eq";
+    const clientSecret = "p&w!ord*'()";
+    const encodedId = formEncodeOAuth(clientId);
+    const encodedSecret = formEncodeOAuth(clientSecret);
+    expect(encodedId).toBe("id+with+space%2Bplus%2Fslash%3Deq");
+    expect(encodedSecret).toBe("p%26w%21ord*%27%28%29");
+
+    const credential = buildBasicAuthCredential(clientId, clientSecret);
+    const decoded = Buffer.from(credential, "base64").toString("utf8");
+    expect(decoded).toBe(`${encodedId}:${encodedSecret}`);
+
+    // And the OAuth2TokenProvider integration matches the helper.
+    const { provider, calls } = makeProvider(
+      [{ body: { access_token: "x", token_type: "Bearer", expires_in: 3600 } }],
+      { clientId, clientSecret },
+    );
+    await provider.getToken();
+    const basic = calls[0]!.authorization!;
+    expect(basic).toBe(`Basic ${credential}`);
   });
 
   it("non-JSON error body is discarded, not echoed", async () => {

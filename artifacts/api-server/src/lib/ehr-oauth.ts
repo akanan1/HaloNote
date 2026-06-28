@@ -6,7 +6,12 @@ import {
   getDb,
   type EhrConnection,
 } from "@workspace/db";
-import { JwksClient, verifyJwt, JwtVerificationError } from "@workspace/ehr";
+import {
+  JwksClient,
+  verifyJwt,
+  JwtVerificationError,
+  buildBasicAuthCredential,
+} from "@workspace/ehr";
 import { decryptToken, encryptToken } from "./token-crypto";
 import { cernerConfig } from "./cerner-launch";
 
@@ -27,6 +32,23 @@ export class OauthExchangeError extends Error {
     super(message);
     Object.setPrototypeOf(this, new.target.prototype);
     this.status = status;
+  }
+}
+
+/**
+ * Thrown by {@link providerConfig} (and anything calling it transitively)
+ * when a SMART OAuth flow is requested for the Epic provider but the
+ * operator has not wired the Epic-specific env-var family. The route
+ * layer catches this and emits a structured 501 so the client gets a
+ * predictable `{ code, reason }` payload instead of a 500.
+ */
+export class EpicNotConfiguredError extends Error {
+  override readonly name = "EpicNotConfiguredError";
+  readonly code = "EPIC_OAUTH_NOT_CONFIGURED" as const;
+  readonly reason = "epic_oauth_not_configured" as const;
+  constructor(message = "epic_oauth_not_configured") {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -114,12 +136,27 @@ export function providerConfig(provider: EhrProvider): ProviderConfig {
   if (provider === "athenahealth") return athenahealthConfig();
   if (provider === "cerner") return cernerConfig();
   // Epic uses the same SMART flow but a different env-var family. Wire
-  // when needed — the rest of this module is provider-agnostic.
+  // when needed — the rest of this module is provider-agnostic. Throw
+  // a typed error so the route layer can map it to a structured 501
+  // instead of a generic 500.
+  if (provider === "epic") throw new EpicNotConfiguredError();
   throw new Error(`SMART OAuth not configured for provider "${provider}".`);
 }
 
-// PKCE per RFC 7636. Verifier is high-entropy URL-safe; challenge is
-// SHA-256(verifier), base64url'd. Athena requires the S256 method.
+// ---------------------------------------------------------------------------
+// PKCE per RFC 7636.
+//
+// CANONICAL PKCE IMPLEMENTATION — single source of truth for the
+// api-server's SMART OAuth flow. If you need PKCE somewhere else in
+// this package, import or re-export from here instead of rolling a
+// second copy. Keeping a single implementation prevents drift between
+// challenge/verifier encodings (we use base64url uniformly) and avoids
+// silent algorithm mismatches against an IdP that pins S256.
+//
+// Verifier is high-entropy URL-safe; challenge is SHA-256(verifier),
+// base64url'd. Athena (and every SMART-compliant IdP we target)
+// requires the S256 method.
+// ---------------------------------------------------------------------------
 function generatePkcePair(): { verifier: string; challenge: string } {
   const verifier = randomBytes(48).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -332,19 +369,12 @@ async function extractPractitionerId(
   return null;
 }
 
-function formEncode(value: string): string {
-  // RFC 6749 §2.3.1: client credentials must be form-urlencoded (not
-  // percent-encoded — `+` for space, `*'()!` retained literally) before
-  // being concatenated for Basic auth.
-  const p = new URLSearchParams();
-  p.set("v", value);
-  return p.toString().slice(2);
-}
-
+// Basic-auth credential builder is shared with the @workspace/ehr
+// integration package — see `buildBasicAuthCredential` (RFC 6749 §2.3.1
+// form-urlencoded then base64'd). Local lookalikes were removed so a
+// fix in one place lands everywhere.
 function basicAuthHeader(clientId: string, clientSecret: string): string {
-  return Buffer.from(
-    `${formEncode(clientId)}:${formEncode(clientSecret)}`,
-  ).toString("base64");
+  return buildBasicAuthCredential(clientId, clientSecret);
 }
 
 interface IntrospectResponse {
@@ -693,6 +723,153 @@ export async function deleteConnection(
     )
     .returning({ id: ehrConnectionsTable.id });
   return rows.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// SMART configuration discovery + token revocation.
+//
+// We fetch /.well-known/smart-configuration once per FHIR base URL and
+// cache the result for the lifetime of the process (the doc rarely
+// changes; restarts pick up new endpoints). The only field we currently
+// read is `revocation_endpoint` — it's optional in the SMART spec, so
+// callers tolerate it being missing.
+// ---------------------------------------------------------------------------
+
+interface SmartConfiguration {
+  revocation_endpoint?: string;
+}
+
+const discoveryCache = new Map<string, Promise<SmartConfiguration | null>>();
+
+/** Exported for tests so a fresh fetchImpl can be observed each run. */
+export function _resetDiscoveryCacheForTests(): void {
+  discoveryCache.clear();
+}
+
+async function fetchSmartConfiguration(
+  fhirBaseUrl: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SmartConfiguration | null> {
+  // SMART well-known is served at `<base>/.well-known/smart-configuration`.
+  const base = fhirBaseUrl.replace(/\/+$/, "");
+  const url = `${base}/.well-known/smart-configuration`;
+  try {
+    const res = await fetchImpl(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as SmartConfiguration;
+    return json;
+  } catch {
+    // Network / parse failure — tolerated; revocation is best-effort.
+    return null;
+  }
+}
+
+/**
+ * Get the cached SMART configuration document for a provider's FHIR
+ * base URL. Returns null if the discovery doc can't be fetched or
+ * parsed — the caller MUST tolerate this (revocation is best-effort,
+ * not a precondition for local token deletion).
+ */
+export async function getSmartConfiguration(
+  fhirBaseUrl: string,
+  fetchImpl?: typeof fetch,
+): Promise<SmartConfiguration | null> {
+  let promise = discoveryCache.get(fhirBaseUrl);
+  if (!promise) {
+    promise = fetchSmartConfiguration(fhirBaseUrl, fetchImpl);
+    discoveryCache.set(fhirBaseUrl, promise);
+  }
+  return promise;
+}
+
+export interface RevocationResult {
+  attempted: boolean;
+  ok: boolean;
+  status?: number;
+  reason?: string;
+}
+
+/**
+ * RFC 7009 token revocation. Looks up the revocation_endpoint from the
+ * provider's SMART configuration; if discovery is unreachable or the
+ * provider doesn't expose the endpoint, returns `{ attempted: false }`
+ * and the caller proceeds with local deletion. Failures are tolerated
+ * (4xx and 5xx alike) — token-server downtime must never block a
+ * provider from disconnecting locally.
+ */
+export async function revokeAccessToken(opts: {
+  provider: EhrProvider;
+  accessToken: string;
+  refreshToken?: string | null;
+  fetchImpl?: typeof fetch;
+}): Promise<RevocationResult> {
+  let cfg: ProviderConfig;
+  try {
+    cfg = providerConfig(opts.provider);
+  } catch {
+    // Provider not configured at this deployment — nothing to revoke.
+    return { attempted: false, ok: false, reason: "provider_not_configured" };
+  }
+  const discovery = await getSmartConfiguration(cfg.fhirBaseUrl, opts.fetchImpl);
+  if (!discovery?.revocation_endpoint) {
+    return { attempted: false, ok: false, reason: "no_revocation_endpoint" };
+  }
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  // Try the access token first, then the refresh token. RFC 7009 allows
+  // submitting either; some servers only revoke the specific token
+  // type submitted. We submit both so the whole grant is torn down.
+  const tokens: Array<{ token: string; hint: "access_token" | "refresh_token" }> = [
+    { token: opts.accessToken, hint: "access_token" },
+  ];
+  if (opts.refreshToken) {
+    tokens.push({ token: opts.refreshToken, hint: "refresh_token" });
+  }
+  let lastStatus: number | undefined;
+  let lastOk = false;
+  for (const t of tokens) {
+    const body = new URLSearchParams();
+    body.set("token", t.token);
+    body.set("token_type_hint", t.hint);
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    };
+    if (cfg.clientSecret.length > 0) {
+      headers["authorization"] = `Basic ${basicAuthHeader(cfg.clientId, cfg.clientSecret)}`;
+    } else {
+      body.set("client_id", cfg.clientId);
+    }
+    try {
+      const res = await fetchImpl(discovery.revocation_endpoint, {
+        method: "POST",
+        headers,
+        body: body.toString(),
+      });
+      lastStatus = res.status;
+      lastOk = res.ok;
+      // Drain the body so the underlying connection can be reused
+      // (avoids socket leaks on Node's fetch when callers don't read).
+      try {
+        await res.text();
+      } catch {
+        // ignore
+      }
+    } catch (err) {
+      return {
+        attempted: true,
+        ok: false,
+        reason: err instanceof Error ? err.message : "revocation_network_error",
+      };
+    }
+  }
+  return {
+    attempted: true,
+    ok: lastOk,
+    ...(lastStatus !== undefined ? { status: lastStatus } : {}),
+  };
 }
 
 const REFRESH_SKEW_MS = 30_000;

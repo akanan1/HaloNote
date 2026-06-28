@@ -6,14 +6,24 @@ import {
   getDb,
   type EhrConnection,
 } from "@workspace/db";
+import { randomUUID } from "node:crypto";
 import {
   JwksClient,
   verifyJwt,
   JwtVerificationError,
   buildBasicAuthCredential,
 } from "@workspace/ehr";
+import { signJwt } from "@workspace/ehr/auth";
+import type { JwtSigningAlgorithm } from "@workspace/ehr/auth";
 import { decryptToken, encryptToken } from "./token-crypto";
 import { cernerConfig } from "./cerner-launch";
+
+const CLIENT_ASSERTION_TYPE =
+  "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+// Match the JwtBearerAuthProvider's backdate: Epic has historically
+// rejected assertions where `iat` is even ~1s in the future.
+const CLIENT_ASSERTION_IAT_BACKDATE_SEC = 30;
+const CLIENT_ASSERTION_LIFETIME_SEC = 300;
 
 export type EhrProvider = "athenahealth" | "epic" | "cerner";
 
@@ -76,6 +86,21 @@ interface ProviderConfig {
   // introspect response's granted-scope set. Empty / unset = no
   // enforcement (callback succeeds with whatever scopes Athena granted).
   requiredScopes?: string[];
+  // Optional. When set, the token endpoint is called with
+  // `client_assertion_type=jwt-bearer` and a fresh signed assertion
+  // instead of Basic auth — i.e. SMART's `private_key_jwt` confidential
+  // client authentication. Used for Epic, which does not accept a static
+  // client_secret for production confidential clients.
+  // All three fields must be set together; `clientSecret` is ignored
+  // when these are present.
+  clientPrivateKey?: string;
+  clientKeyId?: string;
+  clientAssertionAlgorithm?: JwtSigningAlgorithm;
+  // Optional. Overrides the `aud` claim in the client_assertion JWT.
+  // Defaults to `tokenUrl` (correct for Epic). Some IdPs expect a
+  // different audience (e.g. the issuer URL) — set this when that's the
+  // case.
+  clientAssertionAudience?: string;
 }
 
 function requireEnv(name: string): string {
@@ -132,14 +157,115 @@ function athenahealthConfig(): ProviderConfig {
   };
 }
 
+const EPIC_SUPPORTED_ALGS: ReadonlyArray<JwtSigningAlgorithm> = [
+  "RS256",
+  "RS384",
+  "RS512",
+  "ES256",
+  "ES384",
+  "ES512",
+];
+
+function readEpicAlgorithm(): JwtSigningAlgorithm {
+  // ES384 matches the SMART backend-services recommendation and is what
+  // generate-epic-keypair emits. Operators can override via env when
+  // their key was generated under a different algorithm.
+  const raw = process.env["EPIC_ALGORITHM"]?.trim().toUpperCase();
+  if (!raw) return "ES384";
+  const match = EPIC_SUPPORTED_ALGS.find((a) => a === raw);
+  if (!match) {
+    throw new Error(
+      `EPIC_ALGORITHM=${raw} is not supported. Use one of: ${EPIC_SUPPORTED_ALGS.join(
+        ", ",
+      )}.`,
+    );
+  }
+  return match;
+}
+
+// Epic SMART per-user OAuth: standalone or EHR-launched confidential
+// client. Authenticates HaloNote via `private_key_jwt` (NOT Basic auth /
+// client_secret) at the token endpoint. The matching public JWK must be
+// served at the JWKS URL registered in the Epic developer portal.
+//
+// The portal stores SANDBOX and PRODUCTION client ids separately; pick
+// which environment a deployment talks to via EPIC_CLIENT_ID +
+// EPIC_FHIR_BASE_URL + EPIC_TOKEN_URL. The signing keypair can be the
+// same across both envs (Epic verifies by kid + iss=client_id), or
+// different per environment — driven entirely by EPIC_PRIVATE_KEY.
+function epicConfig(): ProviderConfig {
+  // The /token URL is per-deployment in production (each customer's
+  // Epic stands up its own /interconnect-fhir-oauth/oauth2/token); the
+  // public sandbox is at fhir.epic.com. Both go in env so swapping
+  // deployments doesn't need a code change.
+  const tokenUrl = maybeEnv("EPIC_TOKEN_URL");
+  const fhirBaseUrl = maybeEnv("EPIC_FHIR_BASE_URL");
+  const clientId = maybeEnv("EPIC_CLIENT_ID");
+  const redirectUri = maybeEnv("EPIC_REDIRECT_URI");
+  const privateKey = maybeEnv("EPIC_PRIVATE_KEY");
+  const keyId = maybeEnv("EPIC_KEY_ID");
+  // Missing required env → typed 501 instead of opaque 500.
+  if (
+    !tokenUrl ||
+    !fhirBaseUrl ||
+    !clientId ||
+    !redirectUri ||
+    !privateKey ||
+    !keyId
+  ) {
+    throw new EpicNotConfiguredError();
+  }
+  const authorizeUrl =
+    maybeEnv("EPIC_AUTHORIZE_URL") ??
+    tokenUrl.replace(/\/token(\b|$)/, "/authorize$1");
+  return {
+    authorizeUrl,
+    tokenUrl,
+    fhirBaseUrl,
+    clientId,
+    // Epic confidential clients in production MUST use private_key_jwt,
+    // not a static secret. The empty-string clientSecret here, combined
+    // with clientPrivateKey/clientKeyId being set, routes through the
+    // JWT-assertion branch in postTokenEndpoint.
+    clientSecret: "",
+    scope:
+      process.env["EPIC_SCOPE"] ??
+      // Mirrors the Athena working set: identity + launch context +
+      // demographics + chart reads + DocumentReference write +
+      // refresh tokens. Keep this in lockstep with the scope set
+      // selected in the Epic developer portal — granted scopes are the
+      // intersection.
+      "openid fhirUser launch/patient offline_access " +
+        "patient/Patient.read patient/Encounter.read " +
+        "patient/Condition.read patient/Observation.read " +
+        "patient/MedicationRequest.read patient/AllergyIntolerance.read " +
+        "patient/DocumentReference.read patient/DocumentReference.write",
+    redirectUri,
+    // Epic publishes its IdP JWKS via the SMART well-known config. We
+    // don't auto-discover yet — when operators want id_token signature
+    // verification, they set EPIC_JWKS_URL explicitly. Without it, we
+    // fall back to TLS-trusted top-level token-response fields.
+    jwksUri: maybeEnv("EPIC_JWKS_URL"),
+    introspectUrl: maybeEnv("EPIC_INTROSPECT_URL"),
+    requiredScopes: maybeEnv("EPIC_REQUIRED_SCOPES")
+      ?.split(/\s+/)
+      .filter(Boolean),
+    // The three fields that activate the private_key_jwt branch.
+    clientPrivateKey: privateKey.includes("\\n")
+      ? privateKey.replace(/\\n/g, "\n")
+      : privateKey,
+    clientKeyId: keyId,
+    clientAssertionAlgorithm: readEpicAlgorithm(),
+    ...(maybeEnv("EPIC_AUDIENCE")
+      ? { clientAssertionAudience: maybeEnv("EPIC_AUDIENCE") as string }
+      : {}),
+  };
+}
+
 export function providerConfig(provider: EhrProvider): ProviderConfig {
   if (provider === "athenahealth") return athenahealthConfig();
   if (provider === "cerner") return cernerConfig();
-  // Epic uses the same SMART flow but a different env-var family. Wire
-  // when needed — the rest of this module is provider-agnostic. Throw
-  // a typed error so the route layer can map it to a structured 501
-  // instead of a generic 500.
-  if (provider === "epic") throw new EpicNotConfiguredError();
+  if (provider === "epic") return epicConfig();
   throw new Error(`SMART OAuth not configured for provider "${provider}".`);
 }
 
@@ -441,20 +567,59 @@ function checkRequiredScopes(
   }
 }
 
+async function buildClientAssertion(cfg: ProviderConfig): Promise<string> {
+  // Caller guarantees these three are set when this is reached.
+  const privateKey = cfg.clientPrivateKey as string;
+  const kid = cfg.clientKeyId as string;
+  const algorithm = cfg.clientAssertionAlgorithm as JwtSigningAlgorithm;
+  const now = Math.floor(Date.now() / 1000);
+  return signJwt({
+    header: { kid },
+    claims: {
+      iss: cfg.clientId,
+      sub: cfg.clientId,
+      // For Epic, the audience is the token endpoint URL. Some IdPs
+      // expect the issuer URL — operators override via env if needed.
+      aud: cfg.clientAssertionAudience ?? cfg.tokenUrl,
+      jti: randomUUID(),
+      iat: now - CLIENT_ASSERTION_IAT_BACKDATE_SEC,
+      exp: now + CLIENT_ASSERTION_LIFETIME_SEC,
+    },
+    algorithm,
+    privateKey,
+  });
+}
+
 async function postTokenEndpoint(
   cfg: ProviderConfig,
   body: URLSearchParams,
 ): Promise<TokenResponse> {
-  // Confidential clients: send credentials via Basic so the secret
-  // never appears in any logged request body.
-  // Public clients (Cerner pilot registers as public): the secret is
-  // empty; SMART says to put `client_id` in the body and omit Basic
-  // entirely. PKCE still authenticates the client.
+  // Three client-authentication branches:
+  //   1. private_key_jwt: confidential client with an asymmetric keypair
+  //      (Epic in production). Signed JWT goes in the body as
+  //      `client_assertion`; no Authorization header.
+  //   2. Basic auth: confidential client with a static client_secret
+  //      (Athena). Secret stays in the header, never logged.
+  //   3. Public client: empty secret (Cerner pilot). client_id in the
+  //      body, no Authorization header. PKCE authenticates the client.
   const headers: Record<string, string> = {
     accept: "application/json",
     "content-type": "application/x-www-form-urlencoded",
   };
-  if (cfg.clientSecret.length > 0) {
+  const usesPrivateKeyJwt =
+    cfg.clientPrivateKey !== undefined &&
+    cfg.clientKeyId !== undefined &&
+    cfg.clientAssertionAlgorithm !== undefined;
+  if (usesPrivateKeyJwt) {
+    body.set("client_assertion_type", CLIENT_ASSERTION_TYPE);
+    body.set("client_assertion", await buildClientAssertion(cfg));
+    // Epic requires client_id in the body even when private_key_jwt is
+    // used — the assertion's iss/sub also carry it, but the form field
+    // is what their token endpoint dispatcher reads first.
+    if (!body.has("client_id")) {
+      body.set("client_id", cfg.clientId);
+    }
+  } else if (cfg.clientSecret.length > 0) {
     headers["authorization"] = `Basic ${basicAuthHeader(cfg.clientId, cfg.clientSecret)}`;
   } else if (!body.has("client_id")) {
     body.set("client_id", cfg.clientId);

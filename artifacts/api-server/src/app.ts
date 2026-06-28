@@ -11,6 +11,7 @@ import cors, { type CorsOptions } from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import wellKnownRouter from "./routes/well-known";
 import { logger } from "./lib/logger";
 import { trackInflight } from "./lib/inflight";
 import { captureError } from "./lib/sentry";
@@ -92,6 +93,11 @@ app.use(cookieParser());
 
 // Track in-flight requests so SIGTERM can wait for them to drain.
 app.use(trackInflight);
+
+// Public discovery endpoints. Mounted at the root (NOT under /api) so the
+// URLs are the canonical RFC 8615 /.well-known paths Epic and other
+// SMART IdPs fetch unauthenticated. No auth, no CSRF.
+app.use("/.well-known", wellKnownRouter);
 
 app.use("/api", router);
 

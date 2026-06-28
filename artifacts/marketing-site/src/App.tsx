@@ -10,6 +10,7 @@ import SecurityPage from "@/pages/marketing/SecurityPage";
 import AboutPage from "@/pages/marketing/AboutPage";
 import RequestAccessPage from "@/pages/marketing/RequestAccessPage";
 import SpecialtyPage from "@/pages/marketing/SpecialtyPage";
+import EpicPage from "@/pages/integrations/EpicPage";
 
 import PrivacyPolicyPage from "@/pages/legal/PrivacyPolicyPage";
 import TermsOfServicePage from "@/pages/legal/TermsOfServicePage";
@@ -46,6 +47,8 @@ export function App() {
             return <SpecialtyPage specialty={slug} />;
           }}
         </Route>
+
+        <Route path="/integrations/epic" component={EpicPage} />
 
         <Route path="/privacy" component={PrivacyPolicyPage} />
         <Route path="/terms" component={TermsOfServicePage} />

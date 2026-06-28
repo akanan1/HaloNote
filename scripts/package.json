@@ -9,7 +9,10 @@
     "reset-dev-db": "tsx --env-file=../.env ./src/reset-dev-db.ts",
     "athena-sandbox-smoke": "tsx --env-file=../.env ./src/athena-sandbox-smoke.ts",
     "athena-write-probe": "tsx --env-file=../.env ./src/athena-write-probe.ts",
-    "athena-chart-write-verify": "tsx --env-file=../.env ./src/athena-chart-write-verify.ts"
+    "athena-chart-write-verify": "tsx --env-file=../.env ./src/athena-chart-write-verify.ts",
+    "athena-verify-doc-refs": "tsx --env-file=../.env ./src/athena-verify-doc-refs.ts",
+    "generate-epic-keypair": "tsx ./src/generate-epic-keypair.ts",
+    "epic-sandbox-smoke": "tsx --env-file=../.env ./src/epic-sandbox-smoke.ts"
   },
   "dependencies": {
     "@workspace/ehr": "workspace:*",

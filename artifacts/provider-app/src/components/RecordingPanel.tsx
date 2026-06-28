@@ -3,6 +3,11 @@ import { Mic, MicOff, Pause, Play, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import {
+  appendSegment as bufferAppendSegment,
+  clear as bufferClear,
+  listSegments as bufferListSegments,
+} from "@/lib/recording-buffer";
 
 export interface AudioSegment {
   id: string;
@@ -61,6 +66,27 @@ interface RecordingPanelProps {
    */
   externalStopSignal?: number;
   onSegmentsChange?: (segments: AudioSegment[]) => void;
+  /**
+   * Enable IndexedDB-backed recovery of in-progress audio. When BOTH
+   * `userId` and `encounterId` are provided, every recorded segment is
+   * persisted to the browser's IndexedDB buffer before it's exposed to
+   * the parent — so a tab close, iOS Safari background, or accidental
+   * navigation mid-encounter doesn't destroy the visit. On mount the
+   * component checks the buffer for that `${userId}:${encounterId}`
+   * pair; if it finds unsent segments it surfaces them via the Resume
+   * banner. Without these props the component degrades cleanly to its
+   * pre-buffer behavior (in-memory state only).
+   */
+  userId?: string;
+  encounterId?: string;
+  /**
+   * Called once when the parent's upload pipeline confirms the
+   * segments landed on the server. Tells the buffer it's safe to
+   * `clear` the row — the audio is no longer the only copy. Without
+   * it, segments persist until the user logs out (clearAllForUser is
+   * called from the auth tear-down). Idempotent.
+   */
+  onSegmentsUploaded?: () => void;
 }
 
 type RecorderState = "idle" | "recording" | "paused";
@@ -131,7 +157,18 @@ export function RecordingPanel({
   onStreamChange,
   externalStopSignal,
   onSegmentsChange,
+  userId,
+  encounterId,
+  onSegmentsUploaded,
 }: RecordingPanelProps) {
+  // Recovery banner state. `null` = nothing to recover (or we haven't
+  // checked yet); the array = unsent segments found in IndexedDB for
+  // the current ${userId}:${encounterId} pair. Cleared on Resume,
+  // Discard, or a successful upload. Only meaningful when both
+  // userId AND encounterId are provided — otherwise the component
+  // can't safely look up its own past state.
+  const [recovered, setRecovered] = useState<AudioSegment[] | null>(null);
+  const persistenceEnabled = Boolean(userId && encounterId);
   const [supported] = useState(isSupported);
   const [permission, setPermission] = useState<MicPermission>("unknown");
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -397,7 +434,31 @@ export function RecordingPanel({
           durationMs: totalMs,
           recordedAt: Date.now(),
         };
-        setSegments((s) => [...s, segment]);
+        setSegments((s) => {
+          const next = [...s, segment];
+          // Persist on the same tick the state update goes out, so a
+          // tab-close that lands before the next React commit still has
+          // the audio safe in IndexedDB. Promise is fire-and-forget —
+          // the next render won't await it, but the put resolves before
+          // most teardown paths anyway.
+          if (persistenceEnabled && userId && encounterId) {
+            void bufferAppendSegment(
+              userId,
+              encounterId,
+              next.length - 1,
+              segment.blob,
+              {
+                mimeType: segment.mimeType,
+                durationMs: segment.durationMs,
+                recordedAt: segment.recordedAt,
+              },
+            ).catch(() => {
+              // Silent fallback: persistence is defense-in-depth, not
+              // a hard requirement. Logging the blob would leak PHI.
+            });
+          }
+          return next;
+        });
       }
       chunksRef.current = [];
       accumulatedRef.current = 0;
@@ -471,6 +532,85 @@ export function RecordingPanel({
     setSegments((s) => s.filter((seg) => seg.id !== id));
   }, []);
 
+  // Lifecycle flush: when the page is being hidden (tab switch, iOS
+  // home, OS sleep) or unloaded (refresh, nav, browser quit), tell the
+  // recorder to flush its current buffer NOW. MediaRecorder.stop is
+  // async and would race the page going away; requestData() emits the
+  // pending dataavailable synchronously enough to land in IndexedDB
+  // before teardown. Only attached while persistence is enabled so we
+  // don't add lifecycle work to the dev-mode use case.
+  useEffect(() => {
+    if (!persistenceEnabled) return;
+    const flush = () => {
+      const rec = recorderRef.current;
+      if (!rec || rec.state === "inactive") return;
+      try {
+        rec.requestData();
+      } catch {
+        // Some Safari versions throw when no data is buffered — harmless.
+      }
+    };
+    document.addEventListener("visibilitychange", flush);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", flush);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [persistenceEnabled]);
+
+  // On mount, look up any unsent segments for this user+encounter and
+  // surface them as a Resume / Discard banner. Runs once; subsequent
+  // re-mounts (a route swap back into the same encounter) re-check.
+  // No-op when persistence is disabled.
+  useEffect(() => {
+    if (!persistenceEnabled || !userId || !encounterId) return;
+    let cancelled = false;
+    void bufferListSegments(userId, encounterId)
+      .then((buffered) => {
+        if (cancelled || buffered.length === 0) return;
+        const hydrated: AudioSegment[] = buffered.map((b) => ({
+          id: `recovered_${b.idx}_${b.recordedAt}`,
+          blob: b.blob,
+          mimeType: b.mimeType,
+          durationMs: b.durationMs,
+          recordedAt: b.recordedAt,
+        }));
+        setRecovered(hydrated);
+      })
+      .catch(() => {
+        // IndexedDB blocked / quota exceeded — fall through silently.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [persistenceEnabled, userId, encounterId]);
+
+  // When the parent confirms upload landed, clear the buffer row.
+  // useEffect-based so the parent doesn't have to await our promise.
+  const lastUploadSignalRef = useRef(onSegmentsUploaded);
+  useEffect(() => {
+    if (!persistenceEnabled || !userId || !encounterId) return;
+    if (onSegmentsUploaded === lastUploadSignalRef.current) return;
+    lastUploadSignalRef.current = onSegmentsUploaded;
+    if (!onSegmentsUploaded) return;
+    void bufferClear(userId, encounterId).catch(() => {});
+  }, [onSegmentsUploaded, persistenceEnabled, userId, encounterId]);
+
+  const handleResumeRecovered = useCallback(() => {
+    if (!recovered) return;
+    setSegments((s) => [...recovered, ...s]);
+    setRecovered(null);
+  }, [recovered]);
+
+  const handleDiscardRecovered = useCallback(() => {
+    setRecovered(null);
+    if (persistenceEnabled && userId && encounterId) {
+      void bufferClear(userId, encounterId).catch(() => {});
+    }
+  }, [persistenceEnabled, userId, encounterId]);
+
   // External stop trigger (verbal end-cue from the streaming
   // transcript bridge). The host bumps a counter; we ignore the
   // initial value and stop on every subsequent change.
@@ -523,6 +663,39 @@ export function RecordingPanel({
 
   return (
     <Card className="overflow-hidden">
+      {recovered && recovered.length > 0 ? (
+        <div
+          role="alertdialog"
+          aria-label="Recovered recording"
+          className="border-b border-(--color-border) bg-amber-50 px-4 py-3 text-sm text-amber-900 md:px-6"
+        >
+          <p className="font-medium">
+            We recovered an in-progress recording from earlier on this
+            device.
+          </p>
+          <p className="mt-1">
+            {recovered.length} segment{recovered.length === 1 ? "" : "s"}
+            {" "}
+            (about {formatDuration(
+              recovered.reduce((sum, s) => sum + s.durationMs, 0),
+            )}
+            ) — left over from a tab that closed before the visit was
+            uploaded.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={handleResumeRecovered}>
+              Resume
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleDiscardRecovered}
+            >
+              Discard
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-col items-center gap-4 px-4 py-6 md:px-6">
         <div className="relative grid h-24 w-24 place-items-center">
           {!active ? (

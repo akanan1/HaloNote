@@ -82,7 +82,9 @@ type TwoFactorState =
   | { phase: "idle" }
   | { phase: "setting-up"; setup: SetupResponse; code: string }
   | { phase: "enabled" }
-  | { phase: "disabling"; code: string };
+  // Disable now requires both factors. We track them as separate
+  // string fields and submit `{ password, totpCode }` to the API.
+  | { phase: "disabling"; password: string; code: string };
 
 function TwoFactorSection({
   initiallyEnabled,
@@ -140,20 +142,30 @@ function TwoFactorSection({
     }
   }
 
-  async function confirmDisable(code: string) {
+  async function confirmDisable(password: string, code: string) {
     setBusy(true);
     setError(null);
     try {
+      // Backend contract is `{ password, totpCode }` — both factors
+      // are required to flip 2FA off. A 401 on either failure means
+      // "wrong password or wrong code" — we surface a single message
+      // because the backend deliberately doesn't disambiguate (so an
+      // attacker can't use the error to find out which half they got
+      // right).
       await customFetch("/api/auth/2fa/disable", {
         method: "POST",
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ password, totpCode: code }),
       });
       toast.success("Two-factor authentication disabled");
       setState({ phase: "idle" });
       await onChange();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 400) {
-        setError("That code didn't match. Try the next one.");
+      if (err instanceof ApiError && err.status === 401) {
+        setError("Password or code didn't match. Try again.");
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError(
+          "Too many attempts. Wait an hour and try again, or contact support.",
+        );
       } else {
         setError(err instanceof Error ? err.message : "Couldn't disable");
       }
@@ -269,7 +281,9 @@ function TwoFactorSection({
           </p>
           <Button
             variant="outline"
-            onClick={() => setState({ phase: "disabling", code: "" })}
+            onClick={() =>
+              setState({ phase: "disabling", password: "", code: "" })
+            }
             disabled={busy}
           >
             Disable
@@ -279,33 +293,51 @@ function TwoFactorSection({
 
       {state.phase === "disabling" ? (
         <form
-          className="space-y-2"
+          className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            void confirmDisable(state.code);
+            void confirmDisable(state.password, state.code);
           }}
         >
-          <Label htmlFor="disable-code">
-            Enter your current code to confirm
-          </Label>
-          <Input
-            id="disable-code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="\d{6}"
-            maxLength={6}
-            value={state.code}
-            onChange={(e) =>
-              setState({
-                ...state,
-                code: e.target.value.replace(/[^\d]/g, ""),
-              })
-            }
-            placeholder="123456"
-            required
-            autoFocus
-            disabled={busy}
-          />
+          <p className="text-sm text-(--color-muted-foreground)">
+            Confirm both your password and a current authenticator code
+            to turn 2FA off. A stolen session alone isn't enough.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="disable-password">Password</Label>
+            <Input
+              id="disable-password"
+              type="password"
+              autoComplete="current-password"
+              value={state.password}
+              onChange={(e) =>
+                setState({ ...state, password: e.target.value })
+              }
+              required
+              autoFocus
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="disable-code">Verification code</Label>
+            <Input
+              id="disable-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="\d{6}"
+              maxLength={6}
+              value={state.code}
+              onChange={(e) =>
+                setState({
+                  ...state,
+                  code: e.target.value.replace(/[^\d]/g, ""),
+                })
+              }
+              placeholder="123456"
+              required
+              disabled={busy}
+            />
+          </div>
           {error ? (
             <p className="text-sm text-(--color-destructive)" role="alert">
               {error}
@@ -315,7 +347,9 @@ function TwoFactorSection({
             <Button
               type="submit"
               variant="destructive"
-              disabled={busy || state.code.length !== 6}
+              disabled={
+                busy || state.password.length === 0 || state.code.length !== 6
+              }
             >
               {busy ? "Disabling…" : "Disable 2FA"}
             </Button>

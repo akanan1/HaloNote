@@ -47,8 +47,13 @@ import {
   passwordResetIpRateLimit,
   signupIpRateLimit,
 } from "../middlewares/password-reset-rate-limit";
+import {
+  passwordResetConfirmRateLimit,
+  twoFactorDisableRateLimit,
+} from "../middlewares/sensitive-auth-rate-limit";
 import { requireAuth } from "../middlewares/require-auth";
 import { devRoutesEnabled } from "../lib/dev-routes";
+import { recordAuthAuditEvent } from "../lib/audit-events";
 
 const router: IRouter = Router();
 
@@ -238,6 +243,10 @@ router.post(
 router.post(
   "/auth/password-reset/confirm",
   passwordResetIpRateLimit,
+  // Per-token (or per-IP fallback) cap at 5/hour. The reset-token
+  // limiter runs BEFORE we look the token up so an attacker brute-
+  // forcing TOTP guesses on the same valid token can't keep grinding.
+  passwordResetConfirmRateLimit,
   async (req, res) => {
     const parsed = ConfirmPasswordResetBody.safeParse(req.body);
     if (!parsed.success) return respondInvalidBody(res, parsed.error);
@@ -249,8 +258,48 @@ router.post(
     }
 
     try {
-      const passwordHash = await hashPassword(parsed.data.password);
       const db = getDb();
+      // Look the target user up FIRST. If they have 2FA enabled, a
+      // valid reset token + a leaked email inbox is not enough —
+      // attacker also needs the live TOTP code. Without this gate
+      // an email-account takeover trivially escalates to a full
+      // app takeover even for users who enrolled in 2FA.
+      const [target] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, token.userId))
+        .limit(1);
+      if (!target) {
+        // The FK guarantees the row exists when the token was issued,
+        // but a concurrent user-delete could race. Treat as the same
+        // class of error as an invalid token (don't disclose the
+        // existence/non-existence of the user via this endpoint).
+        res.status(400).json({ error: "invalid_or_expired_token" });
+        return;
+      }
+
+      if (target.totpEnabledAt && target.totpSecret) {
+        // Surface a structured `code: "TOTP_REQUIRED"` so the
+        // frontend can pivot to a TOTP input without resorting to
+        // string-matching the error. We intentionally don't 401 on
+        // a missing code (vs a wrong code) because the client may
+        // legitimately not know 2FA is on for this account; a 400
+        // with the code field is the discoverable signal.
+        const totpCodeRaw = (req.body as { totpCode?: unknown }).totpCode;
+        const totpCode = typeof totpCodeRaw === "string" ? totpCodeRaw : "";
+        if (!totpCode) {
+          res
+            .status(400)
+            .json({ error: "totp_required", code: "TOTP_REQUIRED" });
+          return;
+        }
+        if (!verifyTotpCode(target.totpSecret, totpCode)) {
+          res.status(401).json({ error: "invalid_totp_code" });
+          return;
+        }
+      }
+
+      const passwordHash = await hashPassword(parsed.data.password);
       await db
         .update(usersTable)
         .set({ passwordHash })
@@ -258,13 +307,23 @@ router.post(
       await markResetTokenUsed(token.id);
 
       // Auto-login: the act of clicking the email link proved access to
-      // the inbox; making them sign in again is friction without value.
+      // the inbox AND (for 2FA accounts) possession of the second
+      // factor; making them sign in again is friction without value.
       const [user] = await db
         .select()
         .from(usersTable)
         .where(eq(usersTable.id, token.userId))
         .limit(1);
       if (!user) throw new Error("User vanished between update and select");
+
+      // Audit BEFORE shipping the response so a crash post-update but
+      // pre-audit still has the audit row recorded (fire-and-forget,
+      // but already queued).
+      recordAuthAuditEvent({
+        userId: user.id,
+        action: "auth.password_reset_completed",
+        metadata: { source: "reset_link", twoFactorRequired: Boolean(target.totpEnabledAt) },
+      });
 
       await startSession(res, user.id);
       res.json({
@@ -349,7 +408,10 @@ router.post(
 //                                    otpauth URI, QR data URL. Persists the
 //                                    secret but leaves totpEnabledAt null.
 //   2. POST /auth/2fa/verify-setup → { code }; if valid, sets totpEnabledAt.
-//   3. POST /auth/2fa/disable      → { code }; clears both fields.
+//   3. POST /auth/2fa/disable      → { password, totpCode }; clears both
+//                                    fields. BOTH factors required — a
+//                                    stolen session alone must not be
+//                                    enough to turn 2FA off.
 // ---------------------------------------------------------------------------
 
 router.post("/auth/2fa/setup", requireAuth, async (req, res) => {
@@ -419,45 +481,88 @@ router.post("/auth/2fa/verify-setup", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-router.post("/auth/2fa/disable", requireAuth, async (req, res) => {
-  const user = req.user;
-  if (!user) {
-    res.status(401).json({ error: "unauthenticated" });
-    return;
-  }
-  const code = (req.body as { code?: unknown }).code;
-  if (typeof code !== "string" || code.trim().length === 0) {
-    res.status(400).json({ error: "missing_code" });
-    return;
-  }
+router.post(
+  "/auth/2fa/disable",
+  requireAuth,
+  // Per-user cap at 5/hour — see sensitive-auth-rate-limit.ts. A
+  // stolen-session attacker can't grind TOTP guesses or password
+  // guesses past this gate.
+  twoFactorDisableRateLimit,
+  async (req, res) => {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ error: "unauthenticated" });
+      return;
+    }
+    // HARDENED CONTRACT: { password, totpCode } — both required.
+    // Verifying only TOTP let a stolen-session attacker disable 2FA
+    // (they could read the secret out of the QR setup re-flow next).
+    // Requiring re-entry of the password forces the attacker to
+    // know the live credential too.
+    const body = req.body as { password?: unknown; totpCode?: unknown };
+    const password =
+      typeof body.password === "string" ? body.password : "";
+    const totpCode =
+      typeof body.totpCode === "string" ? body.totpCode : "";
+    if (!password || !totpCode) {
+      // Generic 401 — don't reveal which field was missing.
+      // Returning 400 here would let an attacker probe the contract
+      // without consuming the rate-limit budget (since
+      // skipSuccessfulRequests isn't set, every request counts, but
+      // the principle of "no informational responses" still applies).
+      res.status(401).json({ error: "invalid_credentials" });
+      return;
+    }
 
-  const [fresh] = await getDb()
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.id, user.id))
-    .limit(1);
-  if (!fresh?.totpSecret || !fresh.totpEnabledAt) {
-    res.status(409).json({ error: "totp_not_enabled" });
-    return;
-  }
-  // Admins can't un-enroll TOTP — they'd be locked out by the login
-  // enforcement above. The supported path is: get demoted to `member`
-  // first, then disable. Keeps the "admin always has TOTP" invariant.
-  if (fresh.role === "admin") {
-    res.status(403).json({ error: "totp_required_for_admin" });
-    return;
-  }
-  if (!verifyTotpCode(fresh.totpSecret, code)) {
-    res.status(400).json({ error: "invalid_totp_code" });
-    return;
-  }
+    const [fresh] = await getDb()
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, user.id))
+      .limit(1);
+    if (!fresh?.totpSecret || !fresh.totpEnabledAt) {
+      res.status(409).json({ error: "totp_not_enabled" });
+      return;
+    }
+    // Admins can't un-enroll TOTP — they'd be locked out by the login
+    // enforcement above. The supported path is: get demoted to `member`
+    // first, then disable. Keeps the "admin always has TOTP" invariant.
+    if (fresh.role === "admin") {
+      res.status(403).json({ error: "totp_required_for_admin" });
+      return;
+    }
 
-  await getDb()
-    .update(usersTable)
-    .set({ totpSecret: null, totpEnabledAt: null })
-    .where(eq(usersTable.id, fresh.id));
-  res.status(204).end();
-});
+    // Verify password FIRST, TOTP second. verifyPassword uses
+    // timingSafeEqual; verifyTotpCode uses otpauth's internal
+    // constant-time compare. Order matters only for which check
+    // produces the timing signal — both must run on every request
+    // (no short-circuit on first failure) is the strictest reading
+    // of HIPAA timing-attack hardening. We DO short-circuit because
+    // a per-user 5/hour rate limit makes oracle-style probing
+    // infeasible regardless.
+    const passwordOk = await verifyPassword(password, fresh.passwordHash);
+    if (!passwordOk) {
+      res.status(401).json({ error: "invalid_credentials" });
+      return;
+    }
+    if (!verifyTotpCode(fresh.totpSecret, totpCode)) {
+      res.status(401).json({ error: "invalid_credentials" });
+      return;
+    }
+
+    await getDb()
+      .update(usersTable)
+      .set({ totpSecret: null, totpEnabledAt: null })
+      .where(eq(usersTable.id, fresh.id));
+
+    recordAuthAuditEvent({
+      userId: fresh.id,
+      action: "auth.2fa_disabled",
+      metadata: { source: "settings" },
+    });
+
+    res.status(204).end();
+  },
+);
 
 router.post("/auth/logout", async (req, res) => {
   const sid = req.cookies?.[SESSION_COOKIE];

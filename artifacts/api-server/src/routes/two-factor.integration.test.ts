@@ -159,7 +159,7 @@ describe("2FA (TOTP) integration", () => {
     expect(okRes.body.email).toBe(EMAIL);
   });
 
-  it("disable clears the secret and enabled flag when given a valid code", async () => {
+  it("disable clears the secret and enabled flag when given valid password + code", async () => {
     const { agent, csrfToken } = await loginAgentWithCsrf();
     const setup = await agent
       .post("/api/auth/2fa/setup")
@@ -175,7 +175,7 @@ describe("2FA (TOTP) integration", () => {
     const disable = await agent
       .post("/api/auth/2fa/disable")
       .set("X-CSRF-Token", csrfToken)
-      .send({ code: fresh });
+      .send({ password: PASSWORD, totpCode: fresh });
     expect(disable.status).toBe(204);
 
     const [row] = await getDb()

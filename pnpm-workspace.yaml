@@ -44,6 +44,11 @@ catalog:
   clsx: ^2.1.1
   drizzle-orm: ^0.45.2
   framer-motion: ^12.23.24
+  # Tiny IndexedDB Promises wrapper (jakearchibald/idb). Used by the
+  # provider-app's recording buffer to durably stage audio segments
+  # client-side so a tab close / iOS background event mid-encounter
+  # doesn't destroy the visit.
+  idb: ^8.0.3
   lucide-react: ^0.545.0
   # Must be this exact version because expo requires it
   react: 19.1.0
